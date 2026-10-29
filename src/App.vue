@@ -916,6 +916,7 @@
                   :selected-collaboration-mode="selectedCollaborationMode"
                   :models="availableModelIds" :selected-model="composerSelectedModelId"
                   :selected-reasoning-effort="selectedReasoningEffort"
+                  :reasoning-effort-options="availableReasoningEfforts"
                   :selected-speed-mode="selectedSpeedMode"
                   :is-updating-speed-mode="isUpdatingSpeedMode"
                   :skills="installedSkills"
@@ -1004,6 +1005,7 @@
                     :models="availableModelIds"
                     :selected-model="composerSelectedModelId"
                     :selected-reasoning-effort="selectedReasoningEffort"
+                    :reasoning-effort-options="availableReasoningEfforts"
                     :selected-speed-mode="selectedSpeedMode"
                     :is-updating-speed-mode="isUpdatingSpeedMode"
                     :skills="installedSkills"
@@ -1396,6 +1398,7 @@ const {
   selectedCollaborationMode,
   selectedModelId,
   selectedReasoningEffort,
+  availableReasoningEfforts,
   selectedSpeedMode,
   codexCliMissingError,
   installedSkills,
