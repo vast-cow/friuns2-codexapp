@@ -87,7 +87,6 @@ codex-web-local/
 │   │   ├── codexAppServerBridge.ts   # Spawns/proxies codex app-server
 │   │   ├── httpServer.ts             # Express app for production
 │   │   ├── authMiddleware.ts         # Password-based auth
-│   │   └── password.ts              # Password generation + comparison
 │   ├── cli/
 │   │   └── index.ts                  # CLI entry point (Commander)
 │   ├── types/
@@ -127,7 +126,7 @@ codex-web-local/
 | Auto-refresh | Optional 4-second polling with visual countdown |
 | Collapsible sidebar | Resizable (260–620px), toggle with Ctrl/Cmd+B |
 | Scroll state persistence | Remember scroll position per thread across navigation |
-| Password auth | Optional password protection with auto-generated passwords in production |
+| Password auth | Optional password protection enabled explicitly with --password |
 | New thread creation | "Let's build" hero view with folder selector |
 | Live overlay | Reasoning text, activity labels, and error messages during agent work |
 | Turn duration display | "Worked for Xm Ys" summary after turn completion |
@@ -325,11 +324,12 @@ Bidirectional sync between `selectedThreadId` state and URL is handled via Vue `
 npx codex-web-local [--port 5999] [--password mypass] [--no-password]
 ```
 
-The CLI starts an Express server that serves the built frontend from `dist/` and uses the same bridge middleware. Password authentication is enabled by default. When a password is auto-generated, it is written to `$CODEX_HOME/codexui-password` with `0600` permissions and startup output prints only that file path.
+The CLI starts an Express server that serves the built frontend from `dist/` and uses the same bridge middleware. Password authentication is disabled by default. Pass `--password <pass>` to require login for all connections, including localhost and Tailscale. Passwords are neither generated nor printed at startup.
 
 ### Auth (Production)
 
-- Default: auto-generated password saved to `$CODEX_HOME/codexui-password` on startup
+- Default: no password protection (`--no-password`); opt in with `--password <pass>`
+- No IP-based authentication exemptions for HTTP or WebSocket requests
 - Login: POST `/auth/login` with `{ password }` body
 - Session: HttpOnly cookie `codex_web_local_token`
 - Uses constant-time comparison to prevent timing attacks
