@@ -92,6 +92,7 @@ const zhCN: Record<string, string> = {
   'Clone from GitHub': '从 GitHub 克隆',
   'Cloning…': '克隆中…',
   'Current folder': '当前文件夹',
+  'Browse': '浏览',
   'Unavailable': '不可用',
   'Opening…': '打开中…',
   'Open': '打开',
