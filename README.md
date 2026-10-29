@@ -58,6 +58,16 @@ If you are using a provider or AI gateway that is already authenticated and do n
 npx codexapp --no-login
 ```
 
+By default, `codexapp` leaves the sandbox mode to Codex's configuration.
+Use `--sandbox-mode` to override it explicitly:
+
+```bash
+npx codexapp --sandbox-mode workspace-write
+```
+
+Supported modes are `read-only`, `workspace-write`, and `danger-full-access`.
+You can also set `CODEXUI_SANDBOX_MODE`; the CLI option takes precedence.
+
 ### Linux 🐧
 ```bash
 node -v   # should be 18+

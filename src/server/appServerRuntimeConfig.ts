@@ -15,13 +15,13 @@ export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-ac
 export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 
 type AppServerRuntimeConfig = {
-  sandboxMode: CodexSandboxMode
+  sandboxMode: CodexSandboxMode | undefined
   approvalPolicy: CodexApprovalPolicy
   memories: boolean
 }
 
 const DEFAULT_RUNTIME_CONFIG: AppServerRuntimeConfig = {
-  sandboxMode: 'danger-full-access',
+  sandboxMode: undefined,
   approvalPolicy: 'never',
   memories: true,
 }
@@ -30,7 +30,7 @@ function normalizeRuntimeValue(value: string | undefined): string {
   return value?.trim().toLowerCase() ?? ''
 }
 
-function readSandboxModeFromEnv(): CodexSandboxMode {
+function readSandboxModeFromEnv(): CodexSandboxMode | undefined {
   const candidate = normalizeRuntimeValue(process.env.CODEXUI_SANDBOX_MODE)
   if (SANDBOX_MODES.has(candidate as CodexSandboxMode)) {
     return candidate as CodexSandboxMode
@@ -71,8 +71,8 @@ export function buildAppServerArgs(): string[] {
     'app-server',
     '-c',
     `approval_policy="${config.approvalPolicy}"`,
-    '-c',
-    `sandbox_mode="${config.sandboxMode}"`,
+    ...(config.sandboxMode
+      ? ['-c', `sandbox_mode="${config.sandboxMode}"`] : []),
     '-c',
     `features.memories=${config.memories ? 'true' : 'false'}`,
   ]
