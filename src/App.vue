@@ -25,6 +25,52 @@
             >
               <IconTablerSearch class="sidebar-search-toggle-icon" />
             </button>
+            <button
+              class="sidebar-search-toggle"
+              :class="{ 'is-active': isSkillsRoute }"
+              type="button"
+              :aria-label="t('Skills')"
+              :title="t('Skills')"
+              :aria-current="isSkillsRoute ? 'page' : null"
+              @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
+            >
+              <svg
+                class="sidebar-search-toggle-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3l1.8 5.5L19 10l-5.2 1.5L12 17l-1.8-5.5L5 10l5.2-1.5L12 3z" />
+                <path d="M19 15v4M17 17h4M5 16v4M3 18h4" />
+              </svg>
+            </button>
+            <button
+              class="sidebar-search-toggle"
+              :class="{ 'is-active': isAutomationsRoute }"
+              type="button"
+              :aria-label="t('Automations')"
+              :title="t('Automations')"
+              :aria-current="isAutomationsRoute ? 'page' : null"
+              @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
+            >
+              <svg
+                class="sidebar-search-toggle-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+            </button>
           </SidebarThreadControls>
 
           <div v-if="!isSidebarCollapsed && isSidebarSearchVisible" class="sidebar-search-bar">
@@ -47,38 +93,6 @@
               <IconTablerX class="sidebar-search-clear-icon" />
             </button>
           </div>
-
-          <button
-            v-if="!isSidebarCollapsed"
-            class="sidebar-skills-link"
-            :class="{ 'is-active': isSkillsRoute }"
-            type="button"
-            @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
-          >
-            <span class="sidebar-skills-link-icon" aria-hidden="true">
-              <IconTablerBolt />
-            </span>
-            <span class="sidebar-skills-link-copy">
-              <span class="sidebar-skills-link-title">{{ t('Skills') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Plugins, apps, MCPs') }}</span>
-            </span>
-          </button>
-
-          <button
-            v-if="!isSidebarCollapsed"
-            class="sidebar-skills-link"
-            :class="{ 'is-active': isAutomationsRoute }"
-            type="button"
-            @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
-          >
-            <span class="sidebar-skills-link-icon sidebar-automations-link-icon" aria-hidden="true">
-              <IconTablerBolt />
-            </span>
-            <span class="sidebar-skills-link-copy">
-              <span class="sidebar-skills-link-title">{{ t('Automations') }}</span>
-              <span class="sidebar-skills-link-subtitle">{{ t('Scheduled work') }}</span>
-            </span>
-          </button>
 
           <SidebarThreadTree ref="sidebarThreadTreeRef" :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
             :project-git-repo-by-name="projectGitRepoByName"
@@ -5019,7 +5033,8 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply h-6.75 w-6.75 rounded-md border border-transparent bg-transparent text-zinc-600 flex items-center justify-center transition hover:border-zinc-200 hover:bg-zinc-50;
 }
 
-.sidebar-search-toggle[aria-pressed='true'] {
+.sidebar-search-toggle[aria-pressed='true'],
+.sidebar-search-toggle.is-active {
   @apply border-zinc-300 bg-zinc-100 text-zinc-700;
 }
 

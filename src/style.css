@@ -187,7 +187,8 @@
   @apply text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800;
 }
 
-:root.dark .sidebar-search-toggle[aria-pressed='true'] {
+:root.dark .sidebar-search-toggle[aria-pressed='true'],
+:root.dark .sidebar-search-toggle.is-active {
   @apply border-zinc-600 bg-zinc-800 text-zinc-300;
 }
 
