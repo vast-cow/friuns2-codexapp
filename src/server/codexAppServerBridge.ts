@@ -5695,15 +5695,14 @@ async function appendThreadQueuedMessage(threadId: string, message: StoredQueued
   }))
 }
 
-function normalizeReasoningEffort(value: unknown): ReasoningEffort | '' {
-  const allowed: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
-  return typeof value === 'string' && allowed.includes(value as ReasoningEffort)
-    ? (value as ReasoningEffort)
-    : ''
-}
-
-function normalizeCollaborationModeReasoningEffort(value: ReasoningEffort | '' | null | undefined): ReasoningEffort | null {
-  return value && value.length > 0 ? value : null
+function normalizeReasoningEffort(value: unknown, model: Record<string, unknown> | null | undefined): ReasoningEffort | null {
+  const supported = Array.isArray(model?.supportedReasoningEfforts)
+    ? model.supportedReasoningEfforts.map((entry: unknown) => typeof entry === 'string' ? entry : asRecord(entry)?.reasoningEffort)
+      .filter((effort): effort is ReasoningEffort => typeof effort === 'string' && effort.trim().length > 0)
+    : []
+  if (supported.includes(value as ReasoningEffort)) return value as ReasoningEffort
+  if (supported.includes(model?.defaultReasoningEffort as ReasoningEffort)) return model?.defaultReasoningEffort as ReasoningEffort
+  return supported[0] ?? null
 }
 
 function extractLocalImagePathFromUrl(value: string): string | null {
@@ -7116,44 +7115,46 @@ export class BackendQueueProcessor {
     })
   }
 
-  private async resolveCollaborationModeSettings(mode: CollaborationModeKind): Promise<ResolvedCollaborationModeSettings> {
+  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, providerId?: string): Promise<ResolvedCollaborationModeSettings> {
     let currentConfig: Record<string, unknown> | null = null
     try {
       const configPayload = asRecord(await this.appServer.rpc('config/read', {}))
       currentConfig = asRecord(configPayload?.config)
-    } catch {
-      currentConfig = null
-    }
-
+    } catch {}
     const configuredModel = readNonEmptyString(currentConfig?.model)
-    if (configuredModel) {
-      return {
-        model: configuredModel,
-        reasoningEffort: normalizeCollaborationModeReasoningEffort(normalizeReasoningEffort(currentConfig?.model_reasoning_effort)),
-      }
-    }
-
+    const models: Record<string, unknown>[] = []
     try {
-      const modelsPayload = asRecord(await this.appServer.rpc('model/list', {}))
-      const models = Array.isArray(modelsPayload?.data) ? modelsPayload.data : []
-      for (const row of models) {
-        const record = asRecord(row)
-        const candidate = readNonEmptyString(record?.id) || readNonEmptyString(record?.model)
-        if (candidate) {
-          return {
-            model: candidate,
-            reasoningEffort: normalizeCollaborationModeReasoningEffort(normalizeReasoningEffort(currentConfig?.model_reasoning_effort)),
+      let cursor: string | null = null
+      const seen = new Set<string>()
+      do {
+        const payload = asRecord(await this.appServer.rpc('model/list', cursor ? { cursor } : {}))
+        if (Array.isArray(payload?.data)) {
+          for (const row of payload.data) {
+            const record = asRecord(row)
+            if (record && (readNonEmptyString(record.id) || readNonEmptyString(record.model))) models.push(record)
           }
         }
-      }
+        cursor = readNonEmptyString(payload?.nextCursor)
+        if (!cursor || seen.has(cursor)) break
+        seen.add(cursor)
+      } while (cursor)
     } catch {
-      // Fall through to no collaboration-mode payload.
+      models.length = 0
     }
-
+    const model = configuredModel || readNonEmptyString(models[0]?.id) || readNonEmptyString(models[0]?.model)
+    if (model) {
+      const normalizeProvider = (value: unknown): string => {
+        const provider = (readNonEmptyString(value) || 'openai').toLowerCase().replace(/_/g, '-')
+        return provider === 'codex' ? 'openai' : provider
+      }
+      const sameProvider = providerId && normalizeProvider(providerId) === normalizeProvider(currentConfig?.model_provider)
+      const capabilities = sameProvider ? models.find((entry) => entry.id === model || entry.model === model) : null
+      return { model, reasoningEffort: normalizeReasoningEffort(currentConfig?.model_reasoning_effort, capabilities) }
+    }
     throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model.`)
   }
 
-  private async buildQueuedTurnParams(turn: BackendQueuedTurn): Promise<Record<string, unknown>> {
+  private async buildQueuedTurnParams(turn: BackendQueuedTurn, providerId?: string): Promise<Record<string, unknown>> {
     const localImageAttachments: StoredQueuedMessage['fileAttachments'] = []
     for (const imageUrl of turn.message.imageUrls) {
       const localImagePath = extractLocalImagePathFromUrl(imageUrl.trim())
@@ -7198,7 +7199,7 @@ export class BackendQueueProcessor {
     }
 
     try {
-      const settings = await this.resolveCollaborationModeSettings(turn.message.collaborationMode)
+      const settings = await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId)
       params.collaborationMode = {
         mode: turn.message.collaborationMode,
         settings: {
@@ -7215,8 +7216,9 @@ export class BackendQueueProcessor {
   }
 
   private async startQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
-    await this.appServer.rpc('thread/resume', { threadId: turn.threadId })
-    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn))
+    const resumed = asRecord(await this.appServer.rpc('thread/resume', { threadId: turn.threadId }))
+    const providerId = readNonEmptyString(resumed?.modelProvider) || readNonEmptyString(asRecord(resumed?.thread)?.modelProvider)
+    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn, providerId || undefined))
   }
 }
 

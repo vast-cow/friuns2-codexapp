@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import {
   fetchRpcMethodCatalog,
   fetchRpcNotificationCatalog,
@@ -253,19 +254,6 @@ type ProviderModelsResponse = {
 }
 
 const PROVIDER_MODELS_FETCH_TIMEOUT_MS = 5_000
-
-type ResolvedCollaborationModeSettings = {
-  model: string
-  reasoningEffort: ReasoningEffort | null
-}
-
-function normalizePlanModeReasoningEffort(value: ReasoningEffort | '' | null | undefined): ReasoningEffort | null {
-  return value && value.length > 0 ? value : null
-}
-
-function normalizeCollaborationModeReasoningEffort(value: ReasoningEffort | '' | null | undefined): ReasoningEffort | null {
-  return value && value.length > 0 ? value : null
-}
 
 export type WorkspaceRootsState = {
   order: string[]
@@ -700,10 +688,7 @@ async function enrichThreadMessagesWithFallback(threadId: string, messages: UiMe
 }
 
 function normalizeReasoningEffort(value: unknown): ReasoningEffort | '' {
-  const allowed: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
-  return typeof value === 'string' && allowed.includes(value as ReasoningEffort)
-    ? (value as ReasoningEffort)
-    : ''
+  return typeof value === 'string' ? value.trim() as ReasoningEffort | '' : ''
 }
 
 function normalizeSpeedMode(value: unknown): SpeedMode {
@@ -1781,55 +1766,16 @@ function fileNameFromPath(pathValue: string): string {
   return segments.at(-1) ?? normalized
 }
 
-async function resolveCollaborationModeSettings(
-  mode: CollaborationModeKind,
-  model?: string,
-  effort?: ReasoningEffort,
-): Promise<ResolvedCollaborationModeSettings> {
-  const explicitModel = model?.trim() ?? ''
-  if (explicitModel) {
-    return {
-      model: explicitModel,
-      reasoningEffort: mode === 'plan'
-        ? normalizePlanModeReasoningEffort(effort)
-        : normalizeCollaborationModeReasoningEffort(effort),
-    }
-  }
-
-  let currentConfig: CurrentModelConfig | null = null
+async function resolveCollaborationModeModel(mode: CollaborationModeKind, model?: string): Promise<string> {
+  if (model?.trim()) return model.trim()
   try {
-    currentConfig = await getCurrentModelConfig()
-  } catch {
-    currentConfig = null
-  }
-
-  const configuredModel = currentConfig?.model.trim() ?? ''
-  if (configuredModel) {
-    return {
-      model: configuredModel,
-      reasoningEffort: mode === 'plan'
-        ? normalizePlanModeReasoningEffort(effort ?? currentConfig?.reasoningEffort)
-        : normalizeCollaborationModeReasoningEffort(effort ?? currentConfig?.reasoningEffort),
-    }
-  }
-
-  let availableModelIds: string[] = []
+    const config = await getCurrentModelConfig()
+    if (config.model.trim()) return config.model.trim()
+  } catch {}
   try {
-    availableModelIds = await getAvailableModelIds()
-  } catch {
-    availableModelIds = []
-  }
-
-  const fallbackModel = availableModelIds.find((candidate) => candidate.trim().length > 0)?.trim() ?? ''
-  if (fallbackModel) {
-    return {
-      model: fallbackModel,
-      reasoningEffort: mode === 'plan'
-        ? normalizePlanModeReasoningEffort(effort ?? currentConfig?.reasoningEffort)
-        : normalizeCollaborationModeReasoningEffort(effort ?? currentConfig?.reasoningEffort),
-    }
-  }
-
+    const catalog = await getAvailableModelIds()
+    if (catalog.ids.length) return catalog.ids[0]!
+  } catch {}
   throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model. Wait for models to load and try again.`)
 }
 
@@ -1842,6 +1788,7 @@ export async function startThreadTurn(
   skills?: Array<{ name: string; path: string }>,
   fileAttachments: FileAttachmentParam[] = [],
   collaborationMode?: CollaborationModeKind,
+  providerId?: string,
 ): Promise<string> {
   try {
     const normalizedModel = model?.trim() ?? ''
@@ -1888,19 +1835,16 @@ export async function startThreadTurn(
       input,
     }
     if (attachments.length > 0) params.attachments = attachments
-    if (normalizedModel) {
-      params.model = normalizedModel
-    }
-    if (typeof effort === 'string' && effort.length > 0) {
-      params.effort = effort
-    }
+    const resolvedModel = collaborationMode ? await resolveCollaborationModeModel(collaborationMode, normalizedModel) : normalizedModel
+    const resolvedEffort = resolveReasoningEffort(findReasoningModel(resolvedModel, providerId), effort)
+    if (resolvedModel) params.model = resolvedModel
+    if (resolvedEffort) params.effort = resolvedEffort
     if (collaborationMode) {
-      const collaborationModeSettings = await resolveCollaborationModeSettings(collaborationMode, normalizedModel, effort)
       params.collaborationMode = {
         mode: collaborationMode,
         settings: {
-          model: collaborationModeSettings.model,
-          reasoning_effort: collaborationModeSettings.reasoningEffort,
+          model: resolvedModel,
+          reasoning_effort: resolvedEffort || null,
           developer_instructions: null,
         },
       }
@@ -2036,28 +1980,77 @@ async function fetchProviderModelIds(providerId?: string): Promise<{ ids: string
   return null
 }
 
-export async function getAvailableModelIds(options: { includeProviderModels?: boolean; requireProviderModels?: boolean; providerId?: string } = {}): Promise<string[]> {
-  const shouldIncludeProviderModels = options.includeProviderModels !== false
-  const providerModels = shouldIncludeProviderModels ? await fetchProviderModelIds(options.providerId) : null
+export type ReasoningModel = {
+  id?: string
+  model?: string
+  supportedReasoningEfforts?: Array<string | { reasoningEffort: string; description?: string }>
+  defaultReasoningEffort?: string
+}
 
-  if (providerModels?.exclusive || options.requireProviderModels) {
-    return providerModels?.ids ?? []
+// Capability catalogs belong to providers, even when model IDs are identical.
+export const reasoningCatalog = ref<{ providerId: string; models: ReasoningModel[] }>({ providerId: '', models: [] })
+
+function normalizeReasoningProvider(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/_/g, '-')
+  return !normalized || normalized === 'openai' ? 'codex' : normalized
+}
+
+export function reasoningOptions(model: ReasoningModel | null): Array<{ value: ReasoningEffort; label: string; description: string }> {
+  const options: Array<{ value: ReasoningEffort; label: string; description: string }> = []
+  if (!Array.isArray(model?.supportedReasoningEfforts)) return options
+  for (const entry of model.supportedReasoningEfforts) {
+    const value = normalizeReasoningEffort(typeof entry === 'string' ? entry : entry?.reasoningEffort)
+    if (!value || options.some((option) => option.value === value)) continue
+    options.push({ value, label: value === 'xhigh' ? 'Extra high' : value.charAt(0).toUpperCase() + value.slice(1),
+      description: typeof entry === 'object' && typeof entry?.description === 'string' ? entry.description : '' })
   }
+  return options
+}
 
-  const payload = await callRpc<ModelListResponse>('model/list', {})
-  const ids: string[] = []
-  for (const row of payload.data) {
-    const candidate = row.id || row.model
-    if (!candidate || ids.includes(candidate)) continue
-    ids.push(candidate)
+export function resolveReasoningEffort(model: ReasoningModel | null, requested?: string): ReasoningEffort | '' {
+  const options = reasoningOptions(model)
+  const selected = options.find((option) => option.value === requested)
+  if (selected) return selected.value
+  return options.find((option) => option.value === model?.defaultReasoningEffort)?.value ?? options[0]?.value ?? ''
+}
+
+export function findReasoningModel(model: string, providerId?: string): ReasoningModel | null {
+  const catalog = reasoningCatalog.value
+  if (typeof providerId !== 'string' || catalog.providerId !== normalizeReasoningProvider(providerId)) return null
+  return catalog.models.find((entry) => entry.id === model || entry.model === model) ?? null
+}
+
+export async function getAvailableModelIds(options: { includeProviderModels?: boolean; requireProviderModels?: boolean; providerId?: string; configuredProviderId?: string } = {}): Promise<{ ids: string[]; models: ReasoningModel[] }> {
+  const provider = options.includeProviderModels !== false
+    ? await fetchProviderModelIds(options.providerId === 'codex' ? undefined : options.providerId) : null
+  const exclusive = provider?.exclusive || options.requireProviderModels
+  const models: ReasoningModel[] = []
+  const providerMatches = options.configuredProviderId === undefined
+    || normalizeReasoningProvider(options.providerId ?? options.configuredProviderId) === normalizeReasoningProvider(options.configuredProviderId)
+  if (providerMatches) {
+    try {
+      let cursor: string | undefined
+      const seen = new Set<string>()
+      do {
+        const page = await callRpc<ModelListResponse>('model/list', cursor ? { cursor } : {})
+        if (Array.isArray(page?.data)) {
+          for (const model of page.data) {
+            if (model && typeof model === 'object' && (normalizeReasoningEffort(model.id) || normalizeReasoningEffort(model.model))) models.push(model)
+          }
+        }
+        cursor = page?.nextCursor?.trim() || undefined
+        if (!cursor || seen.has(cursor)) break
+        seen.add(cursor)
+      } while (cursor)
+    } catch {
+      models.length = 0
+    }
   }
-
-  if (!shouldIncludeProviderModels || !providerModels) return ids
-
-  for (const candidate of providerModels.ids) {
-    if (!ids.includes(candidate)) ids.push(candidate)
+  const ids = exclusive ? [...(provider?.ids ?? [])] : [...new Set(models.map((model) => model.id?.trim() || model.model?.trim() || ''))]
+  if (!exclusive && provider) {
+    for (const id of provider.ids) if (!ids.includes(id)) ids.push(id)
   }
-  return ids
+  return { ids, models }
 }
 
 export async function getCurrentModelConfig(): Promise<CurrentModelConfig> {

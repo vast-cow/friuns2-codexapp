@@ -302,9 +302,9 @@
             class="thread-composer-control"
             :model-value="selectedReasoningEffort"
             :options="reasoningOptions"
-            :placeholder="t('Thinking')"
+            :placeholder="t(reasoningOptions.length ? 'Thinking' : 'Model default')"
             open-direction="up"
-            :disabled="isComposerConfigDisabled"
+            :disabled="isComposerConfigDisabled || reasoningOptions.length === 0"
             @update:model-value="onReasoningEffortSelect"
           />
         </template>
@@ -452,6 +452,7 @@ const props = defineProps<{
   models: string[]
   selectedModel: string
   selectedReasoningEffort: ReasoningEffort | ''
+  reasoningEffortOptions?: Array<{ value: ReasoningEffort; label: string; description?: string }>
   selectedSpeedMode: SpeedMode
   skills?: SkillItem[]
   threadTokenUsage?: UiThreadTokenUsage | null
@@ -639,14 +640,7 @@ const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.
 const DRAFT_STORAGE_PREFIX = 'codex-web-local.thread-draft.v1.'
 let lastActiveThreadId = ''
 
-const reasoningOptions: Array<{ value: ReasoningEffort; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-]
+const reasoningOptions = computed(() => props.reasoningEffortOptions ?? [])
 function formatModelLabel(modelId: string): string {
   return modelId.trim().replace(/^gpt/i, 'GPT')
 }

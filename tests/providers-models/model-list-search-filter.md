@@ -25,3 +25,29 @@ Search/filter input in the model selection dropdown.
 - No permanent changes needed
 
 ---
+
+### Model-specific reasoning effort choices
+
+#### Prerequisites/Setup
+- Configure models with different `model/list` reasoning capabilities, including
+  one without capability metadata and two providers sharing a model ID.
+
+#### Steps
+1. In both new and existing threads, open Thinking and switch between models.
+2. Select an effort unsupported by the next model, then switch to that model.
+3. Switch providers, including a thread whose provider differs from the active config.
+4. Send a direct turn and a queued turn in Default and Plan modes.
+5. Repeat with an empty/failed model catalog and in light and dark themes.
+
+#### Expected Results
+- Choices follow the model's supported order; incompatible choices use its
+  supported default, then its first supported effort.
+- Missing capabilities show a disabled Model default selector and omit explicit
+  effort (collaboration mode uses null).
+- Provider switches never reuse another provider's capabilities; stale discovery
+  responses do not overwrite current choices. Discovery failure retains the model.
+- Direct and queued requests use only confirmed capabilities for their provider.
+- The existing themed dropdown remains readable in both themes.
+
+#### Rollback/Cleanup
+- Restore the original provider/model configuration and remove any test threads.

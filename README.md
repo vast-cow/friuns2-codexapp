@@ -222,6 +222,15 @@ Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatt
 
 ---
 
+The new-thread and existing-thread composers use the App Server's
+`model/list` capabilities for reasoning effort choices. They preserve
+`supportedReasoningEfforts` order and resolve incompatible selections to
+`defaultReasoningEffort` when supported, or the first supported option.
+Missing or empty capability metadata disables the selector and leaves effort
+selection to the server. Custom-provider model IDs alone do not imply reasoning
+support, and capabilities are scoped to the provider. Direct and queued turns
+validate explicit efforts before submission.
+
 ## 🏗️ Architecture
 
 ```text
