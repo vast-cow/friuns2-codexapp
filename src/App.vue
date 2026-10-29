@@ -34,19 +34,7 @@
               :aria-current="isSkillsRoute ? 'page' : null"
               @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
             >
-              <svg
-                class="sidebar-search-toggle-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 3l1.8 5.5L19 10l-5.2 1.5L12 17l-1.8-5.5L5 10l5.2-1.5L12 3z" />
-                <path d="M19 15v4M17 17h4M5 16v4M3 18h4" />
-              </svg>
+              <IconTablerBolt class="sidebar-search-toggle-icon" />
             </button>
             <button
               class="sidebar-search-toggle"
@@ -57,19 +45,7 @@
               :aria-current="isAutomationsRoute ? 'page' : null"
               @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
             >
-              <svg
-                class="sidebar-search-toggle-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 2" />
-              </svg>
+              <IconTablerBolt class="sidebar-search-toggle-icon" />
             </button>
           </SidebarThreadControls>
 
