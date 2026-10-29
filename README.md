@@ -43,14 +43,14 @@ npx codexapp
 # http://localhost:18923
 ```
 
-By default, `codexapp` now also starts:
+By default, `codexapp` starts without a tunnel. Use `--tunnel` to enable a cloudflared tunnel:
 
 ```bash
-cloudflared tunnel --url http://localhost:<port>
+npx codexapp --tunnel
 ```
 
-It prints the tunnel URL, terminal QR code, and password together in startup output.  
-Use `--no-tunnel` to disable this behavior.
+When enabled, it prints the tunnel URL, terminal QR code, and password together in startup output.
+You can also explicitly disable the tunnel with `--no-tunnel`.
 
 If you are using a provider or AI gateway that is already authenticated and do not want `codexapp` to force `codex login` during startup, use:
 
