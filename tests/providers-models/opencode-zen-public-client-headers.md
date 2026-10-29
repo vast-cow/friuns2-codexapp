@@ -2,16 +2,16 @@
 
 ## Feature / Change
 
-OpenCode Zen no-auth requests sent through the local Zen proxy include OpenCode-style public client headers so `big-pickle` requests do not hit the unauthenticated free usage limiter.
+OpenCode Zen no-auth requests sent through the local Zen proxy include OpenCode-style public client headers so `muse-spark-1.3-contributor-free` requests do not hit the unauthenticated free usage limiter.
 
 ## Prerequisites / Setup
 
 - Start the app with no Codex auth available so OpenCode Zen fallback is active.
-- Confirm `config/read` reports `model_provider = "opencode_zen"` and `model = "big-pickle"`.
+- Confirm `config/read` reports `model_provider = "opencode_zen"` and `model = "muse-spark-1.3-contributor-free"`.
 
 ## Actions
 
-1. Send `hi` from a new thread using the default `big-pickle` model.
+1. Send `hi` from a new thread using the default `muse-spark-1.3-contributor-free` model.
 2. Inspect the app response and server logs.
 3. Optionally enable `CODEXUI_PROXY_DEBUG=1` and repeat if an upstream error occurs.
 
@@ -23,13 +23,13 @@ OpenCode Zen no-auth requests sent through the local Zen proxy include OpenCode-
 
 ## Performance / Risk Audit
 
-- Measured local no-auth UI smoke responses completed successfully for `hi` and `write create todo list app` through the Zen proxy without `FreeUsageLimitError`.
-- Code-path audit: the change adds one synchronous header-object callback per Zen upstream request plus two `randomBytes(24)` calls. It does not add network requests, retries, polling, cache reads/writes, or extra request fanout.
+- This npm 0.1.91 port has only been reviewed statically; prior smoke results do not validate the updated model and headers.
+- Code-path audit: the change adds one synchronous header-object callback per Zen upstream request plus two pairs of `randomBytes(6)` / `randomBytes(14)` calls. It does not add network requests, retries, polling, cache reads/writes, or extra request fanout.
 - Duplicate request risk: unchanged. The proxy still creates exactly one upstream request for each inbound proxy request.
-- Blocking work risk: bounded to 48 random bytes and string formatting per Zen request; no filesystem, subprocess, or blocking network work was added.
+- Blocking work risk: bounded to 40 random bytes and string formatting per Zen request; no filesystem, subprocess, or blocking network work was added.
 - Large payload risk: unchanged. Only small static headers and two short IDs are added; request body construction is unchanged.
 - Cache invalidation risk: none. The proxy path does not introduce or mutate caches.
-- Not measured: end-to-end profiler traces were not rerun because the behavior change is server-side header generation only and existing build/unit coverage plus no-auth UI smoke covered the affected path.
+- Not measured: runtime requests, browser behavior, and end-to-end profiler traces; tests were skipped at the user's request.
 
 ## Rollback / Cleanup
 

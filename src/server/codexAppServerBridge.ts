@@ -130,7 +130,7 @@ type ThreadSearchIndex = {
 type ProviderModelsResponse = {
   data: string[]
   providerId: string
-  source: 'provider'
+  source: 'provider' | 'custom'
 }
 
 type ComposioUserData = {
@@ -2271,6 +2271,16 @@ async function fetchCustomEndpointDefaultModel(baseUrl: string, apiKey: string):
   }
 }
 
+async function fetchCustomEndpointModelIds(baseUrl: string, apiKey: string): Promise<string[]> {
+  const normalizedBaseUrl = baseUrl.trim()
+  if (!normalizedBaseUrl) return []
+  const modelsUrl = buildProviderModelsUrl(normalizedBaseUrl, null)
+  const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+  const response = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS) })
+  if (!response.ok) return []
+  return normalizeProviderModelsData(await response.json() as unknown)
+}
+
 async function fetchOpenCodeZenModelIds(apiKey: string | null | undefined): Promise<string[]> {
   const headers: Record<string, string> = {}
   if (apiKey && apiKey !== 'dummy') {
@@ -2426,7 +2436,7 @@ async function readProviderModelIdsForProvider(
       // Fall through to the offline Zen defaults.
     }
     return {
-      data: ['big-pickle', 'minimax-m2.5-free', 'nemotron-3-super-free', 'trinity-large-preview-free'],
+      data: ['muse-spark-1.3-contributor-free', 'muse-spark-1.2-contributor-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free'],
       providerId: 'opencode-zen',
       source: 'provider',
     }
@@ -2437,6 +2447,18 @@ async function readProviderModelIdsForProvider(
       data: await getFreeModels(),
       providerId: 'openrouter-free',
       source: 'provider',
+    }
+  }
+
+  if (normalizedProviderId === 'custom-endpoint' && fmState?.provider === 'custom' && fmState.customBaseUrl) {
+    try {
+      return {
+        data: await fetchCustomEndpointModelIds(fmState.customBaseUrl, fmState.apiKey ?? ''),
+        providerId: 'custom_endpoint',
+        source: 'custom',
+      }
+    } catch {
+      return { data: [], providerId: 'custom_endpoint', source: 'custom' }
     }
   }
 
@@ -8430,7 +8452,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
               } catch {
                 // OpenCode Zen model fetch failed
               }
-              setJson(res, 200, { data: ['big-pickle', 'minimax-m2.5-free', 'nemotron-3-super-free', 'trinity-large-preview-free'], exclusive: true, source: 'opencode-zen' })
+              setJson(res, 200, { data: ['muse-spark-1.3-contributor-free', 'muse-spark-1.2-contributor-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free'], exclusive: true, source: 'opencode-zen' })
               return
             }
             if (fmState.provider === 'custom' && fmState.customBaseUrl) {

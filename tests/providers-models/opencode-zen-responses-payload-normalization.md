@@ -1,7 +1,7 @@
 ### OpenCode Zen Responses Payload Normalization
 
 #### Feature/Change Name
-OpenCode Zen `Responses` mode converts Codex Responses `input` payloads to Zen-compatible `messages` payloads.
+OpenCode Zen `Responses` mode preserves Codex Responses `input` payloads and applies the npm 0.1.91 Zen compatibility fields.
 
 #### Prerequisites/Setup
 1. Dev server running (`pnpm run dev`)
@@ -12,16 +12,16 @@ OpenCode Zen `Responses` mode converts Codex Responses `input` payloads to Zen-c
 2. Set Provider to `OpenCode Zen`
 3. Set API format to `Responses`
 4. Save
-5. Select model `trinity-large-preview-free`
+5. Select model `muse-spark-1.3-contributor-free`
 6. Send `hi`
 7. Switch API format to `Completions`
 8. Save
-9. Select model `trinity-large-preview-free`
+9. Select model `muse-spark-1.3-contributor-free`
 10. Send `hi`
 
 #### Expected Results
-- `Responses` mode posts to `/zen/v1/responses` with a `messages` payload derived from Codex Responses `input`
-- `trinity-large-preview-free` returns a successful assistant greeting in `Responses` mode
+- `Responses` mode posts to `/zen/v1/responses` with the original `input`, `store: false`, `stream: true`, `tool_choice: auto`, and required `bash`/`read` tools
+- `muse-spark-1.3-contributor-free` returns a successful assistant greeting in `Responses` mode
 - `Completions` mode still posts through `/zen/v1/chat/completions` and returns a successful assistant greeting
 - Models unsupported by Zen for a chosen format, such as `minimax-m2.5-free` in `Responses` mode, surface the upstream error without being hidden
 

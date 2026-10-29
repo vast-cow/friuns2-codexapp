@@ -123,6 +123,18 @@
           </template>
           <div v-else class="thread-composer-file-mention-empty">{{ t('No matching files') }}</div>
         </div>
+        <div v-if="slashQuery !== null" class="thread-composer-file-mentions thread-composer-slash-mentions">
+          <button v-for="(item, index) in slashSuggestions" :key="item.skill?.path ?? item.name"
+            class="thread-composer-file-mention-row" :class="{ 'is-active': index === slashIndex }"
+            type="button" @mousedown.prevent="applySlashSuggestion(item)">
+            <span>/{{ item.name }}</span><small>{{ item.description }}</small>
+          </button>
+          <div v-if="!slashSuggestions.length">{{ t('No matching skills or commands') }}</div>
+        </div>
+        <div v-if="draft.trimStart().startsWith('/goal ') || isPlanModeSelected" class="thread-composer-active-mode">
+          <button v-if="draft.trimStart().startsWith('/goal ')" type="button" :aria-label="t('Disable goal mode')" @click="draft = draft.trimStart().slice(6)">{{ t('Goal') }} ×</button>
+          <button v-if="isPlanModeSelected" type="button" @click="emit('update:selected-collaboration-mode', 'default')">{{ t('Plan') }} ×</button>
+        </div>
         <textarea
           ref="inputRef"
           v-model="draft"
@@ -483,6 +495,7 @@ export type ThreadComposerExposed = {
 const emit = defineEmits<{
   submit: [payload: SubmitPayload]
   interrupt: []
+  'edit-goal': []
   'update:selected-collaboration-mode': [mode: CollaborationModeKind]
   'update:selected-model': [modelId: string]
   'update:selected-reasoning-effort': [effort: ReasoningEffort | '']
@@ -516,6 +529,47 @@ const PASTED_TEXT_FILE_THRESHOLD = 2000
 const PROMPT_OPTION_PREFIX = 'prompt:'
 
 const draft = ref('')
+type SlashSuggestion = { name: string; description: string; skill?: SkillItem }
+const slashQuery = ref<string | null>(null)
+const slashStart = ref(0)
+const slashCursor = ref(0)
+const slashIndex = ref(0)
+const slashSuggestions = computed<SlashSuggestion[]>(() => {
+  const query = (slashQuery.value ?? '').toLowerCase()
+  const commands: SlashSuggestion[] = [
+    { name: 'goal', description: 'Set or manage the goal for this thread' },
+    { name: 'plan', description: 'Toggle plan mode for this thread' },
+  ].filter(item => item.name.includes(query))
+  const skills = (props.skills ?? []).filter(skill => skill.enabled !== false && skill.name.trim() && skill.path.trim())
+    .map(skill => ({ name: skill.displayName || skill.name, description: skill.description, skill }))
+    .filter(item => `${item.name} ${item.skill.name} ${item.description} ${item.skill.path}`.toLowerCase().includes(query))
+    .sort((a, b) => Number(!a.name.toLowerCase().startsWith(query)) - Number(!b.name.toLowerCase().startsWith(query)) || a.name.localeCompare(b.name))
+  return [...commands, ...skills].slice(0, 20)
+})
+function updateSlashSuggestions() {
+  const cursor = inputRef.value?.selectionStart ?? draft.value.length
+  const match = /(?:^|\s)\/([^\s/]*)$/.exec(draft.value.slice(0, cursor))
+  slashQuery.value = match?.[1] ?? null
+  slashCursor.value = cursor
+  slashStart.value = match ? cursor - match[1]!.length - 1 : cursor
+  slashIndex.value = 0
+}
+function applySlashSuggestion(item: SlashSuggestion) {
+  const before = draft.value.slice(0, slashStart.value)
+  const after = draft.value.slice(slashCursor.value)
+  if (item.skill) {
+    if (!selectedSkills.value.some(skill => skill.path === item.skill!.path)) selectedSkills.value.push(item.skill)
+    draft.value = before + after
+  } else if (item.name === 'plan') {
+    emit('update:selected-collaboration-mode', isPlanModeSelected.value ? 'default' : 'plan')
+    draft.value = before + after
+  } else {
+    draft.value = before + '/goal ' + after
+  }
+  slashQuery.value = null
+  nextTick(() => inputRef.value?.focus())
+}
+
 const selectedImages = ref<SelectedImage[]>([])
 const selectedSkills = ref<SkillItem[]>([])
 const savedPrompts = ref<ComposerPromptInfo[]>([])
@@ -955,6 +1009,18 @@ function buildContextUsageView(
 function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
+  if (text === '/goal' && props.activeThreadId !== '__new-thread__') {
+    emit('edit-goal')
+    clearPersistedDraftForThread(props.activeThreadId)
+    clearDraftState()
+    return
+  }
+  if (text === '/plan') {
+    emit('update:selected-collaboration-mode', isPlanModeSelected.value ? 'default' : 'plan')
+    clearPersistedDraftForThread(props.activeThreadId)
+    clearDraftState()
+    return
+  }
   emit('submit', {
     text,
     imageUrls: selectedImages.value.map((image) => image.url),
@@ -1002,6 +1068,7 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
 }
 
 function clearDraftState(): void {
+  slashQuery.value = null
   replaceDraftState({
     text: '',
     imageUrls: [],
@@ -1548,10 +1615,34 @@ function onInputChange(): void {
     dictationFeedback.value = ''
   }
   queueComposerOverflowMeasurement()
+  updateSlashSuggestions()
   updateFileMentionState()
 }
 
 function onInputKeydown(event: KeyboardEvent): void {
+  if (event.isComposing) return
+  if (slashQuery.value !== null) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      slashQuery.value = null
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const size = slashSuggestions.value.length
+      if (size) slashIndex.value = (slashIndex.value + (event.key === 'ArrowDown' ? 1 : size - 1)) % size
+      return
+    }
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      const item = slashSuggestions.value[slashIndex.value]
+      if (item) {
+        event.preventDefault()
+        applySlashSuggestion(item)
+        return
+      }
+    }
+  }
+
   if (isFileMentionOpen.value) {
     if (event.key === 'Escape') {
       event.preventDefault()

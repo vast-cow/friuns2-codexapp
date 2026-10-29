@@ -1012,6 +1012,11 @@
                     @hide="onHideSelectedThreadTerminal"
                     @terminal-focus-change="onTerminalFocusChange"
                   />
+                  <ThreadGoalPanel
+                    ref="threadGoalPanelRef"
+                    :thread-id="selectedThreadId"
+                    :in-progress="isSelectedThreadInProgress"
+                  />
                   <ThreadPendingRequestPanel
                     v-if="selectedThreadPendingRequest"
                     :request="selectedThreadPendingRequest"
@@ -1045,6 +1050,7 @@
                     @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
+                    @edit-goal="threadGoalPanelRef?.edit()"
                     @interrupt="onInterruptTurn" />
                 </div>
               </template>
@@ -1172,6 +1178,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
+import ThreadGoalPanel from './components/content/ThreadGoalPanel.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
@@ -1505,6 +1512,7 @@ function prepareFeedbackLink(event: MouseEvent, message?: string): void {
   }
 }
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
+const threadGoalPanelRef = ref<InstanceType<typeof ThreadGoalPanel> | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)
 const homeTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
