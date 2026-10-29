@@ -31,7 +31,7 @@
               type="button"
               :aria-label="t('Skills')"
               :title="t('Skills')"
-              :aria-current="isSkillsRoute ? 'page' : null"
+              :aria-current="isSkillsRoute ? 'page' : undefined"
               @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
             >
               <IconTablerBolt class="sidebar-search-toggle-icon" />
@@ -42,7 +42,7 @@
               type="button"
               :aria-label="t('Automations')"
               :title="t('Automations')"
-              :aria-current="isAutomationsRoute ? 'page' : null"
+              :aria-current="isAutomationsRoute ? 'page' : undefined"
               @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
             >
               <IconTablerBolt class="sidebar-search-toggle-icon" />
