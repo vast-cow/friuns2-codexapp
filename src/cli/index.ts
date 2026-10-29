@@ -23,7 +23,6 @@ import {
   resolveAppServerRuntimeConfig,
 } from '../server/appServerRuntimeConfig.js'
 import { createServer as createApp } from '../server/httpServer.js'
-import { generatePassword } from '../server/password.js'
 import { spawnSyncCommand } from '../utils/commandInvocation.js'
 
 const program = new Command().name('codexui').description('Web interface for Codex app-server')
@@ -250,34 +249,6 @@ function ensureCodexInstalled(): string | null {
     console.log('\nCodex CLI installed.\n')
   }
   return codexCommand
-}
-
-type PasswordResolution = {
-  password: string | undefined
-  generated: boolean
-}
-
-function resolvePassword(input: string | boolean): PasswordResolution {
-  if (input === false) {
-    return { password: undefined, generated: false }
-  }
-  if (typeof input === 'string') {
-    return { password: input, generated: false }
-  }
-  return { password: generatePassword(), generated: true }
-}
-
-function getGeneratedPasswordPath(): string {
-  return join(getCodexHomePath(), 'codexui-password')
-}
-
-async function persistGeneratedPassword(password: string): Promise<string> {
-  const codexHome = getCodexHomePath()
-  mkdirSync(codexHome, { recursive: true })
-  const passwordPath = getGeneratedPasswordPath()
-  await writeFile(passwordPath, `${password}\n`, { encoding: 'utf8', mode: 0o600 })
-  chmodSync(passwordPath, 0o600)
-  return passwordPath
 }
 
 function printTermuxKeepAlive(lines: string[]): void {
@@ -529,11 +500,7 @@ async function startServer(options: {
     console.log('\nCodex is not logged in. You can log in later via settings or run `codexui login`.\n')
   }
   const requestedPort = parseInt(options.port, 10)
-  const passwordResolution = resolvePassword(options.password)
-  const password = passwordResolution.password
-  const generatedPasswordPath = password && passwordResolution.generated
-    ? await persistGeneratedPassword(password)
-    : null
+  const password = typeof options.password === 'string' ? options.password : undefined
   const { app, dispose, attachWebSocket } = createApp({ password })
   const server = createServer(app)
   attachWebSocket(server)
@@ -577,11 +544,6 @@ async function startServer(options: {
 
   if (port !== requestedPort) {
     lines.push(`  Requested port ${String(requestedPort)} was unavailable; using ${String(port)}.`)
-  }
-
-  if (generatedPasswordPath) {
-    lines.push(`  Generated password file: ${generatedPasswordPath}`)
-    lines.push('  Use that file to retrieve the password for untrusted origins.')
   }
 
   const tunnelQrUrl = tunnelUrl ? buildTunnelAutologinUrl(tunnelUrl, password) : null
@@ -630,8 +592,8 @@ program
   .argument('[projectPath]', 'project directory to open on launch')
   .option('--open-project <path>', 'open project directory on launch (Codex desktop parity)')
   .option('-p, --port <port>', 'port to listen on', '5900')
-  .option('--password <pass>', 'set a specific password')
-  .option('--no-password', 'disable password protection')
+  .option('--password <pass>', 'enable password protection with a specific password', false)
+  .option('--no-password', 'disable password protection (default)')
   .option('--tunnel', 'start cloudflared tunnel (disabled by default)', false)
   .option('--no-tunnel', 'disable cloudflared tunnel startup')
   .option('--open', 'open browser on startup', true)

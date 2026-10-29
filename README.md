@@ -52,7 +52,11 @@ node dist-cli/index.js --no-tunnel
 ```
 
 To enable a cloudflared tunnel, replace `--no-tunnel` with `--tunnel`.
-When enabled, it prints the tunnel URL, terminal QR code, and password together in startup output.
+When enabled, it prints the tunnel URL and terminal QR code without exposing the password.
+
+Password protection is disabled by default (`--no-password`). To enable it, pass
+`--password <pass>`. When enabled, all connections require login, including localhost
+and Tailscale; no IP address bypasses authentication.
 
 If you are using a provider or AI gateway that is already authenticated and do not want `codexapp` to force `codex login` during startup, use:
 
