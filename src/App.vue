@@ -647,17 +647,26 @@
                           :placeholder="t('Current folder')"
                           :title="existingFolderPathDraft || t('Unavailable')"
                           :disabled="isExistingFolderLoading || isOpeningExistingFolder"
-                          @blur="onExistingFolderPathBlur"
-                          @keydown.enter.prevent="onSubmitExistingFolderPath"
+                          @keydown.enter.prevent="onRetryExistingFolderBrowse"
                           @keydown.esc.prevent="onCloseExistingFolderPanel"
                         />
+                      </div>
+                      <div class="new-thread-open-folder-actions">
+                        <button
+                          class="new-thread-folder-action"
+                          type="button"
+                          :disabled="!resolvedExistingFolderPath || isExistingFolderLoading || isOpeningExistingFolder"
+                          @click="onRetryExistingFolderBrowse"
+                        >
+                          {{ t('Browse') }}
+                        </button>
                         <button
                           class="new-thread-folder-action new-thread-folder-action-primary"
                           type="button"
                           :disabled="!resolvedExistingFolderPath || isExistingFolderLoading || isOpeningExistingFolder"
                           @click="onConfirmExistingFolder()"
                         >
-                          {{ isOpeningExistingFolder ? t('Opening…') : t('Open') }}
+                          {{ isOpeningExistingFolder ? t('Opening…') : t('Select') }}
                         </button>
                       </div>
                       <div class="new-thread-open-folder-actions">
@@ -750,7 +759,7 @@
                             :disabled="isExistingFolderLoading || isOpeningExistingFolder"
                             @click="onConfirmExistingFolder(entry.path)"
                           >
-                            {{ t('Open') }}
+                            {{ t('Select') }}
                           </button>
                         </li>
                       </ul>
@@ -3809,27 +3818,8 @@ function onToggleHiddenFolders(): void {
 
 function onRetryExistingFolderBrowse(): void {
   const currentPath = resolvedExistingFolderPath.value
-  if (!isExistingFolderPickerOpen.value || !currentPath || isExistingFolderLoading.value) return
+  if (!isExistingFolderPickerOpen.value || !currentPath || isExistingFolderLoading.value || isOpeningExistingFolder.value) return
   void loadExistingFolderListing(currentPath)
-}
-
-function onExistingFolderPathBlur(): void {
-  if (!isExistingFolderPickerOpen.value || isExistingFolderLoading.value || isOpeningExistingFolder.value) return
-  const draftedPath = resolvedExistingFolderPath.value
-  const currentPath = existingFolderBrowsePath.value.trim()
-  if (!draftedPath || draftedPath === currentPath) return
-  void loadExistingFolderListing(draftedPath)
-}
-
-function onSubmitExistingFolderPath(): void {
-  const draftedPath = resolvedExistingFolderPath.value
-  const currentPath = existingFolderBrowsePath.value.trim()
-  if (!draftedPath) return
-  if (draftedPath !== currentPath) {
-    void loadExistingFolderListing(draftedPath)
-    return
-  }
-  void onConfirmExistingFolder(draftedPath)
 }
 
 async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value): Promise<void> {
