@@ -34,33 +34,41 @@ You run one command. It starts a local web server. You open it from your machine
 > **The main event.**
 
 ```bash
-# 🔓 Run instantly (recommended)
-npx codexapp
+# 🔓 Build and run locally (recommended)
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 
 # 🌐 Then open in browser
 # http://localhost:18923
 ```
 
-By default, `codexapp` starts without a tunnel. Use `--tunnel` to enable a cloudflared tunnel:
+The following commands start `codexapp` without a tunnel:
 
 ```bash
-npx codexapp --tunnel
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 ```
 
+To enable a cloudflared tunnel, replace `--no-tunnel` with `--tunnel`.
 When enabled, it prints the tunnel URL, terminal QR code, and password together in startup output.
-You can also explicitly disable the tunnel with `--no-tunnel`.
 
 If you are using a provider or AI gateway that is already authenticated and do not want `codexapp` to force `codex login` during startup, use:
 
 ```bash
-npx codexapp --no-login
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel --no-login
 ```
 
 By default, `codexapp` leaves the sandbox mode to Codex's configuration.
 Use `--sandbox-mode` to override it explicitly:
 
 ```bash
-npx codexapp --sandbox-mode workspace-write
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel --sandbox-mode workspace-write
 ```
 
 Supported modes are `read-only`, `workspace-write`, and `danger-full-access`.
@@ -69,20 +77,26 @@ You can also set `CODEXUI_SANDBOX_MODE`; the CLI option takes precedence.
 ### Linux 🐧
 ```bash
 node -v   # should be 18+
-npx codexapp
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 ```
 
 ### Windows 🪟 (PowerShell)
 ```powershell
 node -v   # 18+
-npx codexapp
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 ```
 
 ### Termux (Android) 🤖
 ```bash
 pkg update && pkg upgrade -y
 pkg install nodejs -y
-npx codexapp
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 ```
 
 Android background requirements:
@@ -94,7 +108,13 @@ Android background requirements:
 ```bash
 termux-wake-lock
 ```
-5. Open the shown URL in your Android browser. If the app is killed, return to Termux and run `npx codexapp` again.
+5. Open the shown URL in your Android browser. If the app is killed, return to Termux and run these commands again:
+
+```bash
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
+```
 
 ---
 
@@ -105,7 +125,9 @@ If you want to use codexUI from iPhone or iPad Safari, serving it over HTTPS is 
 A practical private setup is to run codexUI locally and publish it inside your tailnet with Tailscale Serve:
 
 ```powershell
-npx codexapp --no-tunnel --port 5900
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel --port 5900
 tailscale serve --bg 5900
 ```
 
@@ -135,7 +157,14 @@ Notes:
 ## ✨ Features
 > **The payload.**
 
-- 🚀 One-command launch with `npx codexapp`
+- 🚀 Build and launch locally:
+
+  ```bash
+  pnpm install
+  pnpm run build
+  node dist-cli/index.js --no-tunnel
+  ```
+
 - 🌍 Cross-platform support for Linux, Windows, and Termux on Android
 - 🖥️ Browser-first Codex UI flow on `http://localhost:18923`
 - 🌐 LAN-friendly access from other devices on the same network
@@ -157,7 +186,9 @@ Set these environment variables before starting `codexapp`:
 export TELEGRAM_BOT_TOKEN="<your-telegram-bot-token>"
 export TELEGRAM_ALLOWED_USER_IDS="<your-telegram-user-id>,<optional-second-id>"
 export TELEGRAM_DEFAULT_CWD="$PWD" # optional, defaults to current working directory
-npx codexapp
+pnpm install
+pnpm run build
+node dist-cli/index.js --no-tunnel
 ```
 
 `TELEGRAM_ALLOWED_USER_IDS` is required for safe access. Only allowlisted Telegram user IDs can use the bridge. If no allowed user IDs are configured, incoming Telegram messages are rejected.
