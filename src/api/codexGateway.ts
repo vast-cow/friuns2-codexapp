@@ -3659,3 +3659,52 @@ export async function uploadFile(file: File): Promise<string | null> {
     clearTimeout(timeoutId)
   }
 }
+
+export const THREAD_GOAL_STATUSES = ['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete'] as const
+export type ThreadGoalStatus = typeof THREAD_GOAL_STATUSES[number]
+export type ThreadGoal = {
+  threadId: string
+  objective: string
+  status: ThreadGoalStatus
+  tokenBudget: number | null
+  tokensUsed: number
+  timeUsedSeconds: number
+  createdAt: number
+  updatedAt: number
+}
+
+function normalizeThreadGoal(value: unknown): ThreadGoal {
+  const row = asRecord(value)
+  if (!row || typeof row.threadId !== 'string' || !row.threadId.trim()
+    || typeof row.objective !== 'string'
+    || !THREAD_GOAL_STATUSES.includes(row.status as ThreadGoalStatus)) {
+    throw new Error('Thread goal response was malformed')
+  }
+  return {
+    threadId: row.threadId,
+    objective: row.objective,
+    status: row.status as ThreadGoalStatus,
+    tokenBudget: readNumber(row.tokenBudget),
+    tokensUsed: readNumber(row.tokensUsed) ?? 0,
+    timeUsedSeconds: readNumber(row.timeUsedSeconds) ?? 0,
+    createdAt: readNumber(row.createdAt) ?? 0,
+    updatedAt: readNumber(row.updatedAt) ?? 0,
+  }
+}
+
+export async function getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
+  if (!threadId.trim()) return null
+  const result = await callRpc<{ goal?: unknown }>('thread/goal/get', { threadId: threadId.trim() })
+  return result.goal == null ? null : normalizeThreadGoal(result.goal)
+}
+
+export async function setThreadGoal(threadId: string, changes: { objective?: string; status?: ThreadGoalStatus; tokenBudget?: number | null }): Promise<ThreadGoal> {
+  if (!threadId.trim()) throw new Error('thread/goal/set requires threadId')
+  const result = await callRpc<{ goal: unknown }>('thread/goal/set', { ...changes, threadId: threadId.trim() })
+  return normalizeThreadGoal(result.goal)
+}
+
+export async function clearThreadGoal(threadId: string): Promise<boolean> {
+  if (!threadId.trim()) return false
+  return (await callRpc<{ cleared: boolean }>('thread/goal/clear', { threadId: threadId.trim() })).cleared === true
+}
