@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 import { once } from 'node:events'
+import { isDeepStrictEqual } from 'node:util'
 import { writeFile } from 'node:fs/promises'
 import { readCodexGlobalState, updateCodexGlobalState } from './codexGlobalState.js'
 import { handleAccountRoutes } from './accountRoutes.js'
@@ -2126,10 +2127,13 @@ async function importProjectZip(buffer: Buffer, destinationParent: string): Prom
       await utimes(target, updatedAtDate, updatedAtDate).catch(() => {})
     }
     importedSessionRecords.push(importedRecord)
-    if (importedRecord.title) {
-      await mutateThreadTitleCache((cache) => updateThreadTitleCache(cache, importedThreadId, importedRecord.title))
-    }
     importedSessions += 1
+  }
+  if (importedSessionRecords.some((record) => record.title)) {
+    await mutateThreadTitleCache((cache) => importedSessionRecords.reduce(
+      (current, record) => record.title ? updateThreadTitleCache(current, record.id, record.title) : current,
+      cache,
+    ))
   }
   registerImportedSessionsInStateDb(importedSessionRecords)
 
@@ -5695,7 +5699,9 @@ async function withThreadQueueStateUpdate<T>(
   update: (state: ThreadQueueState) => ThreadQueueStateUpdate<T>,
 ): Promise<T> {
   return updateCodexGlobalState((payload) => {
-    const { nextState, result } = update(normalizeThreadQueueState(payload[THREAD_QUEUE_STATE_KEY]))
+    const currentState = normalizeThreadQueueState(payload[THREAD_QUEUE_STATE_KEY])
+    const { nextState, result } = update(currentState)
+    if (nextState === currentState) return result
     const normalized = normalizeThreadQueueState(nextState)
     if (Object.keys(normalized).length > 0) {
       payload[THREAD_QUEUE_STATE_KEY] = normalized
@@ -5907,7 +5913,7 @@ async function canonicalizeWorkspaceRootPath(
   try {
     return await pathRealpath(value)
   } catch {
-    return value
+    return resolve(value)
   }
 }
 
@@ -5915,30 +5921,33 @@ async function canonicalizeWorkspaceRootPathList(
   values: string[],
   pathRealpath: PathRealpathResolver,
 ): Promise<string[]> {
-  return normalizeStringArray(await Promise.all(values.map((value) => canonicalizeWorkspaceRootPath(value, pathRealpath))))
+  const paths: string[] = []
+  for (let offset = 0; offset < values.length; offset += 8) {
+    paths.push(...await Promise.all(values.slice(offset, offset + 8).map((value) => canonicalizeWorkspaceRootPath(value, pathRealpath))))
+  }
+  return normalizeStringArray(paths)
 }
 
 export async function canonicalizeWorkspaceRootsState(
   state: WorkspaceRootsState,
   pathRealpath: PathRealpathResolver = realpath,
 ): Promise<WorkspaceRootsState> {
-  const [order, active, projectOrder] = await Promise.all([
-    canonicalizeWorkspaceRootPathList(state.order, pathRealpath),
-    canonicalizeWorkspaceRootPathList(state.active, pathRealpath),
-    canonicalizeWorkspaceRootPathList(state.projectOrder, pathRealpath),
-  ])
-  const labelEntries = await Promise.all(
-    Object.entries(state.labels)
-      .sort(([first], [second]) => first.localeCompare(second))
-      .map(async ([key, label]) => {
-        const canonicalKey = await canonicalizeWorkspaceRootPath(key, pathRealpath)
-        return {
-          canonicalKey,
-          label,
-          isCanonicalSource: canonicalKey === key,
-        }
-      }),
-  )
+  const paths = [...new Set([...state.order, ...state.active, ...state.projectOrder, ...Object.keys(state.labels)])]
+  const canonicalPaths = new Map<string, string>()
+  let nextPathIndex = 0
+  await Promise.all(Array.from({ length: Math.min(8, paths.length) }, async () => {
+    while (nextPathIndex < paths.length) {
+      const path = paths[nextPathIndex++]
+      canonicalPaths.set(path, await canonicalizeWorkspaceRootPath(path, pathRealpath))
+    }
+  }))
+  const canonicalPath = (path: string): string => canonicalPaths.get(path) ?? path
+  const order = normalizeStringArray(state.order.map(canonicalPath))
+  const active = normalizeStringArray(state.active.map(canonicalPath))
+  const projectOrder = normalizeStringArray(state.projectOrder.map(canonicalPath))
+  const labelEntries = Object.entries(state.labels)
+    .sort(([first], [second]) => first.localeCompare(second))
+    .map(([key, label]) => ({ canonicalKey: canonicalPath(key), label, isCanonicalSource: canonicalPath(key) === key }))
   const labels: Record<string, string> = {}
   const labelSourceByCanonicalKey = new Map<string, { isCanonicalSource: boolean }>()
   for (const entry of labelEntries) {
@@ -6025,8 +6034,21 @@ async function updateWorkspaceRootsState(
   updater: (existingState: WorkspaceRootsState) => WorkspaceRootsState | Promise<WorkspaceRootsState>,
 ): Promise<WorkspaceRootsState> {
   return updateCodexGlobalState(async (payload) => {
-    const current = await canonicalizeWorkspaceRootsState(workspaceRootsFromPayload(payload))
-    const state = await canonicalizeWorkspaceRootsState(await updater(current))
+    const paths = new Map<string, Promise<string>>()
+    const resolvePath = (path: string): Promise<string> => {
+      let result = paths.get(path)
+      if (!result) {
+        result = canonicalizeWorkspaceRootPath(path, realpath).then((canonical) => {
+          if (!paths.has(canonical)) paths.set(canonical, Promise.resolve(canonical))
+          return canonical
+        })
+        paths.set(path, result)
+      }
+      return result
+    }
+    const current = await canonicalizeWorkspaceRootsState(workspaceRootsFromPayload(payload), resolvePath)
+    const state = await canonicalizeWorkspaceRootsState(await updater(current), resolvePath)
+    if (isDeepStrictEqual(current, state)) return state
     payload['electron-saved-workspace-roots'] = state.order
     payload['electron-workspace-root-labels'] = state.labels
     payload['active-workspace-roots'] = state.active
