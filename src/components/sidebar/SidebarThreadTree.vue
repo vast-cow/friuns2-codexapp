@@ -612,6 +612,9 @@
         :data-open-direction="getThreadMenuDirection(openThreadMenuThread.id)"
         @click.stop
       >
+        <button class="thread-menu-item" type="button" @click="onOpenThreadInNewTab(openThreadMenuThread.id)">
+          Open in new tab
+        </button>
         <button class="thread-menu-item" type="button" @click="openAutomationDialog(openThreadMenuThread.id)">
           {{ threadHasAutomation(openThreadMenuThread.id) ? 'Manage automations…' : 'Add automation…' }}
         </button>
@@ -876,6 +879,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   deleteThreadAutomation,
   deleteProjectAutomation,
@@ -904,6 +908,8 @@ import { getPathLeafName, getPathParent, isAbsoluteLikePath, isProjectlessChatPa
 import ComposerDropdown from '../content/ComposerDropdown.vue'
 import SidebarMenuRow from './SidebarMenuRow.vue'
 import { reconcilePinnedThreadIds } from './pinnedThreadUtils'
+
+const router = useRouter()
 
 const props = defineProps<{
   groups: UiProjectGroup[]
@@ -1789,6 +1795,12 @@ function onThreadRowContextMenu(event: MouseEvent, threadId: string): void {
   event.preventDefault()
   inlineDeleteConfirmThreadId.value = ''
   openThreadMenuId.value = threadId
+}
+
+function onOpenThreadInNewTab(threadId: string): void {
+  const { href } = router.resolve({ name: 'thread', params: { threadId } })
+  window.open(href, '_blank', 'noopener,noreferrer')
+  closeThreadMenu()
 }
 
 function openRenameThreadDialog(threadId: string, currentTitle: string): void {
