@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { chmodSync, createWriteStream, existsSync, mkdirSync } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir, networkInterfaces } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -22,6 +22,7 @@ import {
   parseSandboxMode,
   resolveAppServerRuntimeConfig,
 } from '../server/appServerRuntimeConfig.js'
+import { updateCodexGlobalState } from '../server/codexGlobalState.js'
 import { createServer as createApp } from '../server/httpServer.js'
 import { spawnSyncCommand } from '../utils/commandInvocation.js'
 
@@ -405,11 +406,6 @@ function listenWithFallback(server: ReturnType<typeof createServer>, startPort: 
   })
 }
 
-function getCodexGlobalStatePath(): string {
-  const codexHome = getCodexHomePath()
-  return join(codexHome, '.codex-global-state.json')
-}
-
 function normalizeUniqueStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const next: string[] = []
@@ -425,35 +421,18 @@ function normalizeUniqueStrings(value: unknown): string[] {
 async function persistLaunchProject(projectPath: string): Promise<void> {
   const trimmed = projectPath.trim()
   if (!trimmed) return
-  const normalizedPath = isAbsolute(trimmed) ? trimmed : resolve(trimmed)
+  const normalizedPath = await realpath(isAbsolute(trimmed) ? trimmed : resolve(trimmed))
   const directoryInfo = await stat(normalizedPath)
   if (!directoryInfo.isDirectory()) {
     throw new Error(`Not a directory: ${normalizedPath}`)
   }
 
-  const statePath = getCodexGlobalStatePath()
-  let payload: Record<string, unknown> = {}
-  try {
-    const raw = await readFile(statePath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      payload = parsed as Record<string, unknown>
+  await updateCodexGlobalState((payload) => {
+    for (const key of ['electron-saved-workspace-roots', 'active-workspace-roots', 'project-order']) {
+      const values = normalizeUniqueStrings(payload[key])
+      payload[key] = [normalizedPath, ...values.filter((value) => value !== normalizedPath)]
     }
-  } catch {
-    payload = {}
-  }
-
-  const roots = normalizeUniqueStrings(payload['electron-saved-workspace-roots'])
-  const activeRoots = normalizeUniqueStrings(payload['active-workspace-roots'])
-  payload['electron-saved-workspace-roots'] = [
-    normalizedPath,
-    ...roots.filter((value) => value !== normalizedPath),
-  ]
-  payload['active-workspace-roots'] = [
-    normalizedPath,
-    ...activeRoots.filter((value) => value !== normalizedPath),
-  ]
-  await writeFile(statePath, JSON.stringify(payload), 'utf8')
+  })
 }
 
 async function addProjectOnly(projectPath: string): Promise<void> {
