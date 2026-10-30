@@ -50,6 +50,7 @@ import {
   resolveRipgrepCommand,
 } from '../commandResolution.js'
 import type { CollaborationModeKind, ReasoningEffort } from '../types/codex.js'
+import type { WorkspaceRootsOperation } from '../types/workspaceRoots.js'
 import { isAbsoluteLikePath } from '../pathUtils.js'
 
 type JsonRpcCall = {
@@ -6035,6 +6036,38 @@ async function updateWorkspaceRootsState(
   })
 }
 
+async function applyWorkspaceRootsOperation(operation: WorkspaceRootsOperation): Promise<WorkspaceRootsState> {
+  // Resolve only the requested identifiers here; read all saved values under the lock.
+  const normalizedOperation: WorkspaceRootsOperation = operation.type === 'reorder'
+    ? { type: 'reorder', order: await canonicalizeWorkspaceRootPathList(operation.order, realpath) }
+    : { ...operation, path: await canonicalizeWorkspaceRootPath(operation.path, realpath) }
+  return updateWorkspaceRootsState((state) => {
+    if (normalizedOperation.type === 'rename') {
+      if (!state.order.includes(normalizedOperation.path)) return state
+      const labels = { ...state.labels }
+      const label = normalizedOperation.label.trim()
+      if (label) labels[normalizedOperation.path] = label
+      else delete labels[normalizedOperation.path]
+      return { ...state, labels }
+    }
+    if (normalizedOperation.type === 'delete') {
+      const path = normalizedOperation.path
+      const order = state.order.filter((item) => item !== path)
+      const labels = { ...state.labels }
+      delete labels[path]
+      const active = state.active.filter((item) => item !== path)
+      if (active.length === 0 && order.length > 0) active.push(order[0])
+      return { ...state, order, labels, active, projectOrder: state.projectOrder.filter((item) => item !== path) }
+    }
+    const existing = new Set([...state.order, ...state.remoteProjects.map((project) => project.id)])
+    const currentOrder = normalizeStringArray([...state.projectOrder, ...existing]).filter((item) => existing.has(item))
+    const requested = new Set(normalizedOperation.order.filter((item) => existing.has(item)))
+    const projectOrder = [...requested, ...currentOrder.filter((item) => !requested.has(item))]
+    const localRoots = new Set(state.order)
+    return { ...state, projectOrder, order: projectOrder.filter((item) => localRoots.has(item)) }
+  })
+}
+
 async function persistWorkspaceRoot(workspaceRoot: string, label = ''): Promise<void> {
   const trimmedRoot = workspaceRoot.trim()
   if (!trimmedRoot) return
@@ -9120,22 +9153,28 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
 
       if (req.method === 'PUT' && url.pathname === '/codex-api/workspace-roots-state') {
-        const payload = await readJsonBody(req)
-        const record = asRecord(payload)
-        if (!record) {
-          setJson(res, 400, { error: 'Invalid body: expected object' })
+        setJson(res, 409, { error: 'Workspace updates have changed. Reload this tab before editing projects.' })
+        return
+      }
+
+      if (req.method === 'PATCH' && url.pathname === '/codex-api/workspace-roots-state') {
+        const record = asRecord(await readJsonBody(req))
+        let operation: WorkspaceRootsOperation
+        if (record?.type === 'reorder' && Array.isArray(record.order)
+          && record.order.every((item) => typeof item === 'string' && item.trim().length > 0)) {
+          operation = { type: 'reorder', order: normalizeStringArray(record.order) }
+        } else if ((record?.type === 'rename' || record?.type === 'delete')
+          && typeof record.path === 'string' && isAbsoluteLikePath(record.path.trim())
+          && (record.type === 'delete' || typeof record.label === 'string')) {
+          operation = record.type === 'delete'
+            ? { type: 'delete', path: record.path.trim() }
+            : { type: 'rename', path: record.path.trim(), label: record.label as string }
+        } else {
+          setJson(res, 400, { error: 'Expected a rename, reorder, or delete project operation with stable identifiers' })
           return
         }
-        await updateWorkspaceRootsState((existingState) => ({
-          order: normalizeStringArray(record.order),
-          labels: normalizeStringRecord(record.labels),
-          active: normalizeStringArray(record.active),
-          projectOrder: Array.isArray(record.projectOrder)
-            ? normalizeStringArray(record.projectOrder)
-            : existingState.projectOrder,
-          remoteProjects: existingState.remoteProjects,
-        }))
-        setJson(res, 200, { ok: true })
+        const state = await applyWorkspaceRootsOperation(operation)
+        setJson(res, 200, { data: state })
         return
       }
 
