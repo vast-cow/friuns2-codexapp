@@ -754,6 +754,11 @@ function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boo
 
   return messages.some((message) => {
     if (message === target || message.role !== 'user' || isOptimisticUserMessage(message)) return false
+    if (target.turnId && message.turnId) {
+      if (target.turnId !== message.turnId) return false
+    } else if (typeof target.turnIndex === 'number' && typeof message.turnIndex === 'number' && target.turnIndex !== message.turnIndex) {
+      return false
+    }
     const messageText = normalizeMessageText(message.text)
     const messageImages = Array.isArray(message.images) ? message.images : []
     const messageFileCount = Array.isArray(message.fileAttachments) ? message.fileAttachments.length : 0
@@ -768,24 +773,23 @@ function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boo
 }
 
 function removeRedundantLiveAgentMessages(previous: UiMessage[], incoming: UiMessage[]): UiMessage[] {
-  const incomingMessageIds = new Set(incoming.map((message) => message.id))
+  const incomingById = new Map(incoming.map((message) => [message.id, message]))
   const incomingAssistantTexts = new Set(
     incoming
-      .filter((message) => message.role === 'assistant')
-      .map((message) => normalizeMessageText(message.text))
-      .filter((text) => text.length > 0),
+      .filter((message) => message.role === 'assistant' && message.turnId)
+      .map((message) => JSON.stringify([message.turnId, normalizeMessageText(message.text)])),
   )
 
-  if (incomingAssistantTexts.size === 0) {
-    return previous
-  }
-
   const next = previous.filter((message) => {
+    const persisted = incomingById.get(message.id)
+    if (persisted) {
+      // A history snapshot can trail the latest delta for the same item.
+      return !normalizeMessageText(persisted.text).startsWith(normalizeMessageText(message.text))
+    }
     if (message.messageType !== 'agentMessage.live') return true
-    if (incomingMessageIds.has(message.id)) return false
     const normalized = normalizeMessageText(message.text)
-    if (normalized.length === 0) return false
-    return !incomingAssistantTexts.has(normalized)
+    if (normalized.length === 0) return true
+    return !incomingAssistantTexts.has(JSON.stringify([message.turnId, normalized]))
   })
 
   return next.length === previous.length ? previous : next
@@ -1524,6 +1528,8 @@ export function useDesktopState() {
   const delayedTurnSyncTimerByThreadId = new Map<string, number>()
   let loadThreadsPromise: Promise<void> | null = null
   const loadMessagePromiseByThreadId = new Map<string, Promise<void>>()
+  const realtimeRevisionByThreadId = new Map<string, number>()
+  let optimisticMessageSequence = 0
   let refreshSkillsPromise: Promise<void> | null = null
   let lastThreadListLoadAt = 0
   let hasLoadedSkills = false
@@ -1621,9 +1627,15 @@ export function useDesktopState() {
     const persisted = persistedMessagesByThreadId.value[threadId] ?? []
     const livePlan = livePlanMessagesByThreadId.value[threadId] ?? []
     const liveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
+    const liveAgentById = new Map(liveAgent.map((message) => [message.id, message]))
+    const persistedIds = new Set(persisted.map((message) => message.id))
     const liveCommands = liveCommandsByThreadId.value[threadId] ?? []
     const liveFileChanges = liveFileChangeMessagesByThreadId.value[threadId] ?? []
-    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent].map((message) => {
+    const combined = [
+      ...persisted.map((message) => liveAgentById.get(message.id) ?? message),
+      ...livePlan, ...liveCommands, ...liveFileChanges,
+      ...liveAgent.filter((message) => !persistedIds.has(message.id)),
+    ].map((message) => {
       const metadata = message.turnId ? generationMetadataByThreadId.value[threadId]?.[message.turnId] : undefined
       if (message.role !== 'assistant' || !metadata) return message
       return { ...message, generationMetadata: { ...metadata, ...message.generationMetadata } }
@@ -2282,6 +2294,9 @@ export function useDesktopState() {
     }
     loadedMessagesByThreadId.value = pruneThreadStateMap(loadedMessagesByThreadId.value, activeThreadIds)
     loadedVersionByThreadId.value = pruneThreadStateMap(loadedVersionByThreadId.value, activeThreadIds)
+    for (const threadId of realtimeRevisionByThreadId.keys()) {
+      if (!activeThreadIds.has(threadId)) realtimeRevisionByThreadId.delete(threadId)
+    }
     resumedThreadById.value = pruneThreadStateMap(resumedThreadById.value, activeThreadIds)
     turnIndexByTurnIdByThreadId.value = pruneThreadStateMap(turnIndexByTurnIdByThreadId.value, activeThreadIds)
     persistedMessagesByThreadId.value = pruneThreadStateMap(persistedMessagesByThreadId.value, activeThreadIds)
@@ -2566,18 +2581,20 @@ export function useDesktopState() {
     imageUrls: string[] = [],
     skills: Array<{ name: string; path: string }> = [],
     fileAttachments: FileAttachment[] = [],
-  ): void {
+  ): string {
     const existing = persistedMessagesByThreadId.value[threadId] ?? []
     const nextMessage: UiMessage = {
-      id: `optimistic-user:${threadId}:${Date.now()}`,
+      id: `optimistic-user:${threadId}:${Date.now()}:${optimisticMessageSequence++}`,
       role: 'user',
       text,
       images: imageUrls.length > 0 ? [...imageUrls] : undefined,
       skills: skills.length > 0 ? skills.map((skill) => ({ name: skill.name, path: skill.path })) : undefined,
       fileAttachments: fileAttachments.length > 0 ? fileAttachments.map((file) => ({ ...file })) : undefined,
       messageType: 'userMessage.optimistic',
+      turnIndex: inferNextTurnIndex(threadId),
     }
     setPersistedMessagesForThread(threadId, [...existing, nextMessage])
+    return nextMessage.id
   }
 
   function setLiveAgentMessagesForThread(threadId: string, nextMessages: UiMessage[]): void {
@@ -2587,12 +2604,6 @@ export function useDesktopState() {
       ...liveAgentMessagesByThreadId.value,
       [threadId]: nextMessages,
     }
-  }
-
-  function clearLiveAgentMessagesForThread(threadId: string): void {
-    if (!threadId) return
-    if (!(threadId in liveAgentMessagesByThreadId.value)) return
-    liveAgentMessagesByThreadId.value = omitKey(liveAgentMessagesByThreadId.value, threadId)
   }
 
   function setLiveFileChangeMessagesForThread(threadId: string, nextMessages: UiMessage[]): void {
@@ -3384,6 +3395,7 @@ export function useDesktopState() {
     const persisted = persistedMessagesByThreadId.value[threadId] ?? []
     let maxTurnIndex = -1
     for (const message of persisted) {
+      if (isOptimisticUserMessage(message)) continue
       if (typeof message.turnIndex === 'number' && Number.isFinite(message.turnIndex)) {
         maxTurnIndex = Math.max(maxTurnIndex, message.turnIndex)
       }
@@ -3805,6 +3817,11 @@ export function useDesktopState() {
     }
 
     const notificationThreadId = extractThreadIdFromNotification(notification)
+    if (notificationThreadId && (
+      notification.method.startsWith('turn/') || notification.method.startsWith('item/') || notification.method === 'error'
+    )) {
+      realtimeRevisionByThreadId.set(notificationThreadId, (realtimeRevisionByThreadId.get(notificationThreadId) ?? 0) + 1)
+    }
     if (notificationThreadId && (notification.method === 'turn/started' || notification.method === 'turn/generationMetadata')) {
       const params = asRecord(notification.params)
       const turn = asRecord(params?.turn)
@@ -3943,6 +3960,8 @@ export function useDesktopState() {
     if (liveAgentMessageDelta) {
       const existing = (liveAgentMessagesByThreadId.value[notificationThreadId] ?? [])
         .find((message) => message.id === liveAgentMessageDelta.messageId)
+        ?? (persistedMessagesByThreadId.value[notificationThreadId] ?? [])
+          .find((message) => message.id === liveAgentMessageDelta.messageId)
       const nextText = `${existing?.text ?? ''}${liveAgentMessageDelta.delta}`
       upsertLiveAgentMessage(notificationThreadId, {
         id: liveAgentMessageDelta.messageId,
@@ -4407,19 +4426,21 @@ export function useDesktopState() {
     await loadThreadsPromise
   }
 
-  async function loadMessages(threadId: string, options: { silent?: boolean } = {}) {
+  async function loadMessages(threadId: string, options: { silent?: boolean; force?: boolean } = {}) {
     if (!threadId) {
       return
     }
     const recentLoadFailure =
       Date.now() - (lastMessageLoadFailureAtByThreadId.get(threadId) ?? 0) < RECENT_THREAD_MESSAGE_LOAD_REUSE_MS
-    if (turnErrorByThreadId.value[threadId]?.transient && (options.silent === true || recentLoadFailure)) {
+    if (options.force !== true && turnErrorByThreadId.value[threadId]?.transient && (options.silent === true || recentLoadFailure)) {
       return
     }
 
     const existingLoad = loadMessagePromiseByThreadId.get(threadId)
     if (existingLoad) {
       await existingLoad
+      // A send/completion that arrived during this read still needs a fresh snapshot.
+      if (options.force === true) await loadMessages(threadId, options)
       return
     }
 
@@ -4436,13 +4457,12 @@ export function useDesktopState() {
       const loadedRecently =
         Date.now() - (lastMessageLoadAtByThreadId.get(threadId) ?? 0) < RECENT_THREAD_MESSAGE_LOAD_REUSE_MS
       const canReuseLoadedMessages =
+        options.force !== true &&
         alreadyLoaded &&
+        (version.length === 0 || loadedVersion === version) &&
         (
           loadedRecently ||
-          (
-            (version.length === 0 || loadedVersion === version) &&
-            inProgressById.value[threadId] !== true
-          )
+          inProgressById.value[threadId] !== true
         )
 
       if (canReuseLoadedMessages) {
@@ -4451,8 +4471,15 @@ export function useDesktopState() {
       }
 
       const needsResume = resumedThreadById.value[threadId] !== true
+      const realtimeRevision = realtimeRevisionByThreadId.get(threadId) ?? 0
       const resumedThread = needsResume ? await resumeThread(threadId) : null
       const detail = resumedThread ?? await getThreadDetail(threadId)
+      const currentActiveTurnId = activeTurnIdByThreadId.value[threadId]
+      const hasNewerTurnState = realtimeRevision !== (realtimeRevisionByThreadId.get(threadId) ?? 0)
+        || (inProgressById.value[threadId] === true && !detail.inProgress
+          && (currentActiveTurnId
+            ? !detail.messages.some((message) => message.turnId === currentActiveTurnId)
+            : Boolean(pendingTurnRequestByThreadId.value[threadId])))
 
       if (detail.modelProvider) {
         setThreadModelProviderId(threadId, detail.modelProvider)
@@ -4482,12 +4509,8 @@ export function useDesktopState() {
       setPersistedMessagesForThread(threadId, mergedMessages)
 
       const previousLiveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
-      if (inProgress) {
-        const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
-        setLiveAgentMessagesForThread(threadId, nextLiveAgent)
-      } else {
-        clearLiveAgentMessagesForThread(threadId)
-      }
+      const nextLiveAgent = removeRedundantLiveAgentMessages(previousLiveAgent, nextMessages)
+      setLiveAgentMessagesForThread(threadId, nextLiveAgent)
       removeLiveCommandsPersistedIn(threadId, nextMessages)
       removeLiveFileChangesPersistedIn(threadId, nextMessages)
 
@@ -4504,18 +4527,20 @@ export function useDesktopState() {
           [threadId]: version,
         }
       }
-      setThreadInProgress(threadId, inProgress)
-      clearTransientTurnErrorForThread(threadId)
-      if (activeTurnId) {
-        activeTurnIdByThreadId.value = {
-          ...activeTurnIdByThreadId.value,
-          [threadId]: activeTurnId,
+      if (!hasNewerTurnState) {
+        setThreadInProgress(threadId, inProgress)
+        clearTransientTurnErrorForThread(threadId)
+        if (activeTurnId) {
+          activeTurnIdByThreadId.value = {
+            ...activeTurnIdByThreadId.value,
+            [threadId]: activeTurnId,
+          }
+        } else if (activeTurnIdByThreadId.value[threadId]) {
+          activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, threadId)
         }
-      } else if (activeTurnIdByThreadId.value[threadId]) {
-        activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, threadId)
-      }
-      if (!inProgress) {
-        clearCompletedTurnLiveState(threadId)
+        if (!inProgress) {
+          clearCompletedTurnLiveState(threadId)
+        }
       }
       markThreadAsRead(threadId)
       } catch (unknownError) {
@@ -4933,6 +4958,8 @@ export function useDesktopState() {
       return
     }
 
+    const optimisticMessageId = appendOptimisticUserMessage(threadId, nextText, imageUrls, skills, fileAttachments)
+
     if (isInProgress) {
       shouldAutoScrollOnNextAgentEvent = true
       void startTurnForThread(
@@ -4942,6 +4969,7 @@ export function useDesktopState() {
         skills,
         fileAttachments,
         collaborationModeOverride,
+        optimisticMessageId,
       ).catch((unknownError) => {
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(threadId, errorMessage)
@@ -4979,6 +5007,7 @@ export function useDesktopState() {
         skills,
         fileAttachments,
         collaborationModeOverride,
+        optimisticMessageId,
       )
     } catch (unknownError) {
       shouldAutoScrollOnNextAgentEvent = false
@@ -5032,7 +5061,7 @@ export function useDesktopState() {
       if (!threadId) return ''
 
       insertOptimisticThread(threadId, targetCwd, nextText || '[Image]')
-      appendOptimisticUserMessage(threadId, nextText, imageUrls, skills, fileAttachments)
+      const optimisticMessageId = appendOptimisticUserMessage(threadId, nextText, imageUrls, skills, fileAttachments)
       blockInterruptUntilThreadIsPersisted(threadId)
       resumedThreadById.value = {
         ...resumedThreadById.value,
@@ -5057,7 +5086,7 @@ export function useDesktopState() {
       const capturedThreadId = threadId
       const capturedCwd = targetCwd || null
       const capturedPrompt = nextText
-      void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments, selectedMode)
+      void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments, selectedMode, optimisticMessageId)
         .catch((unknownError) => {
           shouldAutoScrollOnNextAgentEvent = false
           setThreadInProgress(threadId, false)
@@ -5094,7 +5123,9 @@ export function useDesktopState() {
     skills: Array<{ name: string; path: string }> = [],
     fileAttachments: FileAttachment[] = [],
     collaborationModeOverride?: CollaborationModeKind,
+    optimisticMessageId?: string,
   ): Promise<void> {
+    realtimeRevisionByThreadId.set(threadId, (realtimeRevisionByThreadId.get(threadId) ?? 0) + 1)
     const reasoningEffort = selectedReasoningEffort.value
     const collaborationMode = collaborationModeOverride === 'plan' ? 'plan' : collaborationModeOverride === 'default'
       ? 'default'
@@ -5181,6 +5212,12 @@ export function useDesktopState() {
       }
 
       if (startedTurnId) {
+        if (optimisticMessageId) {
+          const messages = persistedMessagesByThreadId.value[threadId] ?? []
+          setPersistedMessagesForThread(threadId, messages.map((message) => message.id === optimisticMessageId
+            ? { ...message, turnId: startedTurnId }
+            : message))
+        }
         activeTurnIdByThreadId.value = {
           ...activeTurnIdByThreadId.value,
           [threadId]: startedTurnId,
@@ -5533,7 +5570,7 @@ export function useDesktopState() {
         (shouldRefreshThreads && loadedMessagesByThreadId.value[activeThreadId] !== true)
 
       if (shouldRefreshActiveThread) {
-        await loadMessages(activeThreadId, { silent: true })
+        await loadMessages(activeThreadId, { silent: true, force: isActiveDirty })
       }
     } catch {
       // Keep UI stable on transient event sync failures.
