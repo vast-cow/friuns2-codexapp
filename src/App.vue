@@ -450,6 +450,21 @@
                 <div class="sidebar-settings-field-help">
                   {{ t('Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.') }}
                 </div>
+                <label class="sidebar-settings-field">
+                  <span><input v-model="telegramNotifyEnabledDraft" type="checkbox" /> {{ t('All completed tasks') }}</span>
+                </label>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('Private notification chat ID') }}</span>
+                  <input v-model="telegramNotifyChatIdDraft" class="sidebar-settings-input" type="text" inputmode="numeric" placeholder="123456789" />
+                </label>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('App URL reachable from your phone') }}</span>
+                  <input v-model="telegramAppUrlDraft" class="sidebar-settings-input" type="url" placeholder="https://your-app.example" />
+                </label>
+                <p class="sidebar-settings-field-help">{{ t('Notifies successful turns observed by this running backend. Use /notify on or /notify off in a private bot chat. A finished turn does not guarantee the whole task succeeded.') }}</p>
+                <p v-if="telegramStatus.lastNotificationError" class="sidebar-settings-telegram-error" role="status">
+                  {{ t('Last notification error') }}: {{ telegramStatus.lastNotificationError }}
+                </p>
                 <div v-if="telegramConfigError" class="sidebar-settings-telegram-error">
                   <span>{{ telegramConfigError }}</span>
                   <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, telegramConfigError)">{{ t('Send feedback') }}</a>
@@ -1639,6 +1654,9 @@ const opencodeZenKey = ref('')
 const isTelegramConfigOpen = ref(false)
 const telegramBotTokenDraft = ref('')
 const telegramAllowedUserIdsDraft = ref('')
+const telegramNotifyEnabledDraft = ref(false)
+const telegramNotifyChatIdDraft = ref('')
+const telegramAppUrlDraft = ref('')
 const telegramConfigError = ref('')
 const isTelegramSaving = ref(false)
 const isCreateFolderOpen = ref(false)
@@ -2246,6 +2264,9 @@ async function refreshTelegramConfig(): Promise<void> {
   try {
     const config = await getTelegramConfig()
     telegramBotTokenDraft.value = config.botToken
+    telegramNotifyEnabledDraft.value = config.completionNotifications.enabled
+    telegramNotifyChatIdDraft.value = config.completionNotifications.chatIds.join('')
+    telegramAppUrlDraft.value = config.completionNotifications.appUrl
     telegramAllowedUserIdsDraft.value = config.allowedUserIds.map((value) => String(value)).join('\n')
     telegramConfigError.value = ''
   } catch (error) {
@@ -2277,10 +2298,31 @@ async function saveTelegramConfig(): Promise<void> {
     return
   }
 
+  const chatIdText = telegramNotifyChatIdDraft.value.trim()
+  const chatId = Number(chatIdText)
+  if ((chatIdText || telegramNotifyEnabledDraft.value) && (!/^\d+$/.test(chatIdText) || !Number.isSafeInteger(chatId) || chatId <= 0)) {
+    telegramConfigError.value = t('Enter a positive private Telegram chat ID, or use /notify on in your bot chat.')
+    return
+  }
+  const appUrl = telegramAppUrlDraft.value.trim()
+  if (appUrl) {
+    try {
+      const url = new URL(appUrl)
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid URL')
+    } catch {
+      telegramConfigError.value = t('Enter a valid HTTP or HTTPS app URL.')
+      return
+    }
+  }
   isTelegramSaving.value = true
   telegramConfigError.value = ''
   try {
-    await configureTelegramBot(botToken, allowedUserIds)
+    await configureTelegramBot(botToken, allowedUserIds, {
+      enabled: telegramNotifyEnabledDraft.value,
+      chatIds: chatIdText ? [chatId] : [],
+      statuses: ['completed'],
+      appUrl,
+    })
     telegramAllowedUserIdsDraft.value = allowedUserIds.map((value) => String(value)).join('\n')
     await Promise.all([
       refreshTelegramConfig(),
