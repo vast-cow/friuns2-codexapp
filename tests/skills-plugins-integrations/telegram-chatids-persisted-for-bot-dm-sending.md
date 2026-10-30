@@ -46,3 +46,24 @@
 
 #### Rollback/Cleanup
 - Send `/notify off`, restore prior settings, and remove test threads. Stop the backend before restoring backed-up Telegram files or deleting the test outbox; deleting it also removes deduplication receipts.
+
+### Feature: Shared notification queue and expiry
+
+#### Prerequisites
+- Use an isolated `CODEX_HOME` and a test Telegram bot/chat; preserve any existing configuration.
+- Start two backends sharing that `CODEX_HOME`, with full notifications enabled in both.
+
+#### Steps
+1. Temporarily block Telegram delivery, complete a turn, and confirm its queue entry records `createdAt`, `attempts`, and `lastAttemptAt`.
+2. Restore delivery and leave both backends running. Inspect the chat and the outbox receipt; replay the same completion event.
+3. In the isolated outbox, add unsent completion jobs older than 24 hours and a legacy job without `createdAt`, then restart the backends.
+4. Simulate repeated temporary delivery failures until a completion job reaches 10 attempts. Inspect the server logs for the thread, turn, registration and attempt times, attempt number, and process ID.
+
+#### Expected Results
+- A shared queued notification is sent once by the running workers, and a retained receipt suppresses a replay.
+- Expired and timestamp-free legacy completion jobs are removed without sending; new completion jobs stop retrying after 10 attempts or 24 hours.
+- Events with an available completion timestamp older than 24 hours do not create full notifications. Events without that timestamp cannot be aged from the event alone.
+- Logs identify delivery attempts and failures. An interrupted send can still be ambiguous if Telegram accepted it before the receipt was persisted.
+
+#### Rollback/Cleanup
+- Stop both backends, restore the original `CODEX_HOME` state and network access, and remove the isolated test files.

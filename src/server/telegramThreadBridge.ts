@@ -1,7 +1,7 @@
 import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig.js'
-import { TelegramApiError, TelegramNotificationOutbox, type CompletionJob } from './telegramNotificationOutbox.js'
+import { COMPLETION_MAX_AGE_MS, TelegramApiError, TelegramNotificationOutbox, type CompletionJob } from './telegramNotificationOutbox.js'
 
 type TelegramUpdate = {
   update_id?: number
@@ -758,7 +758,13 @@ export class TelegramThreadBridge {
     const turnId = this.extractTurnId(notification)
     if (!threadId || !turnId) return
     const turn = asRecord(asRecord(notification.params)?.turn)
-    const subscribers = new Set(this.completionNotifications.enabled && turn?.status === 'completed'
+    const params = asRecord(notification.params)
+    const timestamp = turn?.completedAt ?? params?.completedAt
+    const parsedTime = typeof timestamp === 'string' ? Date.parse(timestamp) : NaN
+    const completedAt = Number.isFinite(parsedTime) ? parsedTime : undefined
+    const createdAt = Date.now()
+    const fresh = completedAt === undefined || createdAt - completedAt < COMPLETION_MAX_AGE_MS
+    const subscribers = new Set(fresh && this.completionNotifications.enabled && turn?.status === 'completed'
       ? this.completionNotifications.chatIds : [])
     const targets = new Set([...subscribers, ...(this.chatIdsByThreadId.get(threadId) ?? [])])
     if (!targets.size) return
@@ -768,7 +774,7 @@ export class TelegramThreadBridge {
       botId, chatId, threadId, turnId,
       completion: subscribers.has(chatId),
       appUrl: this.completionNotifications.appUrl,
-      attempts: 0, nextAttempt: 0,
+      attempts: 0, nextAttempt: 0, createdAt, completedAt,
     })))
   }
 
