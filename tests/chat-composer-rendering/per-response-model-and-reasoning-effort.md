@@ -18,6 +18,10 @@
 7. Open history without usable turn metadata. It shows `Model unknown` and `reasoning: unknown`, never the current composer settings. A known omitted/null effort shows `unspecified`; an explicit `none` remains `none`.
 8. Check intermediate assistant messages and the final answer from a single turn. They share metadata. User messages, command rows, and file change rows do not receive generation footers.
 9. Repeat the display checks in light and dark themes. Footers remain small, readable, and wrap long model names without horizontal overflow.
+10. In a thread with more than 10 turns and different model/effort settings, fork the whole thread. Check the newest messages and use **Load earlier messages**; copied responses retain their original values and source labels after reload and app-server restart.
+11. Fork from an earlier response. Confirm that the retained responses show the original values, removed later responses stay absent, and a new response uses its own submitted settings. Repeat by forking the fork.
+12. Open an existing fork whose session metadata explicitly identifies its original thread. When the original thread is available, matching responses recover their known values. If the parent is unavailable or a turn cannot be matched uniquely, the app remains usable and unknown values remain unknown.
+13. Exercise matching with preserved turn IDs, regenerated turn IDs with preserved item IDs, and regenerated IDs with a unique exact text transcript. Duplicate or ambiguous transcripts, non-text inputs without matching IDs, and oversized text must not be guessed.
 
 #### Rollback/Cleanup
 
