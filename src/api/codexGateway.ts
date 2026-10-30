@@ -1,3 +1,4 @@
+import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 export type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 import { ref } from 'vue'
@@ -349,6 +350,7 @@ export type ThreadSearchResult = {
 }
 
 export type TelegramStatus = {
+  lastNotificationError?: string
   configured: boolean
   active: boolean
   mappedChats: number
@@ -359,6 +361,7 @@ export type TelegramStatus = {
 }
 
 export type TelegramConfig = {
+  completionNotifications: TelegramCompletionConfig
   botToken: string
   allowedUserIds: Array<number | '*'>
 }
@@ -3378,6 +3381,7 @@ export async function searchThreads(
 export async function configureTelegramBot(
   botToken: string,
   allowedUserIds: Array<number | '*'>,
+  completionNotifications?: TelegramCompletionConfig,
 ): Promise<void> {
   const response = await fetch('/codex-api/telegram/configure-bot', {
     method: 'POST',
@@ -3385,6 +3389,7 @@ export async function configureTelegramBot(
     body: JSON.stringify({
       botToken,
       allowedUserIds,
+      completionNotifications,
     }),
   })
   const payload = await response.json()
@@ -3422,6 +3427,7 @@ export async function getTelegramConfig(): Promise<TelegramConfig> {
   }
   return {
     botToken: typeof data.botToken === 'string' ? data.botToken : '',
+    completionNotifications: normalizeTelegramCompletionConfig(data.completionNotifications),
     allowedUserIds,
   }
 }
@@ -3449,6 +3455,7 @@ export async function getTelegramStatus(): Promise<TelegramStatus> {
     allowedUsers: typeof data.allowedUsers === 'number' ? data.allowedUsers : 0,
     allowAllUsers: data.allowAllUsers === true,
     lastError: typeof data.lastError === 'string' ? data.lastError : '',
+    lastNotificationError: typeof data.lastNotificationError === 'string' ? data.lastNotificationError : '',
   }
 }
 

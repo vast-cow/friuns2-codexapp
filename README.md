@@ -184,6 +184,35 @@ Notes:
 
 ### Telegram Bot Bridge (Optional)
 
+In Settings → Telegram, save your bot token and allowed user IDs. To receive alerts
+for all successful runs, send `/notify on` in a private chat with the bot, or enable
+**All completed tasks** and enter that private chat ID in settings. `/notify off`
+unsubscribes that chat. This supports one private notification destination; enabling
+another replaces it. Selecting a conversation with `/thread` does not change the
+subscription. Set **App URL reachable from your phone** to include conversation links
+(use your reachable private app URL, not your phone's localhost).
+
+“Run finished” means one successful Codex turn observed by this running backend,
+including browser and queued turns. It does not certify that the entire requested
+job succeeded. The browser can be closed; the backend must stay running. Other CLI,
+desktop, or machine instances are not covered. Failed/interrupted turns do not
+produce all-run alerts; existing mapped-thread replies remain separate behavior.
+
+Subscriptions are saved in `<CODEX_HOME>/telegram-bridge.json`. Pending deliveries
+survive restart in `telegram-notification-outbox.json`, retry temporary failures
+with timeout/backoff and Telegram's retry-after delay, and expose the last delivery
+error in Telegram settings (reopen settings to refresh). Permanent API failures
+stop retrying. Overlapping subscriptions and thread mappings produce one combined
+message, using the exact completed turn for the excerpt. Completion alerts still
+send without an excerpt when the thread cannot be read.
+
+The outbox holds up to 1,000 pending messages and remembers the last 2,000 settled
+delivery keys. A full queue is reported as a notification error. Very old replayed
+events outside that deduplication window can notify again. If Telegram accepts a
+message but its response is lost, a retry can also duplicate it. Disabling a
+subscription cancels its pending alerts when the queue next processes them.
+
+
 Set these environment variables before starting `codexapp`:
 
 ```bash
@@ -215,7 +244,7 @@ Bot commands:
 - `/whoami` show your Telegram user/chat IDs and authorization state
 - `/help` show command reference
 
-Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatting, with automatic plain-text fallback if HTML delivery fails.
+Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatting, with automatic plain-text fallback for HTML formatting errors.
 
 ---
 

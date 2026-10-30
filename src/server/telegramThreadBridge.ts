@@ -1,4 +1,7 @@
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
+import { homedir } from 'node:os'
+import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig.js'
+import { TelegramApiError, TelegramNotificationOutbox, type CompletionJob } from './telegramNotificationOutbox.js'
 
 type TelegramUpdate = {
   update_id?: number
@@ -33,6 +36,8 @@ type AppServerLike = {
 
 type TelegramThreadBridgeOptions = {
   onChatSeen?: (chatId: number) => void
+  outboxPath?: string
+  onNotificationSubscription?: (chatId: number, enabled: boolean) => Promise<TelegramCompletionConfig>
 }
 
 export type TelegramBridgeStatus = {
@@ -43,6 +48,7 @@ export type TelegramBridgeStatus = {
   allowedUsers: number
   allowAllUsers: boolean
   lastError: string
+  lastNotificationError: string
 }
 
 type TelegramBotCommand = {
@@ -58,6 +64,7 @@ const TELEGRAM_BOT_COMMANDS: TelegramBotCommand[] = [
   { command: 'thread', description: 'Connect existing thread: /thread <id>' },
   { command: 'current', description: 'Show currently connected thread' },
   { command: 'history', description: 'Show recent history for current thread' },
+  { command: 'notify', description: 'All successful runs: /notify on or /notify off (private chat)' },
   { command: 'status', description: 'Show bridge and mapping status' },
   { command: 'whoami', description: 'Show your Telegram IDs' },
   { command: 'help', description: 'Show available commands' },
@@ -204,7 +211,12 @@ export class TelegramThreadBridge {
   private allowedUserIds = new Set<number>()
   private readonly threadIdByChatId = new Map<number, string>()
   private readonly chatIdsByThreadId = new Map<string, Set<number>>()
-  private readonly lastForwardedTurnByThreadId = new Map<string, string>()
+  private completionNotifications = normalizeTelegramCompletionConfig(undefined)
+  private unsubscribe: (() => void) | undefined
+  private pollGeneration = 0
+  private pollAbort: AbortController | undefined
+  private readonly outbox: TelegramNotificationOutbox
+  private readonly onNotificationSubscription?: TelegramThreadBridgeOptions['onNotificationSubscription']
   private active = false
   private pollingTask: Promise<void> | null = null
   private nextUpdateOffset = 0
@@ -222,6 +234,17 @@ export class TelegramThreadBridge {
         .filter(Boolean),
     )
     this.onChatSeen = options.onChatSeen
+    this.onNotificationSubscription = options.onNotificationSubscription
+    this.outbox = new TelegramNotificationOutbox(
+      options.outboxPath ?? join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'telegram-notification-outbox.json'),
+      (job) => this.prepareCompletionMessage(job),
+      (job) => job.completion
+        ? this.sendMessageRequest(job.chatId, job.text ?? '')
+        : this.sendTelegramMessage(job.chatId, job.text ?? ''),
+      (job) => job.botId === this.token.split(':')[0] && (!job.completion || (
+        this.completionNotifications.enabled && this.completionNotifications.chatIds.includes(job.chatId)
+      )),
+    )
   }
 
   start(): void {
@@ -229,29 +252,42 @@ export class TelegramThreadBridge {
     this.active = true
     void this.syncBotCommands().catch(() => {})
     void this.notifyOnlineForKnownChats().catch(() => {})
-    this.pollingTask = this.pollLoop()
-    this.appServer.onNotification((notification) => {
-      void this.handleNotification(notification).catch(() => {})
+    this.outbox.start()
+    this.pollingTask = this.pollLoop(++this.pollGeneration)
+    this.unsubscribe = this.appServer.onNotification((notification) => {
+      void this.handleNotification(notification).catch((error) => this.outbox.recordError(error))
     })
   }
 
   stop(): void {
     this.active = false
+    this.pollGeneration += 1
+    this.pollAbort?.abort()
+    this.unsubscribe?.()
+    this.unsubscribe = undefined
+    this.outbox.stop()
   }
 
-  private async pollLoop(): Promise<void> {
-    while (this.active) {
+  configureCompletionNotifications(config: unknown): void {
+    this.completionNotifications = normalizeTelegramCompletionConfig(config)
+  }
+
+  private async pollLoop(generation: number): Promise<void> {
+    while (this.active && generation === this.pollGeneration) {
       try {
         const updates = await this.getUpdates()
+        if (!this.active || generation !== this.pollGeneration) return
         this.lastError = ''
         for (const update of updates) {
           const updateId = typeof update.update_id === 'number' ? update.update_id : -1
           if (updateId >= 0) {
             this.nextUpdateOffset = Math.max(this.nextUpdateOffset, updateId + 1)
           }
+          if (!this.active || generation !== this.pollGeneration) return
           await this.handleIncomingUpdate(update)
         }
       } catch (error) {
+        if (!this.active || generation !== this.pollGeneration) return
         this.lastError = getErrorMessage(error, 'Telegram polling failed')
         await new Promise((resolve) => setTimeout(resolve, 1500))
       }
@@ -262,7 +298,9 @@ export class TelegramThreadBridge {
     if (!this.token) {
       throw new Error('Telegram bot token is not configured')
     }
+    this.pollAbort = new AbortController()
     const response = await fetch(this.apiUrl('getUpdates'), {
+      signal: this.pollAbort.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -285,6 +323,11 @@ export class TelegramThreadBridge {
     if (!normalizedToken) {
       throw new Error('Telegram bot token is required')
     }
+    if (this.token.split(':')[0] !== normalizedToken.split(':')[0]) {
+      this.nextUpdateOffset = 0
+      this.threadIdByChatId.clear()
+      this.chatIdsByThreadId.clear()
+    }
     this.token = normalizedToken
     void this.syncBotCommands().catch(() => {})
   }
@@ -298,6 +341,7 @@ export class TelegramThreadBridge {
       allowedUsers: this.allowedUserIds.size,
       allowAllUsers: this.allowAllUsers,
       lastError: this.lastError,
+      lastNotificationError: this.outbox.lastError,
     }
   }
 
@@ -346,7 +390,8 @@ export class TelegramThreadBridge {
       const htmlChunk = renderMarkdownToTelegramHtml(chunk)
       try {
         await this.sendMessageRequest(chatId, htmlChunk, { replyMarkup, parseMode: 'HTML' })
-      } catch {
+      } catch (error) {
+        if (!(error instanceof TelegramApiError) || !error.formatting) throw error
         await this.sendMessageRequest(chatId, chunk, { replyMarkup })
       }
     }
@@ -376,6 +421,7 @@ export class TelegramThreadBridge {
 
   private async callTelegramApi(method: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await fetch(this.apiUrl(method), {
+      signal: AbortSignal.timeout(15000),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -385,7 +431,9 @@ export class TelegramThreadBridge {
     if (!response.ok || !ok) {
       const description = typeof parsed?.description === 'string' ? parsed.description : ''
       const statusPart = `${String(response.status)} ${response.statusText}`.trim()
-      throw new Error(description || statusPart || `Telegram API ${method} failed`)
+      throw new TelegramApiError(description || statusPart || `Telegram API ${method} failed`,
+        typeof parsed?.error_code === 'number' ? parsed.error_code : response.status,
+        Number(asRecord(parsed?.parameters)?.retry_after) || 0)
     }
     return parsed ?? {}
   }
@@ -417,6 +465,24 @@ export class TelegramThreadBridge {
       return
     }
     this.markChatSeen(chatId)
+
+    if (/^\/notify(?:\s|$)/.test(text)) {
+      if (chatId !== senderId || chatId <= 0) {
+        await this.sendTelegramMessage(chatId, 'Use /notify in a private chat with the bot.')
+        return
+      }
+      const action = text.split(/\s+/)[1]
+      if ((action !== 'on' && action !== 'off') || !this.onNotificationSubscription) {
+        await this.sendTelegramMessage(chatId, 'Use /notify on or /notify off.')
+        return
+      }
+      const config = await this.onNotificationSubscription(chatId, action === 'on')
+      this.configureCompletionNotifications(config)
+      await this.sendTelegramMessage(chatId, action === 'on'
+        ? 'All successful runs will notify this chat. Selecting a thread does not change this subscription.'
+        : 'All-run notifications disabled for this chat.')
+      return
+    }
 
     if (text === '/start') {
       await this.sendTelegramMessage(chatId, this.helpMessage())
@@ -689,41 +755,51 @@ export class TelegramThreadBridge {
   private async handleNotification(notification: { method: string; params: unknown }): Promise<void> {
     if (notification.method !== 'turn/completed') return
     const threadId = this.extractThreadId(notification)
-    if (!threadId) return
-    const chatIds = this.chatIdsByThreadId.get(threadId)
-    if (!chatIds || chatIds.size === 0) return
-
     const turnId = this.extractTurnId(notification)
-    const lastForwardedTurnId = this.lastForwardedTurnByThreadId.get(threadId)
-    if (turnId && lastForwardedTurnId === turnId) return
-
-    const assistantReply = await this.readLatestAssistantMessage(threadId)
-    if (!assistantReply) return
-    for (const chatId of chatIds) {
-      await this.sendTelegramMessage(chatId, assistantReply)
-    }
-    if (turnId) {
-      this.lastForwardedTurnByThreadId.set(threadId, turnId)
-    }
+    if (!threadId || !turnId) return
+    const turn = asRecord(asRecord(notification.params)?.turn)
+    const subscribers = new Set(this.completionNotifications.enabled && turn?.status === 'completed'
+      ? this.completionNotifications.chatIds : [])
+    const targets = new Set([...subscribers, ...(this.chatIdsByThreadId.get(threadId) ?? [])])
+    if (!targets.size) return
+    const botId = this.token.split(':')[0] ?? ''
+    await this.outbox.add(Array.from(targets, (chatId) => ({
+      key: JSON.stringify([botId, chatId, threadId, turnId]),
+      botId, chatId, threadId, turnId,
+      completion: subscribers.has(chatId),
+      appUrl: this.completionNotifications.appUrl,
+      attempts: 0, nextAttempt: 0,
+    })))
   }
 
-  private async readLatestAssistantMessage(threadId: string): Promise<string> {
-    const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: true }))
-    const thread = asRecord(response?.thread)
-    const turns = Array.isArray(thread?.turns) ? thread.turns : []
-
-    for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-      const turn = asRecord(turns[turnIndex])
-      const items = Array.isArray(turn?.items) ? turn.items : []
-      for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-        const item = asRecord(items[itemIndex])
-        if (item?.type === 'agentMessage') {
-          const text = typeof item.text === 'string' ? item.text.trim() : ''
-          if (text) return text
-        }
-      }
+  private async prepareCompletionMessage(job: CompletionJob): Promise<string> {
+    let thread: Record<string, unknown> | null = null
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const response = asRecord(await Promise.race([
+        this.appServer.rpc('thread/read', { threadId: job.threadId, includeTurns: true }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Telegram thread lookup timed out')), 15000)
+        }),
+      ]).finally(() => clearTimeout(timer)))
+      thread = asRecord(response?.thread)
+    } catch (error) {
+      // Completion alerts still deliver even if the thread was deleted or cannot be read.
+      if (!job.completion) throw error
     }
-    return ''
+    const turns = Array.isArray(thread?.turns) ? thread.turns : []
+    const turn = turns.map(asRecord).find((entry) => entry?.id === job.turnId)
+    const items = Array.isArray(turn?.items) ? turn.items : []
+    const reply = items.map(asRecord).reverse().find((item) => item?.type === 'agentMessage' && typeof item.text === 'string' && item.text.trim())
+    const text = typeof reply?.text === 'string' ? reply.text.trim() : ''
+    if (!job.completion) return text
+    const title = String(thread?.name || thread?.preview || job.threadId).replace(/\s+/g, ' ').slice(0, 200)
+    const project = typeof thread?.cwd === 'string' ? basename(thread.cwd).slice(0, 100) : ''
+    const link = job.appUrl ? `${job.appUrl}/#/thread/${encodeURIComponent(job.threadId)}` : ''
+    return [
+      'Codex: Run finished', `Task: ${title}`, project ? `Project: ${project}` : '',
+      text ? text.slice(0, 1600) : '', link ? `Open conversation: ${link}` : '',
+    ].filter(Boolean).join('\n\n').slice(0, TELEGRAM_MESSAGE_MAX_LENGTH)
   }
 
   private async readThreadHistorySummary(threadId: string): Promise<string> {
