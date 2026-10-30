@@ -601,6 +601,10 @@
                 </a>
               </article>
 
+              <p v-if="message.role === 'assistant'" class="message-generation-metadata">
+                {{ generationMetadataLabel(message.generationMetadata) }}
+              </p>
+
               <section v-if="readAnchoredFileChangeSummary(message)" class="file-change-summary-block file-change-summary-block-inline">
                 <button
                   type="button"
@@ -737,6 +741,7 @@
           <div class="message-stack">
             <article class="live-overlay-inline" aria-live="polite">
               <p class="live-overlay-label">{{ liveOverlay.activityLabel }}</p>
+              <p class="message-generation-metadata">{{ generationMetadataLabel(liveOverlay.generationMetadata) }}</p>
               <p
                 v-if="liveOverlay.reasoningText"
                 class="live-overlay-reasoning"
@@ -918,6 +923,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { generationMetadataLabel } from '../../turnGenerationMetadata'
 import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
 import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'

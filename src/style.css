@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @import "highlight.js/styles/github-dark.css";
 
+.message-generation-metadata {
+  margin: 0.35rem 0 0;
+  color: #71717a;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+:root.dark .message-generation-metadata {
+  color: #a1a1aa;
+}
+
 :root.dark {
   color-scheme: dark;
 }

@@ -18,6 +18,7 @@ import type {
   UiThread,
 } from '../../types/codex'
 import { normalizePathForComparison, normalizePathForUi, toProjectName } from '../../pathUtils.js'
+import { readGenerationMetadata } from '../../turnGenerationMetadata.js'
 
 function toIso(seconds: number): string {
   return new Date(seconds * 1000).toISOString()
@@ -636,10 +637,11 @@ export function normalizeThreadMessagesV2(payload: ThreadReadResponse, baseTurnI
     const turn = turns[turnOffset]
     const rawTurnId = typeof turn?.id === 'string' ? turn.id.trim() : ''
     const turnId = rawTurnId.length > 0 ? rawTurnId : undefined
+    const generationMetadata = readGenerationMetadata((turn as Turn & { generationMetadata?: unknown }).generationMetadata)
     const items = Array.isArray(turn.items) ? turn.items : []
     for (const item of items) {
       for (const msg of toUiMessages(item)) {
-        messages.push({ ...msg, turnId, turnIndex })
+        messages.push({ ...msg, turnId, turnIndex, ...(msg.role === 'assistant' ? { generationMetadata } : {}) })
       }
     }
     const errorText = readTurnErrorText(turn)

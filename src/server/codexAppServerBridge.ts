@@ -41,6 +41,8 @@ import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { ThreadTerminalManager } from './terminalManager.js'
+import { SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
+import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
   resolveCodexCommand,
@@ -267,10 +269,13 @@ type SessionSkillInputCacheEntry = {
   size: number
   mtimeMs: number
   skillsByTurnId: Map<string, SessionRecoveredSkillInput[]>
+  generationByTurnId: Map<string, TurnGenerationMetadata>
 }
 
 const SESSION_SKILL_INPUT_CACHE_LIMIT = 64
 const sessionSkillInputCache = new Map<string, SessionSkillInputCacheEntry>()
+const turnGenerationMetadataStore = new TurnGenerationMetadataStore(getCodexHomeDir)
+const sessionGenerationMetadataCache = new SessionGenerationMetadataCache()
 
 function parseSessionSkillText(value: string): SessionRecoveredSkillInput | null {
   const trimmed = value.trim()
@@ -328,25 +333,28 @@ function buildSessionSkillInputsByTurn(sessionLogRaw: string): Map<string, Sessi
   return skillsByTurnId
 }
 
-async function readCachedSessionSkillInputsByTurn(sessionPath: string): Promise<Map<string, SessionRecoveredSkillInput[]>> {
+async function readCachedSessionDetails(sessionPath: string): Promise<SessionSkillInputCacheEntry> {
   const sessionStat = await stat(sessionPath)
   const cached = sessionSkillInputCache.get(sessionPath)
   if (cached && cached.size === sessionStat.size && cached.mtimeMs === sessionStat.mtimeMs) {
-    return cached.skillsByTurnId
+    return cached
   }
 
   const sessionLogRaw = await readFile(sessionPath, 'utf8')
   const skillsByTurnId = buildSessionSkillInputsByTurn(sessionLogRaw)
-  sessionSkillInputCache.set(sessionPath, {
+  const entry: SessionSkillInputCacheEntry = {
     size: sessionStat.size,
     mtimeMs: sessionStat.mtimeMs,
     skillsByTurnId,
-  })
+    generationByTurnId: sessionGenerationMetadataCache.readRaw(sessionPath, sessionLogRaw,
+      `${sessionStat.dev}:${sessionStat.ino}`, `${sessionStat.size}:${sessionStat.mtimeMs}`),
+  }
+  sessionSkillInputCache.set(sessionPath, entry)
   if (sessionSkillInputCache.size > SESSION_SKILL_INPUT_CACHE_LIMIT) {
     const oldestKey = sessionSkillInputCache.keys().next().value
     if (oldestKey) sessionSkillInputCache.delete(oldestKey)
   }
-  return skillsByTurnId
+  return entry
 }
 
 function mergeSessionSkillInputsIntoTurnsFromMap(
@@ -423,24 +431,22 @@ async function mergeSessionSkillInputsIntoThreadResult(result: unknown): Promise
   const thread = asRecord(record?.thread)
   const turns = Array.isArray(thread?.turns) ? thread.turns : null
   const sessionPath = readNonEmptyString(thread?.path)
-  if (!record || !thread || !turns || turns.length === 0 || !sessionPath || !isAbsolute(sessionPath)) {
+  const threadId = readNonEmptyString(thread?.id)
+  if (!record || !thread || !turns || turns.length === 0 || !threadId) {
     return result
   }
 
-  try {
-    const skillsByTurnId = await readCachedSessionSkillInputsByTurn(sessionPath)
-    const mergedTurns = mergeSessionSkillInputsIntoTurnsFromMap(turns, skillsByTurnId)
-    if (mergedTurns === turns) return result
-    return {
-      ...record,
-      thread: {
-        ...thread,
-        turns: mergedTurns,
-      },
-    }
-  } catch {
-    return result
+  let mergedTurns = turns
+  let execution = new Map<string, TurnGenerationMetadata>()
+  if (sessionPath && isAbsolute(sessionPath)) {
+    try {
+      const details = await readCachedSessionDetails(sessionPath)
+      mergedTurns = mergeSessionSkillInputsIntoTurnsFromMap(turns, details.skillsByTurnId)
+      execution = details.generationByTurnId
+    } catch { /* Submitted metadata is still available without a session log. */ }
   }
+  mergedTurns = await turnGenerationMetadataStore.mergeIntoTurns(threadId, mergedTurns, execution)
+  return { ...record, thread: { ...thread, turns: mergedTurns } }
 }
 
 function readEnvValueFromFile(filePath: string, key: string): string | null {
@@ -6392,6 +6398,7 @@ const MERGEABLE_ITEM_TYPES = new Set([
 ])
 
 class AppServerProcess {
+  private readonly pendingGenerationSettings = new Map<string, Set<TurnGenerationMetadata>>()
   private process: ChildProcessWithoutNullStreams | null = null
   private initialized = false
   private initializePromise: Promise<void> | null = null
@@ -6553,6 +6560,18 @@ class AppServerProcess {
   }
 
   private emitNotification(notification: { method: string; params: unknown }): void {
+    if (notification.method === 'turn/started') {
+      const params = asRecord(notification.params)
+      const turn = asRecord(params?.turn)
+      const candidates = this.pendingGenerationSettings.get(this.extractThreadIdFromParams(params))
+      // Concurrent starts cannot be correlated until the RPC response supplies the ID.
+      if (params && turn && candidates?.size === 1) {
+        notification = {
+          ...notification,
+          params: { ...params, turn: { ...turn, generationMetadata: candidates.values().next().value } },
+        }
+      }
+    }
     this.recordStreamEvent(notification)
     this.captureItemFromNotification(notification)
     const nThreadId = this.extractThreadIdFromParams(notification.params)
@@ -6887,7 +6906,30 @@ class AppServerProcess {
   async rpc(method: string, params: unknown): Promise<unknown> {
     this.disposeIfConfigChanged()
     await this.ensureInitialized()
-    return this.call(method, params)
+    if (method !== 'turn/start') return this.call(method, params)
+    const threadId = readNonEmptyString(asRecord(params)?.threadId)
+    const metadata = submittedGenerationMetadata(params)
+    const candidates = this.pendingGenerationSettings.get(threadId) ?? new Set<TurnGenerationMetadata>()
+    candidates.add(metadata)
+    this.pendingGenerationSettings.set(threadId, candidates)
+    try {
+      const result = await this.call(method, params)
+      const turn = asRecord(asRecord(result)?.turn)
+      const turnId = readNonEmptyString(turn?.id)
+      if (threadId && turnId) {
+        // Metadata persistence must never turn an accepted start into a failed send.
+        try {
+          await turnGenerationMetadataStore.save(threadId, turnId, metadata)
+        } catch (error) {
+          console.warn('Failed to persist turn generation metadata', error)
+        }
+        this.emitNotification({ method: 'turn/generationMetadata', params: { threadId, turnId, generationMetadata: metadata } })
+      }
+      return turn ? { ...asRecord(result), turn: { ...turn, generationMetadata: metadata } } : result
+    } finally {
+      candidates.delete(metadata)
+      if (candidates.size === 0) this.pendingGenerationSettings.delete(threadId)
+    }
   }
 
   onNotification(listener: (value: { method: string; params: unknown }) => void): () => void {
@@ -8150,10 +8192,14 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
           const sessionPath = readNonEmptyString(thread?.path)
           let sessionSize = 0
+          let sessionIdentity = ''
+          let sessionSignature = ''
           if (sessionPath && isAbsolute(sessionPath)) {
             try {
               const s = await stat(sessionPath)
               sessionSize = s.size
+              sessionIdentity = `${s.dev}:${s.ino}`
+              sessionSignature = `${s.size}:${s.mtimeMs}`
             } catch { /* missing */ }
           }
 
@@ -8164,15 +8210,19 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           }
 
           let turns = appServer.mergeItemsIntoTurns(threadId, rawTurns)
+          let execution = new Map<string, TurnGenerationMetadata>()
 
           if (sessionPath && isAbsolute(sessionPath) && sessionSize > 0) {
             try {
               const sessionLogRaw = await readFile(sessionPath, 'utf8')
               turns = mergeSessionCommandsIntoTurns(turns, sessionLogRaw)
+              execution = sessionGenerationMetadataCache.readRaw(sessionPath, sessionLogRaw, sessionIdentity, sessionSignature)
             } catch {
               // Session log not available — continue without command recovery
             }
           }
+
+          turns = await turnGenerationMetadataStore.mergeIntoTurns(threadId, turns, execution)
 
           const lastTurn = turns.length > 0 ? asRecord(turns[turns.length - 1]) : null
           const isInProgress = lastTurn?.status === 'inProgress'
