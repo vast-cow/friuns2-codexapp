@@ -1909,16 +1909,25 @@
   padding: 10px 14px;
   margin-bottom: 8px;
 }
-.thread-goal-summary, .thread-goal-actions {
+.thread-goal-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+.thread-goal-summary strong { flex-shrink: 0; white-space: nowrap; }
+.thread-goal-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-goal-summary:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.thread-goal-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
 }
-.thread-goal-summary p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
-.thread-goal-summary > div { min-width: 0; flex: 1; }
-.thread-goal-editor { display: grid; gap: 10px; margin-top: 10px; }
+.thread-goal-editor { display: grid; gap: 10px; }
 .thread-goal-editor textarea {
   width: 100%; box-sizing: border-box; resize: vertical;
   background: #fff; color: inherit; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px;
@@ -1931,5 +1940,6 @@
 .thread-composer-slash-mentions .thread-composer-file-mention-row { flex-direction: column; align-items: flex-start; }
 .thread-composer-slash-mentions small { opacity: .7; white-space: normal; text-align: left; }
 :root.dark .thread-goal-panel { color: #e2e8f0; background: #1e293b; border-color: #475569; }
+:root.dark .thread-goal-summary:focus-visible { outline-color: #93c5fd; }
 :root.dark .thread-goal-editor textarea { background: #0f172a; border-color: #475569; }
 :root.dark .thread-composer-active-mode { color: #93c5fd; }
