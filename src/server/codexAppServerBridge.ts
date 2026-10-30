@@ -41,7 +41,7 @@ import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { ThreadTerminalManager } from './terminalManager.js'
-import { SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
+import { inheritForkTurnMetadata, SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
 import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
@@ -270,6 +270,7 @@ type SessionSkillInputCacheEntry = {
   mtimeMs: number
   skillsByTurnId: Map<string, SessionRecoveredSkillInput[]>
   generationByTurnId: Map<string, TurnGenerationMetadata>
+  forkedFromId: string
 }
 
 const SESSION_SKILL_INPUT_CACHE_LIMIT = 64
@@ -348,6 +349,7 @@ async function readCachedSessionDetails(sessionPath: string): Promise<SessionSki
     skillsByTurnId,
     generationByTurnId: sessionGenerationMetadataCache.readRaw(sessionPath, sessionLogRaw,
       `${sessionStat.dev}:${sessionStat.ino}`, `${sessionStat.size}:${sessionStat.mtimeMs}`),
+    forkedFromId: readSessionForkParent(sessionLogRaw),
   }
   sessionSkillInputCache.set(sessionPath, entry)
   if (sessionSkillInputCache.size > SESSION_SKILL_INPUT_CACHE_LIMIT) {
@@ -355,6 +357,22 @@ async function readCachedSessionDetails(sessionPath: string): Promise<SessionSki
     if (oldestKey) sessionSkillInputCache.delete(oldestKey)
   }
   return entry
+}
+
+function readSessionForkParent(raw: string): string {
+  // Session metadata is at the beginning of the rollout. Only trust an
+  // explicit fork parent, never the parent of a spawned sub-agent.
+  for (const line of raw.slice(0, 262144).split('\n')) {
+    if (!line.includes('"session_meta"') && !line.includes('"session_configured"')) continue
+    try {
+      const row = asRecord(JSON.parse(line))
+      const payload = asRecord(row?.payload)
+      if (row?.type !== 'session_meta' && !(row?.type === 'event_msg' && payload?.type === 'session_configured')) continue
+      const id = readNonEmptyString(payload?.forked_from_id) || readNonEmptyString(payload?.forkedFromId)
+      if (id) return id
+    } catch { /* Ignore malformed or partial records. */ }
+  }
+  return ''
 }
 
 function mergeSessionSkillInputsIntoTurnsFromMap(
@@ -447,6 +465,66 @@ async function mergeSessionSkillInputsIntoThreadResult(result: unknown): Promise
   }
   mergedTurns = await turnGenerationMetadataStore.mergeIntoTurns(threadId, mergedTurns, execution)
   return { ...record, thread: { ...thread, turns: mergedTurns } }
+}
+
+const recoveredForks = new Map<string, string>()
+const forkRecoveryInFlight = new Map<string, Promise<unknown>>()
+const forkRecoveryRetryAfter = new Map<string, number>()
+
+async function inheritForkMetadata(appServer: RpcExecutor, sourceThreadId: string, forkResult: unknown): Promise<unknown> {
+  const forkRecord = asRecord(forkResult)
+  const forkThread = asRecord(forkRecord?.thread)
+  const forkId = readNonEmptyString(forkThread?.id)
+  const forkTurns = Array.isArray(forkThread?.turns) ? forkThread.turns : null
+  if (!forkRecord || !forkThread || !forkId || !forkTurns || !sourceThreadId || sourceThreadId === forkId) return forkResult
+
+  const sourceResult = await appServer.rpc('thread/read', { threadId: sourceThreadId, includeTurns: true })
+  const enrichedSource = await mergeSessionSkillInputsIntoThreadResult(sourceResult)
+  const sourceTurns = asRecord(asRecord(enrichedSource)?.thread)?.turns
+  if (!Array.isArray(sourceTurns)) return forkResult
+  const enrichedFork = await mergeSessionSkillInputsIntoThreadResult(forkResult)
+  const enrichedForkThread = asRecord(asRecord(enrichedFork)?.thread)
+  const enrichedForkTurns = Array.isArray(enrichedForkThread?.turns) ? enrichedForkThread.turns : forkTurns
+  const inherited = inheritForkTurnMetadata(sourceTurns, enrichedForkTurns)
+  await turnGenerationMetadataStore.saveMany(forkId, inherited.entries)
+  return { ...forkRecord, thread: { ...forkThread, turns: inherited.turns } }
+}
+
+async function recoverForkMetadata(appServer: RpcExecutor, result: unknown, explicitParent = ''): Promise<unknown> {
+  const thread = asRecord(asRecord(result)?.thread)
+  const threadId = readNonEmptyString(thread?.id)
+  const turns = Array.isArray(thread?.turns) ? thread.turns : null
+  if (!threadId || !turns || turns.length === 0) return result
+  let parent = explicitParent
+  if (!parent) {
+    const path = readNonEmptyString(thread?.path)
+    if (path && isAbsolute(path)) {
+      try { parent = (await readCachedSessionDetails(path)).forkedFromId } catch { /* no session metadata */ }
+    }
+  }
+  if (!parent || parent === threadId || recoveredForks.get(threadId) === parent
+    || (forkRecoveryRetryAfter.get(threadId) ?? 0) > Date.now()) return result
+  const existing = forkRecoveryInFlight.get(threadId)
+  if (existing) {
+    await existing.catch(() => {})
+    return result
+  }
+  const recovery = inheritForkMetadata(appServer, parent, result)
+  forkRecoveryInFlight.set(threadId, recovery)
+  try {
+    const enriched = await recovery
+    recoveredForks.set(threadId, parent)
+    if (recoveredForks.size > 64) recoveredForks.delete(recoveredForks.keys().next().value!)
+    return enriched
+  } catch (error) {
+    // Fork/read already succeeded; a metadata failure must not fail that operation.
+    console.warn('Failed to recover fork turn metadata', error)
+    forkRecoveryRetryAfter.set(threadId, Date.now() + 30_000)
+    if (forkRecoveryRetryAfter.size > 64) forkRecoveryRetryAfter.delete(forkRecoveryRetryAfter.keys().next().value!)
+    return result
+  } finally {
+    if (forkRecoveryInFlight.get(threadId) === recovery) forkRecoveryInFlight.delete(threadId)
+  }
 }
 
 function readEnvValueFromFile(filePath: string, key: string): string | null {
@@ -8043,6 +8121,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           }
 		          throw error
 		        }
+        if (THREAD_METHODS_WITH_TURNS.has(body.method)) {
+          const params = asRecord(body.params)
+          const explicitParent = body.method === 'thread/fork' && !readNonEmptyString(params?.path)
+            ? readNonEmptyString(params?.threadId) : ''
+          rpcResult = await recoverForkMetadata(appServer, rpcResult, explicitParent)
+        }
         const trimmedResult = trimThreadTurnsInRpcResult(body.method, rpcResult)
         const errorMergedResult = THREAD_METHODS_WITH_TURNS.has(body.method)
           ? mergeStreamTurnErrorsIntoThreadResult(appServer, trimmedResult)
@@ -8079,7 +8163,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             return
           }
 
-          const threadReadResult = mergeStreamTurnErrorsIntoThreadResult(appServer, await appServer.readThreadForTurnPage(threadId))
+          const threadReadResult = await recoverForkMetadata(appServer,
+            mergeStreamTurnErrorsIntoThreadResult(appServer, await appServer.readThreadForTurnPage(threadId)))
           const record = asRecord(threadReadResult)
           const thread = asRecord(record?.thread)
           if (!record || !thread) {
