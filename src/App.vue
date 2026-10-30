@@ -1415,6 +1415,7 @@ const {
   isUpdatingSpeedMode,
   error: desktopError,
   refreshAll,
+  refreshWorkspaceRoots,
   refreshSkills,
   selectThread,
   ensureThreadMessagesLoaded,
@@ -1594,7 +1595,6 @@ const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
 const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
-const MOBILE_RESUME_RELOAD_MIN_HIDDEN_MS = 400
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
 const inProgressSendMode = ref<'steer' | 'queue'>(loadInProgressSendModePref())
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
@@ -1689,9 +1689,9 @@ const telegramStatus = ref<TelegramStatus>({
   allowAllUsers: false,
   lastError: '',
 })
-const mobileHiddenAtMs = ref<number | null>(null)
-const mobileResumeReloadTriggered = ref(false)
-const mobileResumeSyncInProgress = ref(false)
+let workspaceRootsResumeTimer: ReturnType<typeof setTimeout> | null = null
+let workspaceRootsResumeInProgress = false
+let lastWorkspaceRootsResumeAt = 0
 const visualViewportHeight = ref(typeof window !== 'undefined' ? window.visualViewport?.height ?? window.innerHeight : 0)
 const visualViewportOffsetTop = ref(typeof window !== 'undefined' ? window.visualViewport?.offsetTop ?? 0 : 0)
 const layoutViewportHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 0)
@@ -1872,15 +1872,6 @@ function getOrderedWorkspaceRootOptions(): string[] {
     if (!orderedRoots.includes(rootPath)) orderedRoots.push(rootPath)
   }
   return orderedRoots
-}
-
-function getProjectOrderNameForPath(path: string): string {
-  const normalizedPath = normalizePathForUi(path).trim()
-  const knownPaths = [
-    ...workspaceRootOptionsState.value.order,
-    ...projectGroups.value.map((group) => group.threads[0]?.cwd?.trim() ?? '').filter(Boolean),
-  ]
-  return hasDuplicateFolderLeaf(normalizedPath, knownPaths) ? normalizedPath : getPathLeafName(normalizedPath)
 }
 
 function resolveWorkspaceRootCwd(projectName: string): string {
@@ -2141,6 +2132,7 @@ onUnmounted(() => {
     threadSearchTimer = null
   }
   clearTerminalKeyboardFocusFallbackTimer()
+  if (workspaceRootsResumeTimer !== null) clearTimeout(workspaceRootsResumeTimer)
   stopPolling()
 })
 
@@ -2914,7 +2906,7 @@ async function onCreateProjectWorktree(projectName: string): Promise<void> {
 
     newThreadCwd.value = normalizedPath
     newThreadRuntime.value = 'local'
-    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    await pinProjectToTop(normalizedPath)
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
     if (isMobile.value) setSidebarCollapsed(true)
@@ -3318,59 +3310,40 @@ function onSettingsAreaClick(event: MouseEvent): void {
 }
 
 function onDocumentVisibilityChange(): void {
-  if (typeof document === 'undefined') return
-  if (!isMobile.value) return
-
   if (document.visibilityState === 'hidden') {
-    mobileHiddenAtMs.value = Date.now()
-    mobileResumeReloadTriggered.value = false
+    lastWorkspaceRootsResumeAt = 0
+    if (workspaceRootsResumeTimer !== null) clearTimeout(workspaceRootsResumeTimer)
+    workspaceRootsResumeTimer = null
     return
   }
-
-  maybeSyncAfterMobileResume()
+  scheduleWorkspaceRootsResume()
 }
 
 function onWindowPageShow(event: PageTransitionEvent): void {
-  if (!event.persisted) return
-  maybeSyncAfterMobileResume()
+  if (event.persisted) scheduleWorkspaceRootsResume()
 }
 
 function onWindowFocus(): void {
-  if (route.name === 'home') {
-    void loadWorkspaceRootOptionsState()
-    void refreshDefaultProjectName()
-  }
-  maybeSyncAfterMobileResume()
+  scheduleWorkspaceRootsResume()
 }
 
-function maybeSyncAfterMobileResume(): void {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return
-  if (!isMobile.value) return
-  if (document.visibilityState !== 'visible') return
-  if (mobileResumeReloadTriggered.value) return
-  if (mobileHiddenAtMs.value === null) return
-
-  const hiddenForMs = Date.now() - mobileHiddenAtMs.value
-  if (hiddenForMs < MOBILE_RESUME_RELOAD_MIN_HIDDEN_MS) return
-
-  mobileResumeReloadTriggered.value = true
-  mobileHiddenAtMs.value = null
-  void syncAfterMobileResume()
-}
-
-async function syncAfterMobileResume(): Promise<void> {
-  if (mobileResumeSyncInProgress.value) return
-  mobileResumeSyncInProgress.value = true
-
-  try {
-    await refreshAll({
-      includeSelectedThreadMessages: true,
-      awaitAncillaryRefreshes: true,
-    })
-    await syncThreadSelectionWithRoute()
-  } finally {
-    mobileResumeSyncInProgress.value = false
-  }
+function scheduleWorkspaceRootsResume(): void {
+  if (!hasInitialized.value || document.visibilityState !== 'visible') return
+  if (workspaceRootsResumeInProgress || workspaceRootsResumeTimer !== null) return
+  if (Date.now() - lastWorkspaceRootsResumeAt < 400) return
+  workspaceRootsResumeTimer = setTimeout(() => {
+    workspaceRootsResumeTimer = null
+    if (document.visibilityState !== 'visible') return
+    lastWorkspaceRootsResumeAt = Date.now()
+    workspaceRootsResumeInProgress = true
+    void refreshWorkspaceRoots().then((state) => {
+      if (state) {
+        workspaceRootOptionsState.value = {
+          order: [...state.order], labels: { ...state.labels }, projectOrder: [...state.projectOrder],
+        }
+      }
+    }).finally(() => { workspaceRootsResumeInProgress = false })
+  }, 100)
 }
 
 function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }>; mode: 'steer' | 'queue' }): void {
@@ -3731,7 +3704,7 @@ async function onSubmitProjectSetup(): Promise<void> {
     if (!normalizedPath) return
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    await pinProjectToTop(normalizedPath)
     await loadWorkspaceRootOptionsState()
     await refreshDefaultProjectName()
     isProjectSetupModalOpen.value = false
@@ -3764,7 +3737,7 @@ async function finishProjectImport(
     const result = await importer(baseDir)
     if (!result.path) return
     newThreadCwd.value = result.path
-    pinProjectToTop(getProjectOrderNameForPath(result.path))
+    await pinProjectToTop(result.path)
     await loadWorkspaceRootOptionsState()
     await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
     await refreshDefaultProjectName()
@@ -3842,7 +3815,7 @@ async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value):
     }
 
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    await pinProjectToTop(normalizedPath)
     await loadWorkspaceRootOptionsState()
     await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
     await refreshDefaultProjectName()
@@ -3935,7 +3908,7 @@ async function applyLaunchProjectPathFromUrl(): Promise<boolean> {
     })
     if (!normalizedPath) return false
     newThreadCwd.value = normalizedPath
-    pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
+    await pinProjectToTop(normalizedPath)
     await router.replace({ name: 'home' })
     await loadWorkspaceRootOptionsState()
     const nextUrl = new URL(window.location.href)
@@ -4002,8 +3975,8 @@ async function loadWorkspaceRootOptionsState(): Promise<void> {
       labels: { ...state.labels },
       projectOrder: [...state.projectOrder],
     }
-  } catch {
-    workspaceRootOptionsState.value = { order: [], labels: {}, projectOrder: [] }
+  } catch (cause) {
+    desktopError.value = cause instanceof Error ? cause.message : 'Failed to load projects'
   }
 }
 

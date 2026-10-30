@@ -8,6 +8,7 @@ Return to the [manual test index](../../tests.md).
 
 | Section |
 | --- |
+| [Concurrent project state updates and stale responses](concurrent-project-state-updates.md) |
 | [Feature: Project recency sort, pins, and mobile move mode](project-recency-sort-pins-and-mobile-move-mode.md) |
 | [Feature: Projectless new chat folders](projectless-new-chat-folders.md) |
 | [Feature: Unified create project and GitHub clone modal](unified-create-project-and-github-clone-modal.md) |
