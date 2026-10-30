@@ -43,6 +43,7 @@ import {
 } from '../api/codexGateway'
 import { CodexApiError } from '../api/codexErrors'
 import { normalizeFileChangeStatus, toUiFileChanges } from '../api/normalizers/v2'
+import { readGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata'
 import type {
   CollaborationModeKind,
   CollaborationModeOption,
@@ -653,6 +654,10 @@ function areMessageFieldsEqual(first: UiMessage, second: UiMessage): boolean {
     areCommandExecutionsEqual(first.commandExecution, second.commandExecution) &&
     arePlanDataEqual(first.plan, second.plan) &&
     first.turnId === second.turnId &&
+    first.generationMetadata?.model === second.generationMetadata?.model &&
+    first.generationMetadata?.effort === second.generationMetadata?.effort &&
+    first.generationMetadata?.modelSource === second.generationMetadata?.modelSource &&
+    first.generationMetadata?.effortSource === second.generationMetadata?.effortSource &&
     first.turnIndex === second.turnIndex &&
     first.isAutomationRun === second.isAutomationRun &&
     first.automationDisplayName === second.automationDisplayName
@@ -1456,6 +1461,7 @@ export function useDesktopState() {
   const turnActivityByThreadId = ref<Record<string, TurnActivityState>>({})
   const turnErrorByThreadId = ref<Record<string, TurnErrorState>>({})
   const activeTurnIdByThreadId = ref<Record<string, string>>({})
+  const generationMetadataByThreadId = ref<Record<string, Record<string, TurnGenerationMetadata>>>({})
   const interruptBlockedUntilPersistedByThreadId = ref<Record<string, boolean>>({})
   const threadListedByServerById = ref<Record<string, boolean>>({})
   const persistedUserMessageByThreadId = ref<Record<string, boolean>>({})
@@ -1597,6 +1603,9 @@ export function useDesktopState() {
       activityDetails: activity?.details ?? [],
       reasoningText,
       errorText,
+      generationMetadata: generationMetadataByThreadId.value[threadId]?.[activeTurnIdByThreadId.value[threadId]]
+        ?? persistedMessagesByThreadId.value[threadId]?.find((message) =>
+          message.turnId === activeTurnIdByThreadId.value[threadId] && message.generationMetadata)?.generationMetadata,
     }
   })
   const codexQuota = computed<UiRateLimitSnapshot | null>(() => codexRateLimit.value)
@@ -1614,7 +1623,11 @@ export function useDesktopState() {
     const liveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
     const liveCommands = liveCommandsByThreadId.value[threadId] ?? []
     const liveFileChanges = liveFileChangeMessagesByThreadId.value[threadId] ?? []
-    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent]
+    const combined = [...persisted, ...livePlan, ...liveCommands, ...liveFileChanges, ...liveAgent].map((message) => {
+      const metadata = message.turnId ? generationMetadataByThreadId.value[threadId]?.[message.turnId] : undefined
+      if (message.role !== 'assistant' || !metadata) return message
+      return { ...message, generationMetadata: { ...metadata, ...message.generationMetadata } }
+    })
 
     const summary = turnSummaryByThreadId.value[threadId]
     if (!summary) return combined
@@ -2602,12 +2615,16 @@ export function useDesktopState() {
 
   function upsertLivePlanMessage(threadId: string, nextMessage: UiMessage): void {
     const previous = livePlanMessagesByThreadId.value[threadId] ?? []
+    nextMessage = { ...nextMessage, turnId: nextMessage.turnId
+      || previous.find((message) => message.id === nextMessage.id)?.turnId || activeTurnIdByThreadId.value[threadId] }
     const next = upsertMessage(previous, nextMessage)
     setLivePlanMessagesForThread(threadId, next)
   }
 
   function upsertLiveAgentMessage(threadId: string, nextMessage: UiMessage): void {
     const previous = liveAgentMessagesByThreadId.value[threadId] ?? []
+    nextMessage = { ...nextMessage, turnId: nextMessage.turnId
+      || previous.find((message) => message.id === nextMessage.id)?.turnId || activeTurnIdByThreadId.value[threadId] }
     const next = upsertMessage(previous, nextMessage)
     setLiveAgentMessagesForThread(threadId, next)
   }
@@ -3788,6 +3805,18 @@ export function useDesktopState() {
     }
 
     const notificationThreadId = extractThreadIdFromNotification(notification)
+    if (notificationThreadId && (notification.method === 'turn/started' || notification.method === 'turn/generationMetadata')) {
+      const params = asRecord(notification.params)
+      const turn = asRecord(params?.turn)
+      const turnId = readString(turn?.id) || readString(params?.turnId)
+      const metadata = readGenerationMetadata(turn?.generationMetadata ?? params?.generationMetadata)
+      if (turnId && metadata) {
+        generationMetadataByThreadId.value = {
+          ...generationMetadataByThreadId.value,
+          [notificationThreadId]: { ...generationMetadataByThreadId.value[notificationThreadId], [turnId]: metadata },
+        }
+      }
+    }
     const notificationErrorState = readNotificationErrorState(notification)
     if (!notificationErrorState && notificationThreadId) {
       clearTransientTurnErrorForThread(notificationThreadId)
@@ -5620,6 +5649,7 @@ export function useDesktopState() {
     turnSummaryByThreadId.value = {}
     turnErrorByThreadId.value = {}
     activeTurnIdByThreadId.value = {}
+    generationMetadataByThreadId.value = {}
     interruptBlockedUntilPersistedByThreadId.value = {}
     threadListedByServerById.value = {}
     persistedUserMessageByThreadId.value = {}

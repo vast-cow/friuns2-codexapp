@@ -205,6 +205,7 @@ export type UiPlanData = {
 }
 
 export type UiMessage = {
+  generationMetadata?: import('../turnGenerationMetadata').TurnGenerationMetadata
   id: string
   role: 'user' | 'assistant' | 'system'
   text: string
@@ -245,6 +246,7 @@ export type UiServerRequestReply = {
 }
 
 export type UiLiveOverlay = {
+  generationMetadata?: import('../turnGenerationMetadata').TurnGenerationMetadata
   activityLabel: string
   activityDetails: string[]
   reasoningText: string
