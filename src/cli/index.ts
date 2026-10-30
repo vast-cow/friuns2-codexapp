@@ -507,7 +507,6 @@ async function startServer(options: {
     '',
     'Codex Web Local is running!',
     `  Version:  ${version}`,
-    '  GitHub:   https://github.com/friuns2/codexui',
     '',
     `  Bind:     http://0.0.0.0:${String(port)}`,
     `  Codex sandbox: ${runtimeConfig.sandboxMode ?? "Codex configuration (inherited)"}`,
