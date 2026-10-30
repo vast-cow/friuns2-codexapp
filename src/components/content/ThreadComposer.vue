@@ -167,7 +167,8 @@
           <button
             class="thread-composer-attach-trigger"
             type="button"
-            :aria-label="t('Add photos & files')"
+            :aria-label="t('Add attachments and settings')"
+            :aria-expanded="isAttachMenuOpen"
             :disabled="isInteractionDisabled"
             @click="toggleAttachMenu"
           >
@@ -264,6 +265,15 @@
                 class="thread-composer-attach-switch"
                 :class="{ 'is-on': isPlanModeSelected }"
               />
+            </button>
+            <button
+              v-if="activeThreadId && activeThreadId !== '__new-thread__'"
+              class="thread-composer-attach-item"
+              type="button"
+              :disabled="isInteractionDisabled"
+              @click="isAttachMenuOpen = false; emit('edit-goal')"
+            >
+              {{ t('Goal…') }}
             </button>
           </div>
         </div>

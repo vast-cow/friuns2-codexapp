@@ -113,6 +113,8 @@ const zhCN: Record<string, string> = {
   'Service worker registration failed.': 'Service Worker 注册失败。',
   'No matching files': '没有匹配的文件',
   'Add photos & files': '添加图片和文件',
+  'Add attachments and settings': '添加附件和设置',
+  'Goal…': '目标…',
   'Add folder': '添加文件夹',
   'Take photo': '拍照',
   'In-progress send': '执行中发送',
