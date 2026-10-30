@@ -29,3 +29,25 @@ Thread rows show an inline delete button that morphs to `Confirm`, while pin/unp
 - Delete or unpin any disposable threads created only for this test
 
 ---
+
+### Open sidebar threads in a new tab
+
+#### Prerequisites/Setup
+1. Run the app with at least two threads, including a pinned thread and a project thread.
+2. Make light and dark themes available and allow user-initiated new tabs.
+
+#### Steps
+1. Select one thread, then right-click a different thread in the sidebar.
+2. Click `Open in new tab` at the top of the context menu.
+3. Verify the new tab opens the right-clicked thread and reload it to confirm the URL still identifies that thread.
+4. Return to the original tab and verify its selected thread and URL are unchanged and the menu is closed.
+5. Repeat for pinned, project, and regular chat rows, including the currently selected thread and the ellipsis menu.
+6. Repeat in dark theme; verify the item text, background, and hover state remain readable in both themes.
+
+#### Expected Results
+- Each click opens one tab with the target thread using the existing thread route.
+- The original tab does not navigate or reload its thread, and the menu closes.
+- Existing menu actions remain available and menu placement accommodates the extra row near the viewport edge.
+
+#### Rollback/Cleanup
+- Close the tabs opened during this check and restore the original theme/pin state.
