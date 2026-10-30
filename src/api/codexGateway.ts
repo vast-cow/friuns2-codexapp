@@ -1,3 +1,5 @@
+import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
+export type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 import { ref } from 'vue'
 import {
   fetchRpcMethodCatalog,
@@ -3032,16 +3034,21 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
-export async function setWorkspaceRootsState(nextState: WorkspaceRootsState): Promise<void> {
+export async function updateWorkspaceRootsState(operation: WorkspaceRootsOperation): Promise<WorkspaceRootsState> {
   const response = await fetch('/codex-api/workspace-roots-state', {
-    method: 'PUT',
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(nextState),
+    body: JSON.stringify(operation),
   })
+  const payload = await readJsonResponse(response)
   if (!response.ok) {
-    throw new Error('Failed to save workspace roots state')
+    throw new Error(getErrorMessageFromPayload(payload, 'Failed to save workspace roots state'))
   }
-  cachedWorkspaceRootsState = cloneWorkspaceRootsState(nextState)
+  const envelope = payload as { data?: unknown }
+  const state = normalizeWorkspaceRootsState(envelope.data)
+  invalidateWorkspaceRootsStateCache()
+  cachedWorkspaceRootsState = cloneWorkspaceRootsState(state)
+  return cloneWorkspaceRootsState(state)
 }
 
 export async function openProjectRoot(path: string, options?: { createIfMissing?: boolean; label?: string }): Promise<string> {
