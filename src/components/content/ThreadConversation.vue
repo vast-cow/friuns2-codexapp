@@ -315,6 +315,18 @@
                   <div class="plan-card-header">
                     <p class="plan-card-title">Plan</p>
                     <span v-if="message.messageType === 'plan.live'" class="plan-card-badge">Updating</span>
+                    <button
+                      v-else-if="hasPlanCopyContent(message)"
+                      type="button"
+                      class="message-copy-button"
+                      :data-copied="copiedPlanId === message.id"
+                      :aria-label="copiedPlanId === message.id ? 'Plan copied' : 'Copy plan'"
+                      :title="copiedPlanId === message.id ? 'Plan copied' : 'Copy plan'"
+                      @click="copyPlan(message)"
+                    >
+                      <IconTablerCopy class="icon-svg message-copy-icon" />
+                      <span class="message-copy-label">{{ copiedPlanId === message.id ? 'Copied' : 'Copy' }}</span>
+                    </button>
                   </div>
                   <div
                     v-if="readPlanExplanation(message)"
@@ -1335,6 +1347,7 @@ const conversationListRef = ref<HTMLElement | null>(null)
 const bottomAnchorRef = ref<HTMLElement | null>(null)
 const modalImageUrl = ref('')
 const copiedResponseAnchorId = ref('')
+const copiedPlanId = ref('')
 const fileChangeActionState = ref<Record<string, 'idle' | 'undoing' | 'redoing' | 'undone' | 'redone'>>({})
 const fileChangeActionError = ref<Record<string, string>>({})
 const fileChangeRedoPatchIds = ref<Record<string, string[]>>({})
@@ -1392,6 +1405,8 @@ let conversationScrollFrame = 0
 let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 let copiedMessageResetTimer: ReturnType<typeof setTimeout> | null = null
+let copiedPlanResetTimer: ReturnType<typeof setTimeout> | null = null
+let conversationUnmounted = false
 let conversationScrollPromise: Promise<void> | null = null
 const trackedPendingImages = new WeakSet<HTMLImageElement>()
 const highlightJsModule = ref<HighlightJsModule | null>(null)
@@ -1775,6 +1790,30 @@ function buildPlanCopyText(message: UiMessage): string {
   }
 
   return sections.join('\n\n').trim()
+}
+
+function hasPlanCopyContent(message: UiMessage): boolean {
+  const planData = readPlanData(message)
+  return planData ? Boolean(planData.explanation || planData.steps.some((step) => step.step.trim())) : Boolean(message.text.trim())
+}
+
+async function copyPlan(message: UiMessage): Promise<void> {
+  const content = buildPlanCopyText(message) || message.text.trim()
+  if (!content) return
+
+  try {
+    await copyTextToClipboard(content)
+  } catch {
+    return
+  }
+  if (conversationUnmounted) return
+
+  copiedPlanId.value = message.id
+  if (copiedPlanResetTimer) clearTimeout(copiedPlanResetTimer)
+  copiedPlanResetTimer = setTimeout(() => {
+    copiedPlanId.value = ''
+    copiedPlanResetTimer = null
+  }, 1800)
 }
 
 function buildCopyableMessageContent(message: UiMessage): string {
@@ -4469,6 +4508,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  conversationUnmounted = true
   clearRenderCaches()
   if (conversationScrollFrame) {
     cancelAnimationFrame(conversationScrollFrame)
@@ -4481,6 +4521,10 @@ onBeforeUnmount(() => {
   if (copiedMessageResetTimer) {
     clearTimeout(copiedMessageResetTimer)
     copiedMessageResetTimer = null
+  }
+  if (copiedPlanResetTimer) {
+    clearTimeout(copiedPlanResetTimer)
+    copiedPlanResetTimer = null
   }
   window.removeEventListener('pointerdown', onWindowPointerDownForFileLinkContextMenu)
   window.removeEventListener('blur', onWindowBlurForFileLinkContextMenu)
