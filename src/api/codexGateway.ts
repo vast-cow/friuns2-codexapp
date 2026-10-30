@@ -270,7 +270,10 @@ export type WorkspaceRootsState = {
   }>
 }
 
-let workspaceRootsStatePromise: Promise<WorkspaceRootsState> | null = null
+let workspaceRootsGeneration = 0
+let workspaceRootsRequestId = 0
+let workspaceRootsRequest: { generation: number; id: number; promise: Promise<WorkspaceRootsState> } | null = null
+let workspaceRootsMutation: Promise<unknown> = Promise.resolve()
 let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
 
 export type StoredQueuedMessage = {
@@ -2574,20 +2577,31 @@ function normalizeThreadQueueState(value: unknown): ThreadQueueState {
 }
 
 export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
-  if (cachedWorkspaceRootsState) {
-    return cloneWorkspaceRootsState(cachedWorkspaceRootsState)
-  }
-  if (!workspaceRootsStatePromise) {
-    workspaceRootsStatePromise = fetchWorkspaceRootsState()
+  await workspaceRootsMutation
+  if (cachedWorkspaceRootsState) return cloneWorkspaceRootsState(cachedWorkspaceRootsState)
+  if (!workspaceRootsRequest) {
+    const generation = workspaceRootsGeneration
+    const id = ++workspaceRootsRequestId
+    const promise = fetchWorkspaceRootsState()
       .then((state) => {
+        if (generation !== workspaceRootsGeneration) return getWorkspaceRootsState()
         cachedWorkspaceRootsState = state
         return state
       })
-      .finally(() => {
-        workspaceRootsStatePromise = null
+      .catch((error: unknown) => {
+        if (generation !== workspaceRootsGeneration) return getWorkspaceRootsState()
+        throw error
       })
+      .finally(() => {
+        if (workspaceRootsRequest?.id === id) workspaceRootsRequest = null
+      })
+    workspaceRootsRequest = { generation, id, promise }
   }
-  return cloneWorkspaceRootsState(await workspaceRootsStatePromise)
+  const request = workspaceRootsRequest
+  const state = await request.promise
+  // Invalidation can also happen between promise resolution and this continuation.
+  if (request.generation !== workspaceRootsGeneration) return getWorkspaceRootsState()
+  return cloneWorkspaceRootsState(state)
 }
 
 async function fetchWorkspaceRootsState(): Promise<WorkspaceRootsState> {
@@ -2613,8 +2627,34 @@ function cloneWorkspaceRootsState(state: WorkspaceRootsState): WorkspaceRootsSta
   }
 }
 
-function invalidateWorkspaceRootsStateCache(): void {
+export function getWorkspaceRootsStateGeneration(): number {
+  return workspaceRootsGeneration
+}
+
+export function invalidateWorkspaceRootsStateCache(): void {
+  workspaceRootsGeneration += 1
   cachedWorkspaceRootsState = null
+  workspaceRootsRequest = null
+}
+
+function queueWorkspaceRootsMutation<T>(
+  mutation: () => Promise<T>,
+  stateFromResult?: (result: T) => WorkspaceRootsState,
+): Promise<T> {
+  const run = workspaceRootsMutation.catch(() => undefined).then(async () => {
+    invalidateWorkspaceRootsStateCache()
+    try {
+      const result = await mutation()
+      invalidateWorkspaceRootsStateCache()
+      if (stateFromResult) cachedWorkspaceRootsState = cloneWorkspaceRootsState(stateFromResult(result))
+      return result
+    } catch (error) {
+      invalidateWorkspaceRootsStateCache()
+      throw error
+    }
+  })
+  workspaceRootsMutation = run.catch(() => undefined)
+  return run
 }
 
 export async function getThreadQueueState(): Promise<ThreadQueueState> {
@@ -3034,7 +3074,27 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
-export async function updateWorkspaceRootsState(operation: WorkspaceRootsOperation): Promise<WorkspaceRootsState> {
+export function updateWorkspaceRootsState(operation: WorkspaceRootsOperation): Promise<WorkspaceRootsState> {
+  return queueWorkspaceRootsMutation(() => updateWorkspaceRootsStateRequest(operation), (state) => state)
+}
+
+export function openProjectRoot(path: string, options?: { createIfMissing?: boolean; label?: string }): Promise<string> {
+  return queueWorkspaceRootsMutation(() => openProjectRootRequest(path, options))
+}
+
+export function importProjectZip(file: Blob, parent: string): Promise<{ path: string; importedSessions: number }> {
+  return queueWorkspaceRootsMutation(() => importProjectZipRequest(file, parent))
+}
+
+export function createLocalDirectory(path: string): Promise<string> {
+  return queueWorkspaceRootsMutation(() => createLocalDirectoryRequest(path))
+}
+
+export function cloneGithubRepository(url: string, basePath: string): Promise<string> {
+  return queueWorkspaceRootsMutation(() => cloneGithubRepositoryRequest(url, basePath))
+}
+
+async function updateWorkspaceRootsStateRequest(operation: WorkspaceRootsOperation): Promise<WorkspaceRootsState> {
   const response = await fetch('/codex-api/workspace-roots-state', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -3046,12 +3106,10 @@ export async function updateWorkspaceRootsState(operation: WorkspaceRootsOperati
   }
   const envelope = payload as { data?: unknown }
   const state = normalizeWorkspaceRootsState(envelope.data)
-  invalidateWorkspaceRootsStateCache()
-  cachedWorkspaceRootsState = cloneWorkspaceRootsState(state)
   return cloneWorkspaceRootsState(state)
 }
 
-export async function openProjectRoot(path: string, options?: { createIfMissing?: boolean; label?: string }): Promise<string> {
+async function openProjectRootRequest(path: string, options?: { createIfMissing?: boolean; label?: string }): Promise<string> {
   const response = await fetch('/codex-api/project-root', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3075,7 +3133,6 @@ export async function openProjectRoot(path: string, options?: { createIfMissing?
       ? (record.data as Record<string, unknown>)
       : {}
   const normalizedPath = typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
-  invalidateWorkspaceRootsStateCache()
   return normalizedPath
 }
 
@@ -3144,7 +3201,7 @@ export async function downloadProjectZip(
   return { blob: new Blob(blobParts, { type: response.headers.get('content-type') ?? 'application/zip' }), fileName }
 }
 
-export async function importProjectZip(file: Blob, parent: string): Promise<{ path: string; importedSessions: number }> {
+async function importProjectZipRequest(file: Blob, parent: string): Promise<{ path: string; importedSessions: number }> {
   const query = new URLSearchParams({ parent })
   const response = await fetch(`/codex-api/project-import?${query.toString()}`, {
     method: 'POST',
@@ -3165,16 +3222,13 @@ export async function importProjectZip(file: Blob, parent: string): Promise<{ pa
       ? (record.data as Record<string, unknown>)
       : {}
   const normalizedPath = typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
-  if (normalizedPath) {
-    invalidateWorkspaceRootsStateCache()
-  }
   return {
     path: normalizedPath,
     importedSessions: typeof data.importedSessions === 'number' ? data.importedSessions : 0,
   }
 }
 
-export async function createLocalDirectory(path: string): Promise<string> {
+async function createLocalDirectoryRequest(path: string): Promise<string> {
   const response = await fetch('/codex-api/local-directory', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3194,13 +3248,10 @@ export async function createLocalDirectory(path: string): Promise<string> {
       ? (record.data as Record<string, unknown>)
       : {}
   const normalizedPath = typeof data.path === 'string' ? normalizePathForUi(data.path) : ''
-  if (normalizedPath) {
-    invalidateWorkspaceRootsStateCache()
-  }
   return normalizedPath
 }
 
-export async function cloneGithubRepository(url: string, basePath: string): Promise<string> {
+async function cloneGithubRepositoryRequest(url: string, basePath: string): Promise<string> {
   const response = await fetch('/codex-api/github-clone', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

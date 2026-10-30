@@ -25,9 +25,11 @@ import {
   getThreadGroupsPage,
   getThreadQueueState,
   getWorkspaceRootsState,
+  getWorkspaceRootsStateGeneration,
   setCodexSpeedMode,
   setThreadQueueState,
-  setWorkspaceRootsState,
+  updateWorkspaceRootsState,
+  invalidateWorkspaceRootsStateCache,
   getThreadTitleCache,
   persistThreadTitle,
   generateThreadTitle,
@@ -502,7 +504,7 @@ function loadProjectOrder(): string[] {
     const order: string[] = []
     for (const item of parsed) {
       if (typeof item !== 'string' || item.length === 0) continue
-      const normalizedItem = toProjectName(item)
+      const normalizedItem = normalizePathForUi(item).trim()
       if (normalizedItem.length > 0 && !order.includes(normalizedItem)) {
         order.push(normalizedItem)
       }
@@ -530,7 +532,7 @@ function loadProjectDisplayNames(): Record<string, string> {
 
     const displayNames: Record<string, string> = {}
     for (const [projectName, displayName] of Object.entries(parsed as Record<string, unknown>)) {
-      const normalizedProjectName = typeof projectName === 'string' ? toProjectName(projectName) : ''
+      const normalizedProjectName = typeof projectName === 'string' ? normalizePathForUi(projectName).trim() : ''
       if (normalizedProjectName.length > 0 && typeof displayName === 'string') {
         displayNames[normalizedProjectName] = displayName
       }
@@ -1133,32 +1135,24 @@ function getWorkspaceProjectOrderNames(
   })
 }
 
-function matchesWorkspaceRootProject(rootPath: string, projectName: string): boolean {
-  const normalizedRootPath = normalizePathForUi(rootPath).trim()
-  return normalizedRootPath === projectName || toProjectNameFromWorkspaceRoot(rootPath) === projectName
+function getWorkspaceProjectId(
+  rootsState: WorkspaceRootsState | null,
+  projectName: string,
+  groups: UiProjectGroup[],
+): string {
+  const ids = getWorkspaceProjectOrderPaths(rootsState)
+  if (ids.includes(projectName)) return projectName
+  const names = getWorkspaceProjectOrderNames(rootsState, collectDuplicateProjectLeafNames(groups, rootsState))
+  const matches = ids.filter((_, index) => names[index] === projectName)
+  return matches.length === 1 ? matches[0] : ''
 }
 
 export function collectWorkspaceRootPathsForProjectRemoval(
   rootsState: WorkspaceRootsState,
   projectName: string,
 ): Set<string> {
-  const removedRootPaths = new Set<string>()
-  for (const rootPath of rootsState.order) {
-    if (matchesWorkspaceRootProject(rootPath, projectName)) {
-      removedRootPaths.add(rootPath)
-    }
-  }
-  for (const rootPath of rootsState.active) {
-    if (matchesWorkspaceRootProject(rootPath, projectName)) {
-      removedRootPaths.add(rootPath)
-    }
-  }
-  for (const rootPath of Object.keys(rootsState.labels)) {
-    if (matchesWorkspaceRootProject(rootPath, projectName)) {
-      removedRootPaths.add(rootPath)
-    }
-  }
-  return removedRootPaths
+  const id = getWorkspaceProjectId(rootsState, projectName, [])
+  return new Set(id && rootsState.order.includes(id) ? [id] : [])
 }
 
 export function buildWorkspaceRootsProjectOrderState(
@@ -1166,57 +1160,14 @@ export function buildWorkspaceRootsProjectOrderState(
   orderedProjectNames: string[],
   groups: UiProjectGroup[],
 ): Pick<WorkspaceRootsState, 'order' | 'active' | 'projectOrder'> {
-  const remoteProjectIds = new Set((rootsState.remoteProjects ?? []).map((project) => project.id))
-  const rootByProjectName = new Map<string, string>()
-  for (const rootPath of rootsState.order) {
-    const projectName = toProjectNameFromWorkspaceRoot(rootPath)
-    if (!rootByProjectName.has(projectName)) {
-      rootByProjectName.set(projectName, rootPath)
-    }
-  }
-  for (const group of groups) {
-    const cwd = group.threads[0]?.cwd?.trim() ?? ''
-    if (!cwd) continue
-    rootByProjectName.set(group.projectName, cwd)
-  }
-
-  const nextProjectOrder: string[] = []
-  const pushProjectOrderItem = (item: string): void => {
-    if (item && !nextProjectOrder.includes(item)) {
-      nextProjectOrder.push(item)
-    }
-  }
-
-  for (const projectName of orderedProjectNames) {
-    if (remoteProjectIds.has(projectName)) {
-      pushProjectOrderItem(projectName)
-      continue
-    }
-    const rootPath = rootByProjectName.get(projectName)
-    if (rootPath) {
-      pushProjectOrderItem(rootPath)
-    }
-  }
-  for (const item of getWorkspaceProjectOrderPaths(rootsState)) {
-    pushProjectOrderItem(item)
-  }
-
-  const nextOrder = nextProjectOrder.filter((item) => rootsState.order.includes(item))
-  for (const rootPath of rootsState.order) {
-    if (!nextOrder.includes(rootPath)) {
-      nextOrder.push(rootPath)
-    }
-  }
-
-  const nextActive = rootsState.active.filter((rootPath) => nextOrder.includes(rootPath))
-  if (nextActive.length === 0 && nextOrder.length > 0) {
-    nextActive.push(nextOrder[0])
-  }
-
+  const projectOrder = [...new Set([
+    ...orderedProjectNames.map((name) => getWorkspaceProjectId(rootsState, name, groups)).filter(Boolean),
+    ...getWorkspaceProjectOrderPaths(rootsState),
+  ])]
   return {
-    order: nextOrder,
-    active: nextActive,
-    projectOrder: nextProjectOrder,
+    order: projectOrder.filter((id) => rootsState.order.includes(id)),
+    active: [...rootsState.active],
+    projectOrder,
   }
 }
 
@@ -1543,11 +1494,15 @@ export function useDesktopState() {
   const lastMessageLoadFailureAtByThreadId = new Map<string, number>()
   let threadListNextCursor: string | null = null
   let threadListBackgroundTimer: number | null = null
-  let isLoadingRemainingThreadPages = false
+  let threadListGeneration = 0
+  let pendingForcedThreadLoad = false
+  let remainingThreadPageRequest: { generation: number; cursor: string } | null = null
   let hasLoadedAllThreadPages = false
   let loadedThreadListGroups: UiProjectGroup[] = []
   let loadedThreadListRootsState: WorkspaceRootsState | null = null
-  let hasHydratedWorkspaceRootsState = false
+  let projectOperationPromise: Promise<void> = Promise.resolve()
+  let workspaceRootsRefreshPromise: Promise<WorkspaceRootsState | null> | null = null
+  const projectRenameTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let activeReasoningItemId = ''
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
@@ -4092,66 +4047,55 @@ export function useDesktopState() {
     }, EVENT_SYNC_DEBOUNCE_MS)
   }
 
-  async function hydrateWorkspaceRootsStateIfNeeded(
-    groups: UiProjectGroup[],
-    rootsState: WorkspaceRootsState | null,
-  ): Promise<void> {
-    if (hasHydratedWorkspaceRootsState) return
-    hasHydratedWorkspaceRootsState = true
-
-    try {
-      if (!rootsState) return
-      const hydratedOrder: string[] = []
-      for (const rootPath of getWorkspaceProjectOrderPaths(rootsState)) {
-        const projectName = toProjectNameFromWorkspaceRoot(rootPath)
-        if (hydratedOrder.includes(projectName)) continue
-        hydratedOrder.push(projectName)
+  function applyWorkspaceRootsState(rootsState: WorkspaceRootsState): void {
+    const nextLabels = { ...projectDisplayNameById.value }
+    // Remove labels from the preceding snapshot, including labels cleared in another tab.
+    for (const state of [loadedThreadListRootsState, rootsState]) {
+      for (const rootPath of state?.order ?? []) {
+        delete nextLabels[rootPath]
+        delete nextLabels[toProjectNameFromWorkspaceRoot(rootPath)]
       }
-
-      if (hydratedOrder.length > 0) {
-        const mergedOrder = rootsState.projectOrder.length > 0
-          ? mergeProjectOrder(hydratedOrder, groups)
-          : mergeProjectOrder(projectOrder.value, groups)
-        if (!areStringArraysEqual(projectOrder.value, mergedOrder)) {
-          projectOrder.value = mergedOrder
-        }
-      }
-
-      if (Object.keys(rootsState.labels).length > 0 || (rootsState.remoteProjects ?? []).length > 0) {
-        const nextLabels = { ...projectDisplayNameById.value }
-        let changed = false
-        for (const [rootPath, label] of Object.entries(rootsState.labels)) {
-          const normalizedRootPath = normalizePathForUi(rootPath).trim()
-          const projectNames = [toProjectNameFromWorkspaceRoot(rootPath)]
-          if (normalizedRootPath) projectNames.push(normalizedRootPath)
-          for (const projectName of projectNames) {
-            if (nextLabels[projectName] === label) continue
-            nextLabels[projectName] = label
-            changed = true
-          }
-        }
-        for (const rootPath of rootsState.order) {
-          const leafName = toProjectNameFromWorkspaceRoot(rootPath)
-          const parentLeafName = toProjectName(getPathParent(rootPath))
-          if (!parentLeafName.startsWith('.') || parentLeafName === leafName) continue
-          const displayName = `${leafName} ${parentLeafName}`
-          if (nextLabels[leafName] !== undefined || nextLabels[leafName] === displayName) continue
-          nextLabels[leafName] = displayName
-          changed = true
-        }
-        for (const remoteProject of rootsState.remoteProjects ?? []) {
-          const label = getRemoteProjectDisplayName(remoteProject)
-          if (nextLabels[remoteProject.id] === label) continue
-          nextLabels[remoteProject.id] = label
-          changed = true
-        }
-        if (changed) {
-          projectDisplayNameById.value = nextLabels
-        }
-      }
-    } catch {
-      // Keep local storage fallback when global state is unavailable.
+      for (const remote of state?.remoteProjects ?? []) delete nextLabels[remote.id]
     }
+    const ids = getWorkspaceProjectOrderPaths(rootsState)
+    const names = getWorkspaceProjectOrderNames(rootsState, collectDuplicateProjectLeafNames(loadedThreadListGroups, rootsState))
+    for (const rootPath of rootsState.order) {
+      const leafName = toProjectNameFromWorkspaceRoot(rootPath)
+      const parentLeafName = toProjectName(getPathParent(rootPath))
+      const label = rootsState.labels[rootPath]
+        || (parentLeafName.startsWith('.') && parentLeafName !== leafName ? `${leafName} ${parentLeafName}` : '')
+      if (!label) continue
+      nextLabels[rootPath] = label
+      nextLabels[names[ids.indexOf(rootPath)] ?? rootPath] = label
+    }
+    for (const remote of rootsState.remoteProjects ?? []) nextLabels[remote.id] = getRemoteProjectDisplayName(remote)
+    projectDisplayNameById.value = nextLabels
+    loadedThreadListRootsState = rootsState
+    applyThreadGroups(loadedThreadListGroups, rootsState)
+    saveProjectDisplayNames(nextLabels)
+    saveProjectOrder(projectOrder.value)
+  }
+
+  function queueProjectOperation(operation: () => Promise<void>): Promise<void> {
+    const run = projectOperationPromise.then(operation).catch((cause: unknown) => {
+      error.value = cause instanceof Error ? cause.message : 'Failed to update projects'
+    })
+    projectOperationPromise = run
+    return run
+  }
+
+  function refreshWorkspaceRoots(): Promise<WorkspaceRootsState | null> {
+    if (workspaceRootsRefreshPromise) return workspaceRootsRefreshPromise
+    let refreshedState: WorkspaceRootsState | null = null
+    const run = queueProjectOperation(async () => {
+      invalidateWorkspaceRootsStateCache()
+      refreshedState = await getWorkspaceRootsState()
+      applyWorkspaceRootsState(refreshedState)
+    }).then(() => refreshedState).finally(() => {
+      if (workspaceRootsRefreshPromise === run) workspaceRootsRefreshPromise = null
+    })
+    workspaceRootsRefreshPromise = run
+    return run
   }
 
   async function loadThreadTitleCacheIfNeeded(options: { force?: boolean } = {}): Promise<void> {
@@ -4169,8 +4113,9 @@ export function useDesktopState() {
   async function loadWorkspaceRootsStateForThreadList(): Promise<WorkspaceRootsState | null> {
     try {
       return await getWorkspaceRootsState()
-    } catch {
-      return null
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'Failed to load projects'
+      return loadedThreadListRootsState
     }
   }
 
@@ -4323,107 +4268,126 @@ export function useDesktopState() {
     return Object.values(inProgressById.value).some((value) => value === true)
   }
 
-  function scheduleRemainingThreadPages(rootsState: WorkspaceRootsState | null = loadedThreadListRootsState): void {
-    if (!threadListNextCursor || isLoadingRemainingThreadPages || hasActiveInProgressThreads()) return
+  function invalidateThreadListGeneration(): number {
+    threadListGeneration += 1
+    remainingThreadPageRequest = null
+    if (threadListBackgroundTimer !== null && typeof window !== 'undefined') {
+      window.clearTimeout(threadListBackgroundTimer)
+      threadListBackgroundTimer = null
+    }
+    return threadListGeneration
+  }
 
-    loadedThreadListRootsState = rootsState
-
+  function scheduleRemainingThreadPages(): void {
+    if (!threadListNextCursor || remainingThreadPageRequest || loadThreadsPromise || hasActiveInProgressThreads()) return
+    const generation = threadListGeneration
+    const cursor = threadListNextCursor
     if (typeof window === 'undefined') {
-      void loadRemainingThreadPages(rootsState)
+      void loadRemainingThreadPages()
       return
     }
-
-    if (threadListBackgroundTimer !== null) {
-      window.clearTimeout(threadListBackgroundTimer)
-    }
-
+    if (threadListBackgroundTimer !== null) window.clearTimeout(threadListBackgroundTimer)
     threadListBackgroundTimer = window.setTimeout(() => {
+      if (generation !== threadListGeneration || cursor !== threadListNextCursor) return
       threadListBackgroundTimer = null
-      if (!threadListNextCursor || hasActiveInProgressThreads()) return
-      void loadRemainingThreadPages(loadedThreadListRootsState)
+      if (hasActiveInProgressThreads()) return
+      void loadRemainingThreadPages()
     }, BACKGROUND_THREAD_PAGINATION_DELAY_MS)
   }
 
-  async function loadRemainingThreadPages(rootsState: WorkspaceRootsState | null): Promise<void> {
-    if (isLoadingRemainingThreadPages || !threadListNextCursor || hasActiveInProgressThreads()) return
-    isLoadingRemainingThreadPages = true
-
+  async function loadRemainingThreadPages(): Promise<void> {
+    if (remainingThreadPageRequest || loadThreadsPromise || !threadListNextCursor || hasActiveInProgressThreads()) return
+    const request = { generation: threadListGeneration, cursor: threadListNextCursor }
+    remainingThreadPageRequest = request
+    let applied = false
     try {
-      const page = await getThreadGroupsPage(threadListNextCursor, getBackgroundThreadListLimit())
-      threadListNextCursor = page.nextCursor
-      hasLoadedAllThreadPages = page.nextCursor === null
+      const page = await getThreadGroupsPage(request.cursor, getBackgroundThreadListLimit())
+      if (request !== remainingThreadPageRequest || request.generation !== threadListGeneration
+        || request.cursor !== threadListNextCursor) return
+      threadListNextCursor = page.nextCursor === request.cursor ? null : page.nextCursor
+      hasLoadedAllThreadPages = threadListNextCursor === null
       isThreadListFullyLoaded.value = hasLoadedAllThreadPages
       loadedThreadListGroups = mergeThreadGroupPages(loadedThreadListGroups, page.groups)
-      applyThreadGroups(loadedThreadListGroups, rootsState)
+      // Roots may have changed while this history request was in flight.
+      applyThreadGroups(loadedThreadListGroups, loadedThreadListRootsState)
+      applied = true
     } catch {
-      // Keep the first page usable; a later refresh can retry remaining pages.
+      // Retain the last list and cursor; retry only after a later refresh.
     } finally {
-      isLoadingRemainingThreadPages = false
-      if (threadListNextCursor && !hasActiveInProgressThreads()) {
-        scheduleRemainingThreadPages(rootsState)
+      if (request === remainingThreadPageRequest && request.generation === threadListGeneration) {
+        remainingThreadPageRequest = null
+        if (applied) scheduleRemainingThreadPages()
       }
     }
   }
 
-  async function loadThreads(options: { force?: boolean } = {}) {
+  async function loadThreads(options: { force?: boolean } = {}): Promise<void> {
     if (loadThreadsPromise) {
-      await loadThreadsPromise
-      return
-    }
-    if (
-      options.force !== true &&
-      hasLoadedThreads.value &&
-      Date.now() - lastThreadListLoadAt < RECENT_THREAD_LIST_LOAD_REUSE_MS
-    ) {
-      return
-    }
-
-    loadThreadsPromise = (async () => {
-    if (!hasLoadedThreads.value) {
-      isLoadingThreads.value = true
-    }
-
-    try {
-      const [page, rootsState] = await Promise.all([
-        getThreadGroupsPage(),
-        loadWorkspaceRootsStateForThreadList(),
-        loadThreadTitleCacheIfNeeded({ force: options.force === true }),
-      ])
-      loadedThreadListRootsState = rootsState
-      const groups = page.groups
-      loadedThreadListGroups = hasLoadedThreads.value
-        ? mergeThreadGroupPages(loadedThreadListGroups, groups)
-        : groups
-      threadListNextCursor = hasLoadedThreads.value && !hasLoadedAllThreadPages
-        ? threadListNextCursor
-        : page.nextCursor
-      hasLoadedAllThreadPages = page.nextCursor === null
-      isThreadListFullyLoaded.value = hasLoadedAllThreadPages
-      await hydrateWorkspaceRootsStateIfNeeded(groups, rootsState)
-
-      applyThreadGroups(loadedThreadListGroups, rootsState)
-      hasLoadedThreads.value = true
-      lastThreadListLoadAt = Date.now()
-      if (!hasLoadedAllThreadPages) {
-        scheduleRemainingThreadPages(rootsState)
+      if (options.force === true && !pendingForcedThreadLoad) {
+        pendingForcedThreadLoad = true
+        invalidateThreadListGeneration()
+        invalidateWorkspaceRootsStateCache()
       }
-
-      const flatThreads = flattenThreads(projectGroups.value)
-      pruneThreadScopedState(flatThreads)
-
-      const currentExists = flatThreads.some((thread) => thread.id === selectedThreadId.value)
-
-      if (!currentExists && !selectedThreadId.value) {
-        setSelectedThreadId(flatThreads[0]?.id ?? '')
-      }
-    } finally {
-      isLoadingThreads.value = false
+      return loadThreadsPromise
     }
+    if (options.force !== true && hasLoadedThreads.value
+      && Date.now() - lastThreadListLoadAt < RECENT_THREAD_LIST_LOAD_REUSE_MS) return
+
+    let completedGeneration = -1
+    const run = (async () => {
+      let force = options.force === true
+      let failure: unknown
+      do {
+        pendingForcedThreadLoad = false
+        failure = undefined
+        const generation = invalidateThreadListGeneration()
+        if (force) invalidateWorkspaceRootsStateCache()
+        if (!hasLoadedThreads.value) isLoadingThreads.value = true
+        try {
+          const rootsGeneration = getWorkspaceRootsStateGeneration()
+          const [page, requestedRootsState] = await Promise.all([
+            getThreadGroupsPage(),
+            loadWorkspaceRootsStateForThreadList(),
+            loadThreadTitleCacheIfNeeded({ force }),
+          ])
+          if (generation === threadListGeneration) {
+            // A registration or edit can invalidate roots while the thread page loads.
+            const rootsState = rootsGeneration === getWorkspaceRootsStateGeneration()
+              ? requestedRootsState
+              : await loadWorkspaceRootsStateForThreadList()
+            if (generation === threadListGeneration) {
+              loadedThreadListGroups = hasLoadedThreads.value
+                ? mergeThreadGroupPages(loadedThreadListGroups, page.groups)
+                : page.groups
+              threadListNextCursor = hasLoadedThreads.value && !force && !hasLoadedAllThreadPages
+                ? threadListNextCursor
+                : page.nextCursor
+              hasLoadedAllThreadPages = threadListNextCursor === null
+              isThreadListFullyLoaded.value = hasLoadedAllThreadPages
+              if (rootsState) applyWorkspaceRootsState(rootsState)
+              else applyThreadGroups(loadedThreadListGroups, loadedThreadListRootsState)
+              completedGeneration = generation
+              hasLoadedThreads.value = true
+              lastThreadListLoadAt = Date.now()
+              const threads = flattenThreads(projectGroups.value)
+              pruneThreadScopedState(threads)
+              if (!selectedThreadId.value) setSelectedThreadId(threads[0]?.id ?? '')
+            }
+          }
+        } catch (cause) {
+          if (generation === threadListGeneration) failure = cause
+        }
+        force = pendingForcedThreadLoad
+      } while (pendingForcedThreadLoad)
+      if (failure) throw failure
     })().finally(() => {
+      if (loadThreadsPromise !== run) return
       loadThreadsPromise = null
+      isLoadingThreads.value = false
+      if (completedGeneration === threadListGeneration && !hasLoadedAllThreadPages) scheduleRemainingThreadPages()
     })
-
-    await loadThreadsPromise
+    loadThreadsPromise = run
+    return run
   }
 
   async function loadMessages(threadId: string, options: { silent?: boolean; force?: boolean } = {}) {
@@ -5339,169 +5303,90 @@ export function useDesktopState() {
     }
   }
 
-  let renameProjectTimer: ReturnType<typeof setTimeout> | null = null
-
-  async function persistProjectLabelToGlobalState(projectName: string, displayName: string): Promise<void> {
-    try {
-      const rootsState = await getWorkspaceRootsState()
-      const nextLabels = { ...rootsState.labels }
-      let changed = false
-      for (const rootPath of rootsState.order) {
-        if (!matchesWorkspaceRootProject(rootPath, projectName)) continue
-        const trimmed = displayName.trim()
-        if (trimmed.length === 0) {
-          if (nextLabels[rootPath] !== undefined) {
-            delete nextLabels[rootPath]
-            changed = true
-          }
-        } else if (nextLabels[rootPath] !== trimmed) {
-          nextLabels[rootPath] = trimmed
-          changed = true
-        }
-      }
-      if (changed) {
-        await setWorkspaceRootsState({
-          order: rootsState.order,
-          labels: nextLabels,
-          active: rootsState.active,
-          projectOrder: rootsState.projectOrder,
-        })
-      }
-    } catch {
-      // Keep localStorage-only rename when global state is unavailable.
-    }
-  }
-
   function renameProject(projectName: string, displayName: string): void {
-    if (projectName.length === 0) return
-
-    const currentValue = projectDisplayNameById.value[projectName] ?? ''
-    if (currentValue === displayName) return
-
-    projectDisplayNameById.value = {
-      ...projectDisplayNameById.value,
-      [projectName]: displayName,
-    }
-    saveProjectDisplayNames(projectDisplayNameById.value)
-
-    if (renameProjectTimer !== null) clearTimeout(renameProjectTimer)
-    renameProjectTimer = setTimeout(() => {
-      renameProjectTimer = null
-      void persistProjectLabelToGlobalState(projectName, displayName)
-    }, 500)
+    if (!projectName) return
+    const path = getWorkspaceProjectId(loadedThreadListRootsState, projectName, sourceGroups.value)
+    const isRegisteredLocalRoot = Boolean(path && loadedThreadListRootsState?.order.includes(path))
+    const key = path || projectName
+    const previousTimer = projectRenameTimers.get(key)
+    if (previousTimer) clearTimeout(previousTimer)
+    projectRenameTimers.set(key, setTimeout(() => {
+      projectRenameTimers.delete(key)
+      void queueProjectOperation(async () => {
+        if (isRegisteredLocalRoot) {
+          const state = await updateWorkspaceRootsState({ type: 'rename', path, label: displayName })
+          applyWorkspaceRootsState(state)
+        } else {
+          // History-only groups keep their local display name without registering a root.
+          projectDisplayNameById.value = { ...projectDisplayNameById.value, [projectName]: displayName }
+          saveProjectDisplayNames(projectDisplayNameById.value)
+        }
+      })
+    }, 500))
   }
 
   async function removeProject(projectName: string): Promise<void> {
-    if (projectName.length === 0) return
-
-    const nextProjectOrder = projectOrder.value.filter((name) => name !== projectName)
-    if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
-      projectOrder.value = nextProjectOrder
-      saveProjectOrder(projectOrder.value)
-    }
-
-    sourceGroups.value = sourceGroups.value.filter((group) => group.projectName !== projectName)
-
-    if (projectDisplayNameById.value[projectName] !== undefined) {
-      const nextDisplayNames = { ...projectDisplayNameById.value }
-      delete nextDisplayNames[projectName]
-      projectDisplayNameById.value = nextDisplayNames
-      saveProjectDisplayNames(nextDisplayNames)
-    }
-
-    applyThreadFlags()
-
-    const flatThreads = flattenThreads(projectGroups.value)
-    pruneThreadScopedState(flatThreads)
-
-    const currentExists = flatThreads.some((thread) => thread.id === selectedThreadId.value)
-    if (!currentExists) {
-      setSelectedThreadId(flatThreads[0]?.id ?? '')
-    }
-
-    const removedRootPaths = new Set<string>()
-    try {
-      const rootsState = await getWorkspaceRootsState()
-      collectWorkspaceRootPathsForProjectRemoval(rootsState, projectName).forEach((rootPath) => {
-        removedRootPaths.add(rootPath)
-      })
-    } catch {
-      // Keep local-only removal when global state is unavailable.
-    }
-
-    if (removedRootPaths.size > 0) {
-      try {
-        const rootsState = await getWorkspaceRootsState()
-        const nextOrder = rootsState.order.filter((rootPath) => !removedRootPaths.has(rootPath))
-        const nextActive = rootsState.active.filter((rootPath) => !removedRootPaths.has(rootPath))
-        const fallbackActive = nextActive.length === 0 && nextOrder.length > 0
-          ? [nextOrder[0]]
-          : nextActive
-        await setWorkspaceRootsState({
-          order: nextOrder,
-          labels: omitKeys(rootsState.labels, removedRootPaths),
-          active: fallbackActive,
-          projectOrder: rootsState.projectOrder.filter((item) => item !== projectName && !removedRootPaths.has(item)),
-        })
-        return
-      } catch {
-        // Fall back to order-only persistence if direct removal fails.
+    if (!projectName) return
+    const path = getWorkspaceProjectId(loadedThreadListRootsState, projectName, sourceGroups.value)
+    const isRegisteredLocalRoot = Boolean(path && loadedThreadListRootsState?.order.includes(path))
+    const renameTimer = projectRenameTimers.get(path || projectName)
+    if (renameTimer) clearTimeout(renameTimer)
+    projectRenameTimers.delete(path || projectName)
+    await queueProjectOperation(async () => {
+      if (isRegisteredLocalRoot) {
+        const state = await updateWorkspaceRootsState({ type: 'delete', path })
+        applyWorkspaceRootsState(state)
+      } else {
+        sourceGroups.value = sourceGroups.value.filter((group) => group.projectName !== projectName)
+        projectOrder.value = projectOrder.value.filter((name) => name !== projectName)
+        projectDisplayNameById.value = omitKey(projectDisplayNameById.value, projectName)
+        saveProjectOrder(projectOrder.value)
+        saveProjectDisplayNames(projectDisplayNameById.value)
+        applyThreadFlags()
       }
-    }
-
-    await persistProjectOrderToWorkspaceRoots()
+      const threads = flattenThreads(projectGroups.value)
+      pruneThreadScopedState(threads)
+      if (!threads.some((thread) => thread.id === selectedThreadId.value)) {
+        setSelectedThreadId(threads[0]?.id ?? '')
+      }
+    })
   }
 
   function reorderProject(projectName: string, toIndex: number): void {
-    if (projectName.length === 0) return
-    if (sourceGroups.value.length === 0) return
-
-    const visibleOrder = sourceGroups.value.map((group) => group.projectName)
-    const fromIndex = visibleOrder.indexOf(projectName)
-    if (fromIndex === -1) return
-
-    const clampedToIndex = Math.max(0, Math.min(toIndex, visibleOrder.length - 1))
-    const reorderedVisibleOrder = reorderStringArray(visibleOrder, fromIndex, clampedToIndex)
-    if (reorderedVisibleOrder === visibleOrder) return
-
-    const normalizedProjectOrder = mergeProjectOrder(reorderedVisibleOrder, sourceGroups.value)
-    projectOrder.value = normalizedProjectOrder
-    saveProjectOrder(projectOrder.value)
-
-    const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
-    sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
-    applyThreadFlags()
-    void persistProjectOrderToWorkspaceRoots()
+    const names = sourceGroups.value.map((group) => group.projectName)
+    const fromIndex = names.indexOf(projectName)
+    if (fromIndex < 0) return
+    const orderedNames = reorderStringArray(names, fromIndex, Math.max(0, Math.min(toIndex, names.length - 1)))
+    if (orderedNames === names) return
+    // Capture identities from the displayed snapshot, never rematch stale names after a read.
+    const order = orderedNames.map((name) => getWorkspaceProjectId(loadedThreadListRootsState, name, sourceGroups.value)).filter(Boolean)
+    void queueProjectOperation(async () => {
+      const state = await updateWorkspaceRootsState({ type: 'reorder', order })
+      applyWorkspaceRootsState(state)
+      if (order.length === 0) {
+        projectOrder.value = mergeProjectOrder(orderedNames, sourceGroups.value)
+        sourceGroups.value = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
+        saveProjectOrder(projectOrder.value)
+        applyThreadFlags()
+      }
+    })
   }
 
-  function pinProjectToTop(projectName: string): void {
-    const normalizedName = projectName.trim()
-    if (!normalizedName) return
-    const nextOrder = [normalizedName, ...projectOrder.value.filter((name) => name !== normalizedName)]
-    if (areStringArraysEqual(projectOrder.value, nextOrder)) return
-    projectOrder.value = nextOrder
-    saveProjectOrder(projectOrder.value)
-
-    const orderedGroups = orderGroupsByProjectOrder(sourceGroups.value, projectOrder.value)
-    sourceGroups.value = mergeThreadGroups(sourceGroups.value, orderedGroups)
-    applyThreadFlags()
-    void persistProjectOrderToWorkspaceRoots()
-  }
-
-  async function persistProjectOrderToWorkspaceRoots(): Promise<void> {
-    try {
-      const rootsState = await getWorkspaceRootsState()
-      const nextState = buildWorkspaceRootsProjectOrderState(rootsState, projectOrder.value, sourceGroups.value)
-
-      await setWorkspaceRootsState({
-        order: nextState.order,
-        labels: rootsState.labels,
-        active: nextState.active,
-        projectOrder: nextState.projectOrder,
-      })
-    } catch {
-      // Keep local project order when global state persistence is unavailable.
-    }
+  function pinProjectToTop(projectName: string): Promise<void> {
+    if (!projectName.trim()) return Promise.resolve()
+    const capturedId = getWorkspaceProjectId(loadedThreadListRootsState, projectName, sourceGroups.value)
+    return queueProjectOperation(async () => {
+      const roots = await getWorkspaceRootsState()
+      // New registrations pass their path directly, before the sidebar has refreshed.
+      const id = capturedId || (getWorkspaceProjectOrderPaths(roots).includes(projectName) ? projectName : '')
+      if (!id) return
+      if (getWorkspaceProjectOrderPaths(roots)[0] === id) {
+        applyWorkspaceRootsState(roots)
+        return
+      }
+      const order = [id, ...getWorkspaceProjectOrderPaths(roots).filter((item) => item !== id)]
+      applyWorkspaceRootsState(await updateWorkspaceRootsState({ type: 'reorder', order }))
+    })
   }
 
   async function syncThreadStatus(): Promise<void> {
@@ -5645,6 +5530,10 @@ export function useDesktopState() {
   }
 
   function stopPolling(): void {
+    invalidateThreadListGeneration()
+    pendingForcedThreadLoad = false
+    for (const timer of projectRenameTimers.values()) clearTimeout(timer)
+    projectRenameTimers.clear()
     ++modelRefreshVersion
     reasoningCatalog.value = { providerId: '', models: [] }
     if (stopNotificationStream) {
@@ -5785,6 +5674,7 @@ export function useDesktopState() {
 
     error,
     refreshAll,
+    refreshWorkspaceRoots,
     refreshSkills,
     selectThread,
     loadMessages,
