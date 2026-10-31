@@ -1,4 +1,5 @@
 import { basename, join } from 'node:path'
+import { redactTelegramError, telegramFetch, telegramNetworkErrorDetails } from './telegramNetwork.js'
 import { homedir } from 'node:os'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig.js'
 import { COMPLETION_MAX_AGE_MS, TelegramApiError, TelegramNotificationOutbox, type CompletionJob } from './telegramNotificationOutbox.js'
@@ -288,7 +289,8 @@ export class TelegramThreadBridge {
         }
       } catch (error) {
         if (!this.active || generation !== this.pollGeneration) return
-        this.lastError = getErrorMessage(error, 'Telegram polling failed')
+        this.lastError = redactTelegramError(getErrorMessage(error, 'Telegram polling failed'))
+        console.warn('[telegram] polling failed', { network: telegramNetworkErrorDetails(error) })
         await new Promise((resolve) => setTimeout(resolve, 1500))
       }
     }
@@ -299,7 +301,7 @@ export class TelegramThreadBridge {
       throw new Error('Telegram bot token is not configured')
     }
     this.pollAbort = new AbortController()
-    const response = await fetch(this.apiUrl('getUpdates'), {
+    const response = await telegramFetch(this.apiUrl('getUpdates'), {
       signal: this.pollAbort.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -420,7 +422,7 @@ export class TelegramThreadBridge {
   }
 
   private async callTelegramApi(method: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await fetch(this.apiUrl(method), {
+    const response = await telegramFetch(this.apiUrl(method), {
       signal: AbortSignal.timeout(15000),
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
