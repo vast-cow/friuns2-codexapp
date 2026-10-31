@@ -421,7 +421,7 @@
                   @update:model-value="onDictationLanguageChange"
                 />
               </div>
-              <button class="sidebar-settings-row" type="button" aria-live="polite" @click="isTelegramConfigOpen = !isTelegramConfigOpen">
+              <button class="sidebar-settings-row" type="button" aria-live="polite" @click="toggleTelegramConfig">
                 <span class="sidebar-settings-label">{{ t('Telegram') }}</span>
                 <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
               </button>
@@ -462,9 +462,24 @@
                   <input v-model="telegramAppUrlDraft" class="sidebar-settings-input" type="url" placeholder="https://your-app.example" />
                 </label>
                 <p class="sidebar-settings-field-help">{{ t('Notifies successful turns observed by this running backend. Use /notify on or /notify off in a private bot chat. A finished turn does not guarantee the whole task succeeded.') }}</p>
-                <p v-if="telegramStatus.lastNotificationError" class="sidebar-settings-telegram-error" role="status">
-                  {{ t('Last notification error') }}: {{ telegramStatus.lastNotificationError }}
-                </p>
+                <div class="sidebar-settings-field-help" role="status">
+                  <p>{{ t('Notification status') }}: {{ telegramNotificationStatusText }}</p>
+                  <p v-if="telegramStatus.notification?.lastTestAt">{{ t('Last test') }}: {{ new Date(telegramStatus.notification.lastTestAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.lastSuccessAt">{{ t('Last notification sent') }}: {{ new Date(telegramStatus.notification.lastSuccessAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.lastFailureAt">{{ t('Last notification failure') }}: {{ new Date(telegramStatus.notification.lastFailureAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.pendingCount">{{ t('Pending notifications') }}: {{ telegramStatus.notification.pendingCount }} ({{ t('retrying') }}: {{ telegramStatus.notification.retryingCount }})</p>
+                  <p v-if="telegramStatus.notification?.lastError">{{ t('Notification delivery failed') }}: {{ telegramStatus.notification.lastError }}</p>
+                  <template v-if="telegramStatus.notification?.lastTestResult === 'failure'">
+                    <p>{{ t('Check the bot token, chat ID, network connection, DNS, and proxy settings.') }}</p>
+                    <p>{{ t('Technical details') }}: {{ telegramStatus.notification.lastTestError }}</p>
+                  </template>
+                  <p v-if="telegramTestUnavailable">{{ telegramTestUnavailable }}</p>
+                  <p v-if="telegramTestError">{{ telegramTestError }}</p>
+                  <p>{{ t('A successful test means Telegram accepted the message; it does not guarantee display on your device.') }}</p>
+                </div>
+                <button class="sidebar-settings-telegram-save" type="button" :disabled="Boolean(telegramTestUnavailable)" @click="sendTelegramTest">
+                  {{ isTelegramTesting ? t('Sending test notification…') : telegramStatus.notification?.lastTestResult === 'failure' ? t('Retry Test Notification') : t('Send Test Notification') }}
+                </button>
                 <div v-if="telegramConfigError" class="sidebar-settings-telegram-error">
                   <span>{{ telegramConfigError }}</span>
                   <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, telegramConfigError)">{{ t('Send feedback') }}</a>
@@ -1204,6 +1219,7 @@ import {
   getTelegramConfig,
   getProjectRootSuggestion,
   getTelegramStatus,
+  sendTelegramTestNotification,
   getThreadTerminalQuickCommands,
   getThreadTerminalStatus,
   getWorkspaceRootsState,
@@ -1659,6 +1675,27 @@ const telegramNotifyChatIdDraft = ref('')
 const telegramAppUrlDraft = ref('')
 const telegramConfigError = ref('')
 const isTelegramSaving = ref(false)
+const isTelegramTesting = ref(false)
+const telegramTestError = ref('')
+const savedTelegramDraft = ref('')
+const telegramDraftSnapshot = () => JSON.stringify([telegramBotTokenDraft.value, telegramAllowedUserIdsDraft.value, telegramNotifyEnabledDraft.value, telegramNotifyChatIdDraft.value, telegramAppUrlDraft.value])
+const telegramTestUnavailable = computed(() => {
+  if (isTelegramTesting.value) return t('Sending test notification…')
+  if (isTelegramSaving.value) return t('Wait until settings are saved.')
+  if (!telegramBotTokenDraft.value.trim()) return t('Configure a bot token before testing.')
+  const id = telegramNotifyChatIdDraft.value.trim()
+  if (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0) return t('Configure a valid private notification chat ID before testing.')
+  if (!savedTelegramDraft.value || telegramDraftSnapshot() !== savedTelegramDraft.value) return t('Save configuration changes before testing.')
+  return ''
+})
+const telegramNotificationStatusText = computed(() => {
+  const status = telegramStatus.value.notification
+  if (!status?.lastTestResult && !status?.lastSuccessAt && !status?.lastFailureAt) return t('Not verified')
+  if (status.lastTestResult === 'failure') return t('Test notification failed')
+  if (status.lastError) return t('Notification delivery failed')
+  if (status.lastTestResult === 'success') return t('Test notification sent successfully')
+  return t('Last notification sent successfully')
+})
 const isCreateFolderOpen = ref(false)
 const createFolderDraft = ref('')
 const createFolderError = ref('')
@@ -2132,6 +2169,7 @@ watch(visibleFeedbackErrors, (values, oldValues) => {
 })
 
 onUnmounted(() => {
+  clearInterval(telegramStatusTimer)
   document.removeEventListener('pointerdown', onDocumentPointerDown)
   window.removeEventListener('keydown', onWindowKeyDown)
   document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
@@ -2268,9 +2306,34 @@ async function refreshTelegramConfig(): Promise<void> {
     telegramNotifyChatIdDraft.value = config.completionNotifications.chatIds.join('')
     telegramAppUrlDraft.value = config.completionNotifications.appUrl
     telegramAllowedUserIdsDraft.value = config.allowedUserIds.map((value) => String(value)).join('\n')
+    savedTelegramDraft.value = telegramDraftSnapshot()
     telegramConfigError.value = ''
   } catch (error) {
     telegramConfigError.value = error instanceof Error ? error.message : 'Failed to load Telegram configuration'
+  }
+}
+
+let telegramStatusTimer: ReturnType<typeof setInterval> | undefined
+function toggleTelegramConfig(): void {
+  isTelegramConfigOpen.value = !isTelegramConfigOpen.value
+  clearInterval(telegramStatusTimer)
+  if (isTelegramConfigOpen.value) {
+    void refreshTelegramStatus()
+    telegramStatusTimer = setInterval(() => { void refreshTelegramStatus() }, 10000)
+  }
+}
+
+async function sendTelegramTest(): Promise<void> {
+  if (telegramTestUnavailable.value) return
+  isTelegramTesting.value = true
+  telegramTestError.value = ''
+  try {
+    await sendTelegramTestNotification()
+  } catch (error) {
+    telegramTestError.value = error instanceof Error ? error.message : t('Test notification failed')
+  } finally {
+    await refreshTelegramStatus()
+    isTelegramTesting.value = false
   }
 }
 

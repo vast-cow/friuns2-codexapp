@@ -350,7 +350,7 @@ export type ThreadSearchResult = {
 }
 
 export type TelegramStatus = {
-  lastNotificationError?: string
+  notification?: { lastSuccessAt?: number; lastFailureAt?: number; lastError?: string; lastTestAt?: number; lastTestResult?: 'success' | 'failure'; lastTestError?: string; pendingCount: number; retryingCount: number }
   configured: boolean
   active: boolean
   mappedChats: number
@@ -3432,6 +3432,12 @@ export async function getTelegramConfig(): Promise<TelegramConfig> {
   }
 }
 
+export async function sendTelegramTestNotification(): Promise<void> {
+  const response = await fetch('/codex-api/telegram/test-notification', { method: 'POST' })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(getErrorMessageFromPayload(payload, 'Test notification failed'))
+}
+
 export async function getTelegramStatus(): Promise<TelegramStatus> {
   const response = await fetch('/codex-api/telegram/status')
   const payload = await response.json()
@@ -3455,7 +3461,7 @@ export async function getTelegramStatus(): Promise<TelegramStatus> {
     allowedUsers: typeof data.allowedUsers === 'number' ? data.allowedUsers : 0,
     allowAllUsers: data.allowAllUsers === true,
     lastError: typeof data.lastError === 'string' ? data.lastError : '',
-    lastNotificationError: typeof data.lastNotificationError === 'string' ? data.lastNotificationError : '',
+    notification: data.notification && typeof data.notification === 'object' ? data.notification as TelegramStatus['notification'] : undefined,
   }
 }
 
