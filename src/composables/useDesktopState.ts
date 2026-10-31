@@ -84,6 +84,7 @@ const THREAD_TOKEN_USAGE_STORAGE_KEY = 'codex-web-local.thread-token-usage.v1'
 const THREAD_TERMINAL_OPEN_STORAGE_KEY = 'codex-web-local.thread-terminal-open.v1'
 const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY = 'codex-web-local.selected-model-by-context.v1'
+const REASONING_BY_MODEL_STORAGE_KEY = 'codex-web-local.reasoning-by-provider-model.v1'
 const LEGACY_SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
@@ -293,6 +294,22 @@ function saveSelectedModelMap(state: Record<string, string>): void {
   } catch {
     // Keep in-memory selection working even if localStorage writes fail.
   }
+}
+
+function loadReasoningPreferences(): Record<string, string> {
+  const next = createStringKeyedRecord<string>()
+  if (typeof window === 'undefined') return next
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(REASONING_BY_MODEL_STORAGE_KEY) || '{}')
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [key, value] of Object.entries(parsed)) {
+        if (typeof value === 'string') next[key] = value
+      }
+    }
+  } catch {
+    // Missing, malformed, or unavailable storage uses model capability defaults.
+  }
+  return next
 }
 
 function loadSelectedCollaborationModeMap(): Record<string, CollaborationModeKind> {
@@ -1398,7 +1415,10 @@ export function useDesktopState() {
     readSelectedCollaborationMode(selectedCollaborationModeByContext.value, selectedThreadId.value),
   )
   const selectedModelId = ref(readSelectedModel(selectedModelIdByContext.value, selectedThreadId.value))
-  const selectedReasoningEffort = ref<ReasoningEffort | ''>('')
+  const reasoningByModel = ref(loadReasoningPreferences())
+  // Automatic catalog fallbacks affect the display, never the saved user choice.
+  const automaticModelByContext = ref(createStringKeyedRecord<string>())
+  const selectedReasoningEffort = computed(() => readReasoningEffortForThread(selectedThreadId.value))
   const selectedSpeedMode = ref<SpeedMode>('standard')
   const activeProviderId = ref('')
   const codexCliMissingError = ref('')
@@ -1620,6 +1640,11 @@ export function useDesktopState() {
 
   function readModelIdForThread(threadId: string): string {
     const contextId = toThreadContextId(threadId)
+    const automaticContextId = isNewThreadContextId(contextId)
+      ? toProviderModelContextId(activeProviderId.value) : contextId
+    if (Object.prototype.hasOwnProperty.call(automaticModelByContext.value, automaticContextId)) {
+      return automaticModelByContext.value[automaticContextId] ?? ''
+    }
     if (contextId === NEW_THREAD_COLLABORATION_MODE_CONTEXT) {
       const normalizedProviderId = normalizeProviderContextId(activeProviderId.value)
       const providerContextId = toProviderModelContextId(normalizedProviderId)
@@ -1633,7 +1658,7 @@ export function useDesktopState() {
 
   function readProviderIdForThread(threadId: string): string {
     const normalizedThreadId = threadId.trim()
-    if (!normalizedThreadId) return normalizeProviderContextId(activeProviderId.value)
+    if (!normalizedThreadId || isNewThreadContextId(normalizedThreadId)) return normalizeProviderContextId(activeProviderId.value)
     return normalizeProviderContextId(threadModelProviderByThreadId.value[normalizedThreadId] ?? activeProviderId.value)
   }
 
@@ -1675,15 +1700,20 @@ export function useDesktopState() {
   function setSelectedModelIdForThread(threadId: string, modelId: string): void {
     const normalizedModelId = modelId.trim()
     const contextId = toThreadContextId(threadId)
-    const normalizedProviderId = normalizeProviderContextId(activeProviderId.value)
+    const normalizedProviderId = readProviderIdForThread(isNewThreadContextId(contextId) ? '' : threadId)
     const providerContextId =
       contextId === NEW_THREAD_COLLABORATION_MODE_CONTEXT
         ? toProviderModelContextId(normalizedProviderId)
         : ''
     const selectedContextId = providerContextId || contextId
+    automaticModelByContext.value = omitStringKeyedRecordKey(
+      omitStringKeyedRecordKey(automaticModelByContext.value, selectedContextId),
+      toProviderModelContextId(normalizedProviderId),
+    )
     if (normalizedModelId) {
       const nextModelMap = cloneStringKeyedRecord(selectedModelIdByContext.value)
       nextModelMap[selectedContextId] = normalizedModelId
+      nextModelMap[toProviderModelContextId(normalizedProviderId)] = normalizedModelId
       if (providerContextId) {
         delete nextModelMap[contextId]
       }
@@ -1713,6 +1743,7 @@ export function useDesktopState() {
     if (!normalizedThreadId) return
 
     const normalizedModelId = modelId.trim()
+    automaticModelByContext.value = omitStringKeyedRecordKey(automaticModelByContext.value, normalizedThreadId)
     if (normalizedModelId) {
       const nextModelMap = cloneStringKeyedRecord(selectedModelIdByContext.value)
       nextModelMap[normalizedThreadId] = normalizedModelId
@@ -1815,7 +1846,8 @@ export function useDesktopState() {
     if (threadId.trim()) {
       setThreadModelId(threadId, MODEL_FALLBACK_ID)
     } else {
-      setSelectedModelId(MODEL_FALLBACK_ID)
+      automaticModelByContext.value[toProviderModelContextId(activeProviderId.value)] = MODEL_FALLBACK_ID
+      selectedModelId.value = MODEL_FALLBACK_ID
     }
     ensureAvailableModelIds(MODEL_FALLBACK_ID)
   }
@@ -1909,13 +1941,45 @@ export function useDesktopState() {
     }
   }
 
-  const selectedReasoningModel = computed(() => findReasoningModel(readModelIdForThread(selectedThreadId.value), readProviderIdForThread(selectedThreadId.value)))
-  const availableReasoningEfforts = computed(() => reasoningOptions(selectedReasoningModel.value))
-  watch(selectedReasoningModel, () => setSelectedReasoningEffort(selectedReasoningEffort.value), { immediate: true, flush: 'sync' })
+  function reasoningModelForThread(threadId: string) {
+    return findReasoningModel(readModelIdForThread(threadId), readProviderIdForThread(threadId))
+  }
+
+  function reasoningPreferenceKey(threadId: string): string {
+    return JSON.stringify([readProviderIdForThread(threadId), readModelIdForThread(threadId)])
+  }
+
+  function readReasoningEffortForThread(threadId: string): ReasoningEffort | '' {
+    return resolveReasoningEffort(reasoningModelForThread(threadId), reasoningByModel.value[reasoningPreferenceKey(threadId)])
+  }
+
+  function readReasoningOptionsForThread(threadId: string) {
+    return reasoningOptions(reasoningModelForThread(threadId))
+  }
+
+  const availableReasoningEfforts = computed(() => readReasoningOptionsForThread(selectedThreadId.value))
   watch(() => readProviderIdForThread(selectedThreadId.value), () => { void refreshModelPreferences() })
 
-  function setSelectedReasoningEffort(effort: ReasoningEffort | ''): void {
-    selectedReasoningEffort.value = resolveReasoningEffort(selectedReasoningModel.value, effort)
+  function setSelectedReasoningEffort(effort: ReasoningEffort | '', threadId = selectedThreadId.value): void {
+    const modelId = readModelIdForThread(threadId)
+    if (!modelId) return
+    const resolved = resolveReasoningEffort(reasoningModelForThread(threadId), effort)
+    if (!resolved) return
+    reasoningByModel.value[reasoningPreferenceKey(threadId)] = resolved
+    // An effort selection also makes this model the provider's new-chat default.
+    const providerContextId = toProviderModelContextId(readProviderIdForThread(threadId))
+    automaticModelByContext.value = omitStringKeyedRecordKey(automaticModelByContext.value, providerContextId)
+    const nextModelMap = cloneStringKeyedRecord(selectedModelIdByContext.value)
+    nextModelMap[providerContextId] = modelId
+    selectedModelIdByContext.value = nextModelMap
+    saveSelectedModelMap(nextModelMap)
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(REASONING_BY_MODEL_STORAGE_KEY, JSON.stringify(reasoningByModel.value))
+      }
+    } catch {
+      // Preserve the in-memory preference when storage is unavailable.
+    }
   }
 
   async function updateSelectedSpeedMode(mode: SpeedMode): Promise<void> {
@@ -1967,7 +2031,6 @@ export function useDesktopState() {
   async function refreshModelPreferences(options?: { providerChanged?: boolean; includeProviderModels?: boolean }): Promise<void> {
     const refreshVersion = ++modelRefreshVersion
     const threadId = selectedThreadId.value
-    const requestedEffort = selectedReasoningEffort.value
     if (options?.providerChanged || reasoningCatalog.value.providerId !== readProviderIdForThread(threadId)) {
       reasoningCatalog.value = { providerId: '', models: [] }
     }
@@ -1980,7 +2043,6 @@ export function useDesktopState() {
       activeProviderId.value = normalizedProviderId
       const targetProviderId = readProviderIdForThread(selectedThreadId.value)
       const isProviderBacked = targetProviderId !== 'codex'
-      const normalizedSelectedModelId = readModelIdForThread(selectedThreadId.value)
       const catalog = await getAvailableModelIds({
         includeProviderModels: isProviderBacked || options?.includeProviderModels !== false,
         requireProviderModels: isProviderBacked,
@@ -1989,6 +2051,11 @@ export function useDesktopState() {
       })
       if (refreshVersion !== modelRefreshVersion || threadId !== selectedThreadId.value || targetProviderId !== readProviderIdForThread(selectedThreadId.value)) return
       const modelIds = catalog.ids
+      // Read after the await so an intervening user selection wins.
+      const selectedContextId = isNewThreadContextId(toThreadContextId(threadId))
+        ? toProviderModelContextId(targetProviderId) : toThreadContextId(threadId)
+      automaticModelByContext.value = omitStringKeyedRecordKey(automaticModelByContext.value, selectedContextId)
+      const normalizedSelectedModelId = readModelIdForThread(threadId)
       const providerModelContextId = toProviderModelContextId(targetProviderId)
       const providerScopedModelId = providerModelContextId
         ? normalizeStoredModelId(selectedModelIdByContext.value[providerModelContextId])
@@ -2009,43 +2076,21 @@ export function useDesktopState() {
       }
       availableModelIds.value = nextModelIds
 
-      const currentModelInNewList = normalizedSelectedModelId && modelIds.includes(normalizedSelectedModelId)
-      if (!normalizedSelectedModelId || !currentModelInNewList || options?.providerChanged) {
-        if (options?.providerChanged && nextModelIds.length > 0) {
-          if (providerScopedModelId && modelIds.includes(providerScopedModelId)) {
-            setSelectedModelId(providerScopedModelId)
-          } else if (targetProviderId === normalizedProviderId && normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
-            setSelectedModelId(normalizedConfiguredModelId)
-          } else {
-            setSelectedModelId(nextModelIds[0])
-          }
-        } else if (targetProviderId === normalizedProviderId && normalizedConfiguredModelId && nextModelIds.includes(normalizedConfiguredModelId)) {
-          setSelectedModelId(currentConfig.model)
-        } else if (nextModelIds.length > 0) {
-          setSelectedModelId(nextModelIds[0])
-        } else {
-          setSelectedModelId('')
-        }
-      } else if (selectedModelId.value.trim() !== normalizedSelectedModelId) {
-        setSelectedModelId(normalizedSelectedModelId)
+      let displayedModelId = normalizedSelectedModelId
+      if (!displayedModelId || !nextModelIds.includes(displayedModelId) || options?.providerChanged) {
+        displayedModelId = (options?.providerChanged && providerScopedModelId && nextModelIds.includes(providerScopedModelId))
+          ? providerScopedModelId
+          : (targetProviderId === normalizedProviderId && nextModelIds.includes(normalizedConfiguredModelId))
+            ? normalizedConfiguredModelId : nextModelIds[0] ?? ''
       }
-      if (providerModelContextId && selectedModelId.value.trim().length > 0) {
-        const nextModelMap = cloneStringKeyedRecord(selectedModelIdByContext.value)
-        nextModelMap[providerModelContextId] = selectedModelId.value.trim()
-        const activeProviderModelContextId = toProviderModelContextId(normalizedProviderId)
-        if (
-          activeProviderModelContextId
-          && activeProviderModelContextId !== providerModelContextId
-          && normalizedConfiguredModelId
-        ) {
-          nextModelMap[activeProviderModelContextId] = normalizedConfiguredModelId
-        }
-        selectedModelIdByContext.value = nextModelMap
-        saveSelectedModelMap(selectedModelIdByContext.value)
+      if (targetProviderId === normalizedProviderId && selectedContextId !== providerModelContextId) {
+        automaticModelByContext.value[providerModelContextId] = nextModelIds.includes(providerScopedModelId)
+          ? providerScopedModelId
+          : nextModelIds.includes(normalizedConfiguredModelId) ? normalizedConfiguredModelId : nextModelIds[0] ?? ''
       }
-
+      automaticModelByContext.value[selectedContextId] = displayedModelId
+      selectedModelId.value = displayedModelId
       reasoningCatalog.value = { providerId: targetProviderId, models: catalog.models }
-      setSelectedReasoningEffort(requestedEffort || currentConfig.reasoningEffort)
       selectedSpeedMode.value = currentConfig.speedMode
     } catch (unknownError) {
       if (refreshVersion !== modelRefreshVersion) return
@@ -2224,6 +2269,7 @@ export function useDesktopState() {
     if (currentThreadId) {
       activeThreadIds.add(currentThreadId)
     }
+    automaticModelByContext.value = pruneThreadContextStateMap(automaticModelByContext.value, activeThreadIds)
     const nextSelectedModelMap = pruneThreadContextStateMap(selectedModelIdByContext.value, activeThreadIds)
     if (nextSelectedModelMap !== selectedModelIdByContext.value) {
       selectedModelIdByContext.value = nextSelectedModelMap
@@ -5697,6 +5743,8 @@ export function useDesktopState() {
     steerQueuedMessage,
     setSelectedCollaborationMode,
     readModelIdForThread,
+    readReasoningEffortForThread,
+    readReasoningOptionsForThread,
     setSelectedModelIdForThread,
     setSelectedModelId,
 

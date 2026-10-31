@@ -945,8 +945,8 @@
                   :collaboration-modes="availableCollaborationModes"
                   :selected-collaboration-mode="selectedCollaborationMode"
                   :models="availableModelIds" :selected-model="composerSelectedModelId"
-                  :selected-reasoning-effort="selectedReasoningEffort"
-                  :reasoning-effort-options="availableReasoningEfforts"
+                  :selected-reasoning-effort="composerReasoningEffort"
+                  :reasoning-effort-options="composerReasoningOptions"
                   :selected-speed-mode="selectedSpeedMode"
                   :is-updating-speed-mode="isUpdatingSpeedMode"
                   :skills="installedSkills"
@@ -1034,8 +1034,8 @@
                     :selected-collaboration-mode="selectedCollaborationMode"
                     :models="availableModelIds"
                     :selected-model="composerSelectedModelId"
-                    :selected-reasoning-effort="selectedReasoningEffort"
-                    :reasoning-effort-options="availableReasoningEfforts"
+                    :selected-reasoning-effort="composerReasoningEffort"
+                    :reasoning-effort-options="composerReasoningOptions"
                     :selected-speed-mode="selectedSpeedMode"
                     :is-updating-speed-mode="isUpdatingSpeedMode"
                     :skills="installedSkills"
@@ -1428,8 +1428,6 @@ const {
   availableModelIds,
   selectedCollaborationMode,
   selectedModelId,
-  selectedReasoningEffort,
-  availableReasoningEfforts,
   selectedSpeedMode,
   codexCliMissingError,
   installedSkills,
@@ -1466,6 +1464,8 @@ const {
   steerQueuedMessage,
   setSelectedCollaborationMode,
   readModelIdForThread,
+  readReasoningEffortForThread,
+  readReasoningOptionsForThread,
   setSelectedModelIdForThread,
 
   setSelectedReasoningEffort,
@@ -1801,6 +1801,8 @@ const latestUserTurnId = computed(() => {
 })
 const liveOverlay = computed(() => selectedLiveOverlay.value)
 const composerThreadContextId = computed(() => (isHomeRoute.value ? '__new-thread__' : selectedThreadId.value))
+const composerReasoningEffort = computed(() => readReasoningEffortForThread(composerThreadContextId.value))
+const composerReasoningOptions = computed(() => readReasoningOptionsForThread(composerThreadContextId.value))
 const composerSelectedModelId = computed(() => readModelIdForThread(composerThreadContextId.value))
 const selectedThreadPendingRequest = computed<UiServerRequest | null>(() => {
   const rows = selectedThreadServerRequests.value
@@ -4183,7 +4185,7 @@ function onSelectModel(modelId: string): void {
 }
 
 function onSelectReasoningEffort(effort: ReasoningEffort | ''): void {
-  setSelectedReasoningEffort(effort)
+  setSelectedReasoningEffort(effort, composerThreadContextId.value)
 }
 
 function onSelectSpeedMode(mode: SpeedMode): void {

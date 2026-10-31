@@ -2043,7 +2043,10 @@ export async function getAvailableModelIds(options: { includeProviderModels?: bo
         const page = await callRpc<ModelListResponse>('model/list', cursor ? { cursor } : {})
         if (Array.isArray(page?.data)) {
           for (const model of page.data) {
-            if (model && typeof model === 'object' && (normalizeReasoningEffort(model.id) || normalizeReasoningEffort(model.model))) models.push(model)
+            if (model && typeof model === 'object' && (
+              (typeof model.id === 'string' && model.id.trim())
+              || (typeof model.model === 'string' && model.model.trim())
+            )) models.push(model)
           }
         }
         cursor = page?.nextCursor?.trim() || undefined
