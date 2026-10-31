@@ -68,6 +68,16 @@
 #### Rollback/Cleanup
 - Stop both backends, restore the original `CODEX_HOME` state and network access, and remove the isolated test files.
 
+### Feature: Telegram notification checkbox typography
+
+Prerequisites: Open the app and make the Telegram settings panel available.
+
+1. In light mode, open Telegram settings and compare “All completed tasks” with the surrounding field labels.
+2. Toggle the checkbox by clicking both the box and its text, then restore its original value.
+3. Switch to dark mode and repeat the typography, alignment, and toggle checks.
+
+Expected: The label matches the surrounding labels' font and color, remains aligned with the checkbox, and toggles normally in both themes. Restore the original theme and checkbox value after checking.
+
 ### Feature: Telegram connection family selection
 
 #### Prerequisites

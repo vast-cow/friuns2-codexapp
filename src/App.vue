@@ -451,7 +451,7 @@
                   {{ t('Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.') }}
                 </div>
                 <label class="sidebar-settings-field">
-                  <span><input v-model="telegramNotifyEnabledDraft" type="checkbox" /> {{ t('All completed tasks') }}</span>
+                  <span class="sidebar-settings-field-label inline-flex items-center gap-1"><input v-model="telegramNotifyEnabledDraft" type="checkbox" />{{ t('All completed tasks') }}</span>
                 </label>
                 <label class="sidebar-settings-field">
                   <span class="sidebar-settings-field-label">{{ t('Private notification chat ID') }}</span>
