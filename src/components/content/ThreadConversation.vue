@@ -704,7 +704,7 @@
               </section>
 
               <div
-                v-if="showCopyResponseButton(message) || showEditMessageButton(message)"
+                v-if="message.role === 'user' || showCopyResponseButton(message) || showEditMessageButton(message)"
                 class="message-toolbar"
                 :data-role="message.role"
               >
@@ -718,6 +718,18 @@
                 >
                   <IconTablerFilePencil class="icon-svg message-edit-icon" />
                   <span class="message-edit-label">Edit message</span>
+                </button>
+                <button
+                  v-if="message.role === 'user'"
+                  type="button"
+                  class="message-copy-button"
+                  :data-copied="copiedUserMessageId === message.id"
+                  :aria-label="copiedUserMessageId === message.id ? 'Message copied' : 'Copy message'"
+                  :title="copiedUserMessageId === message.id ? 'Message copied' : 'Copy message'"
+                  @click="copyUserMessage(message)"
+                >
+                  <IconTablerCopy class="icon-svg message-copy-icon" />
+                  <span class="message-copy-label">{{ copiedUserMessageId === message.id ? 'Copied' : 'Copy' }}</span>
                 </button>
                 <button
                   v-if="showForkResponseButton(message)"
@@ -941,6 +953,7 @@ import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { copyTextToClipboard, copyTextWithSelectionFallback } from '../../utils/clipboard'
+import { buildUserMessageCopyText } from '../../utils/userMessageCopy'
 
 import IconTablerArrowBackUp from '../icons/IconTablerArrowBackUp.vue'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
@@ -1347,6 +1360,7 @@ const conversationListRef = ref<HTMLElement | null>(null)
 const bottomAnchorRef = ref<HTMLElement | null>(null)
 const modalImageUrl = ref('')
 const copiedResponseAnchorId = ref('')
+const copiedUserMessageId = ref('')
 const copiedPlanId = ref('')
 const fileChangeActionState = ref<Record<string, 'idle' | 'undoing' | 'redoing' | 'undone' | 'redone'>>({})
 const fileChangeActionError = ref<Record<string, string>>({})
@@ -1405,6 +1419,7 @@ let conversationScrollFrame = 0
 let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 let copiedMessageResetTimer: ReturnType<typeof setTimeout> | null = null
+let copiedUserMessageResetTimer: ReturnType<typeof setTimeout> | null = null
 let copiedPlanResetTimer: ReturnType<typeof setTimeout> | null = null
 let conversationUnmounted = false
 let conversationScrollPromise: Promise<void> | null = null
@@ -2384,6 +2399,23 @@ function diffViewerMarker(line: DiffViewerLine): string {
   if (line.kind === 'remove') return '-'
   if (line.kind === 'hunk') return '@@'
   return ''
+}
+
+async function copyUserMessage(message: UiMessage): Promise<void> {
+  const content = buildUserMessageCopyText(message)
+  if (!content) return
+  try {
+    await copyTextToClipboard(content)
+  } catch {
+    return
+  }
+  if (conversationUnmounted) return
+  copiedUserMessageId.value = message.id
+  if (copiedUserMessageResetTimer) clearTimeout(copiedUserMessageResetTimer)
+  copiedUserMessageResetTimer = setTimeout(() => {
+    copiedUserMessageId.value = ''
+    copiedUserMessageResetTimer = null
+  }, 1800)
 }
 
 async function copyResponse(anchorMessageId: string): Promise<void> {
@@ -4509,6 +4541,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   conversationUnmounted = true
+  if (copiedUserMessageResetTimer) {
+    clearTimeout(copiedUserMessageResetTimer)
+    copiedUserMessageResetTimer = null
+  }
   clearRenderCaches()
   if (conversationScrollFrame) {
     cancelAnimationFrame(conversationScrollFrame)
@@ -4722,8 +4758,13 @@ onBeforeUnmount(() => {
   @apply mt-1 self-start flex items-center gap-1 opacity-[0.01] transition-opacity duration-200;
 }
 
-.message-row:hover .message-toolbar {
+.message-row:hover .message-toolbar,
+.message-toolbar:focus-within {
   @apply opacity-100;
+}
+
+@media (hover: none) {
+  .message-toolbar { opacity: 1; }
 }
 
 .message-copy-button {
