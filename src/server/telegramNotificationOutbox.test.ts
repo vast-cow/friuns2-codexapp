@@ -9,7 +9,7 @@ const workers: TelegramNotificationOutbox[] = []
 afterEach(async () => {
   workers.forEach((worker) => worker.stop())
   workers.length = 0
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })))
 })
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), 'telegram-outbox-'))

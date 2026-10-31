@@ -67,3 +67,23 @@
 
 #### Rollback/Cleanup
 - Stop both backends, restore the original `CODEX_HOME` state and network access, and remove the isolated test files.
+
+### Feature: Telegram connection family selection
+
+#### Prerequisites
+- Node.js 18.18 or newer, an isolated `CODEX_HOME`, and a test bot and private chat.
+- A test network where IPv4 connects slowly and IPv6 is unavailable; save the original network configuration.
+
+#### Steps
+1. Start the development server without network-family flags and configure the test bot. Send `/start` and enable notifications.
+2. Complete a turn and check polling and delivery. Repeat using the built CLI.
+3. Temporarily block both address families and inspect the server failure log.
+4. Restart with `NODE_OPTIONS=--network-family-autoselection-attempt-timeout=5000` and repeat the connection test.
+
+#### Expected Results
+- Polling and notification delivery work with the default 3-second connection attempt delay in both modes.
+- Explicit Node network-family flags take precedence. Other network traffic is unaffected.
+- Failures show available nested connection codes and IP/port details, without bot tokens or request URLs. Notifications retain their existing retry behavior.
+
+#### Rollback/Cleanup
+- Restore network settings, stop the test server, and remove the isolated `CODEX_HOME`.

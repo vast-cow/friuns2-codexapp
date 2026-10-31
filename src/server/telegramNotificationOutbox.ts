@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import lockfile from 'proper-lockfile'
 import { isDeepStrictEqual } from 'node:util'
+import { redactTelegramError, telegramNetworkErrorDetails } from './telegramNetwork.js'
 
 export class TelegramApiError extends Error {
   constructor(message: string, readonly code: number, readonly retryAfter = 0) {
@@ -106,7 +107,7 @@ export class TelegramNotificationOutbox {
     clearTimeout(this.timer)
   }
   recordError(error: unknown): void {
-    this.state.lastError = error instanceof Error ? error.message : String(error)
+    this.state.lastError = redactTelegramError(error instanceof Error ? error.message : String(error))
   }
   private wake(delay = 0): void {
     if (!this.active || this.running) return
@@ -186,7 +187,7 @@ export class TelegramNotificationOutbox {
           const current = this.state.pending.find((entry) => entry.key === job.key)
           if (!current) return
           if (!attempted) { current.attempts += 1; current.lastAttemptAt = Date.now() }
-          console.warn('[telegram-outbox] failed', { threadId: job.threadId, turnId: job.turnId, createdAt: current.createdAt, attemptedAt: current.lastAttemptAt, attempt: current.attempts, pid: process.pid, error: this.state.lastError })
+          console.warn('[telegram-outbox] failed', { threadId: job.threadId, turnId: job.turnId, createdAt: current.createdAt, attemptedAt: current.lastAttemptAt, attempt: current.attempts, pid: process.pid, error: this.state.lastError, network: telegramNetworkErrorDetails(error) })
           if ((error instanceof TelegramApiError && !error.temporary) || (current.completion && current.attempts >= COMPLETION_MAX_ATTEMPTS)) {
             this.settle(job)
           } else {

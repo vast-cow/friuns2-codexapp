@@ -184,6 +184,15 @@ Notes:
 
 ### Telegram Bot Bridge (Optional)
 
+Telegram requests use a dedicated connection pool with a 3-second IPv4/IPv6
+connection-attempt delay by default; this does not change other network requests.
+Explicit Node.js network family auto-selection flags (including those in
+`NODE_OPTIONS`) take precedence. Node.js 18.18 or newer is required for the
+connection-attempt setting; earlier supported Node.js 18 releases ignore it.
+The existing Telegram API request timeout and notification retry policy are unchanged.
+Connection failure logs include available error codes and IP/port details without
+request URLs or bot tokens.
+
 In Settings → Telegram, save your bot token and allowed user IDs. To receive alerts
 for all successful runs, send `/notify on` in a private chat with the bot, or enable
 **All completed tasks** and enter that private chat ID in settings. `/notify off`
