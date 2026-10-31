@@ -28,12 +28,14 @@ export type CompletionJob = {
   createdAt?: number
   completedAt?: number
   lastAttemptAt?: number
+  deliveryError?: string
 }
 export const COMPLETION_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const COMPLETION_MAX_ATTEMPTS = 10
 const lockOptions = { realpath: false, stale: 30_000, update: 5_000 }
 
-type OutboxState = { pending: CompletionJob[]; settled: string[]; lastError: string }
+type DeliveryStatus = { lastSuccessAt?: number; lastFailureAt?: number; lastError?: string; lastTestAt?: number; lastTestResult?: 'success' | 'failure'; lastTestError?: string; lastTestStartedAt?: number; testReservedAt?: number; lastDeliveryStartedAt?: number; lastFailureJobKey?: string }
+type OutboxState = { pending: CompletionJob[]; settled: string[]; lastError: string; status?: Record<string, DeliveryStatus> }
 
 /** One serialized disk writer and one delivery worker; no work blocks the app event stream. */
 export class TelegramNotificationOutbox {
@@ -42,6 +44,7 @@ export class TelegramNotificationOutbox {
   private timer: ReturnType<typeof setTimeout> | undefined
   private running = false
   private active = false
+  private statusKey = ''
 
   constructor(
     private readonly path: string,
@@ -51,6 +54,45 @@ export class TelegramNotificationOutbox {
   ) {}
 
   get lastError(): string { return this.state.lastError }
+
+  setStatusKey(key: string): void { this.statusKey = key }
+
+  async status(): Promise<DeliveryStatus & { pendingCount: number; retryingCount: number }> {
+    const key = this.statusKey
+    await this.change(() => {})
+    const [botId, chatId] = key.split(':', 2)
+    const pending = this.state.pending.filter((job) => job.botId === botId && String(job.chatId) === chatId)
+    return { ...this.state.status?.[key], pendingCount: pending.length, retryingCount: pending.filter((job) => job.attempts > 0).length }
+  }
+
+  async reserveTest(key: string, startedAt: number): Promise<void> {
+    await this.change(() => {
+      const status = this.getDeliveryStatus(key)
+      if (startedAt - (status.testReservedAt ?? 0) < 15000) throw new Error('Please wait before sending another test notification')
+      status.testReservedAt = startedAt
+    })
+  }
+
+  async recordTest(key: string, startedAt: number, error?: unknown): Promise<void> {
+    await this.change(() => {
+      const status = this.getDeliveryStatus(key)
+      if ((status.lastTestStartedAt ?? 0) > startedAt) return
+      status.lastTestStartedAt = startedAt
+      status.lastTestAt = Date.now()
+      status.lastTestResult = error ? 'failure' : 'success'
+      status.lastTestError = error ? redactTelegramError(error instanceof Error ? error.message : String(error)) : ''
+    })
+  }
+
+  private getDeliveryStatus(key: string): DeliveryStatus {
+    this.state.status ??= {}
+    if (!this.state.status[key]) {
+      const keys = Object.keys(this.state.status)
+      if (keys.length >= 50) delete this.state.status[keys[0]]
+      this.state.status[key] = {}
+    }
+    return this.state.status[key]
+  }
 
   private change(action: () => void): Promise<void> {
     const operation = this.mutation.catch(() => {}).then(async () => {
@@ -151,6 +193,10 @@ export class TelegramNotificationOutbox {
         return
       }
       let attempted = false
+      let attemptStartedAt = Date.now()
+      const deliveryStatusKey = this.statusKey
+      const [statusBot, statusChat] = deliveryStatusKey.split(':', 2)
+      const tracksStatus = job.botId === statusBot && String(job.chatId) === statusChat
       try {
         if (job.text === undefined) {
           const text = await this.prepare(job)
@@ -164,6 +210,7 @@ export class TelegramNotificationOutbox {
           // Never split a UTF-16 surrogate pair between Telegram messages.
           if (end < job.text.length && /[\uD800-\uDBFF]/.test(job.text[end - 1] ?? '')) end -= 1
           const attemptedAt = Date.now()
+          attemptStartedAt = attemptedAt
           await this.change(() => {
             const current = this.state.pending.find((entry) => entry.key === job.key)
             if (current) { current.attempts += 1; current.lastAttemptAt = attemptedAt }
@@ -174,6 +221,20 @@ export class TelegramNotificationOutbox {
           await this.change(() => {
             const current = this.state.pending.find((entry) => entry.key === job.key)
             if (!current) return
+            const status = this.getDeliveryStatus(deliveryStatusKey)
+            if (tracksStatus && (status.lastDeliveryStartedAt ?? 0) <= attemptedAt) {
+              status.lastDeliveryStartedAt = attemptedAt
+              status.lastSuccessAt = Date.now()
+              current.deliveryError = ''
+              const otherFailure = this.state.pending.find((entry) => entry.key !== current.key && entry.botId === current.botId && entry.chatId === current.chatId && entry.deliveryError)
+              if (otherFailure) {
+                status.lastError = otherFailure.deliveryError
+                status.lastFailureJobKey = otherFailure.key
+              } else if (status.lastFailureJobKey === current.key) {
+                status.lastError = ''
+                status.lastFailureJobKey = undefined
+              }
+            }
             current.offset = end
             if (end >= (current.text?.length ?? 0)) this.settle(current)
             else current.nextAttempt = Date.now() + 1000
@@ -184,8 +245,16 @@ export class TelegramNotificationOutbox {
       } catch (error) {
         await this.change(() => {
           this.recordError(error)
+          const status = this.getDeliveryStatus(deliveryStatusKey)
+          if (tracksStatus && (status.lastDeliveryStartedAt ?? 0) <= attemptStartedAt) {
+            status.lastDeliveryStartedAt = attemptStartedAt
+            status.lastFailureAt = Date.now()
+            status.lastFailureJobKey = job.key
+            status.lastError = redactTelegramError(error instanceof Error ? error.message : String(error))
+          }
           const current = this.state.pending.find((entry) => entry.key === job.key)
           if (!current) return
+          current.deliveryError = redactTelegramError(error instanceof Error ? error.message : String(error))
           if (!attempted) { current.attempts += 1; current.lastAttemptAt = Date.now() }
           console.warn('[telegram-outbox] failed', { threadId: job.threadId, turnId: job.turnId, createdAt: current.createdAt, attemptedAt: current.lastAttemptAt, attempt: current.attempts, pid: process.pid, error: this.state.lastError, network: telegramNetworkErrorDetails(error) })
           if ((error instanceof TelegramApiError && !error.temporary) || (current.completion && current.attempts >= COMPLETION_MAX_ATTEMPTS)) {

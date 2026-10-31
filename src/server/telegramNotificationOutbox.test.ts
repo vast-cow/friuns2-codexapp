@@ -64,3 +64,33 @@ describe('Telegram notification outbox', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Telegram notification status', () => {
+  it('persists test results and ignores older completions', async () => {
+    const path = await setup()
+    const outbox = worker(path, async () => {})
+    outbox.setStatusKey('bot:1:configuration')
+    await outbox.recordTest('bot:1:configuration', 200, new Error('fetch failed'))
+    await outbox.recordTest('bot:1:configuration', 100)
+    expect((await outbox.status()).lastTestResult).toBe('failure')
+    await outbox.recordTest('bot:1:configuration', 300)
+    const reopened = worker(path, async () => {})
+    reopened.setStatusKey('bot:1:configuration')
+    expect(await reopened.status()).toMatchObject({ lastTestResult: 'success', lastTestError: '' })
+    reopened.setStatusKey('bot:2:other')
+    expect((await reopened.status()).lastTestResult).toBeUndefined()
+  })
+
+  it('retains retry counts when a test succeeds and rate limits across instances', async () => {
+    const path = await setup()
+    await writeFile(path, JSON.stringify({ pending: [job({ attempts: 1 })], settled: [], lastError: '' }))
+    const first = worker(path, async () => {})
+    const second = worker(path, async () => {})
+    first.setStatusKey('bot:1:configuration')
+    second.setStatusKey('bot:1:configuration')
+    await first.reserveTest('bot:1:configuration', 100000)
+    await expect(second.reserveTest('bot:1:configuration', 100001)).rejects.toThrow('Please wait')
+    await first.recordTest('bot:1:configuration', 100000)
+    expect(await second.status()).toMatchObject({ lastTestResult: 'success', pendingCount: 1, retryingCount: 1 })
+  })
+})

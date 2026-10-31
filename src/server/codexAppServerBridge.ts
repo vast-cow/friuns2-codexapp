@@ -9735,8 +9735,18 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'POST' && url.pathname === '/codex-api/telegram/test-notification') {
+        try {
+          await telegramBridge.sendTestNotification()
+          setJson(res, 200, { ok: true })
+        } catch (error) {
+          setJson(res, 400, { error: error instanceof Error ? error.message : 'Test notification failed' })
+        }
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/telegram/status') {
-        setJson(res, 200, { data: telegramBridge.getStatus() })
+        setJson(res, 200, { data: await telegramBridge.getStatus() })
         return
       }
 

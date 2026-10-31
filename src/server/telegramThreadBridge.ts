@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { redactTelegramError, telegramFetch, telegramNetworkErrorDetails } from './telegramNetwork.js'
 import { homedir } from 'node:os'
@@ -49,7 +50,7 @@ export type TelegramBridgeStatus = {
   allowedUsers: number
   allowAllUsers: boolean
   lastError: string
-  lastNotificationError: string
+  notification: Awaited<ReturnType<TelegramNotificationOutbox['status']>>
 }
 
 type TelegramBotCommand = {
@@ -222,6 +223,8 @@ export class TelegramThreadBridge {
   private pollingTask: Promise<void> | null = null
   private nextUpdateOffset = 0
   private lastError = ''
+  private testInProgress = false
+  private lastTestRequestAt = 0
   private readonly onChatSeen?: (chatId: number) => void
 
   constructor(appServer: AppServerLike, options: TelegramThreadBridgeOptions = {}) {
@@ -271,6 +274,7 @@ export class TelegramThreadBridge {
 
   configureCompletionNotifications(config: unknown): void {
     this.completionNotifications = normalizeTelegramCompletionConfig(config)
+    this.outbox.setStatusKey(this.notificationStatusKey())
   }
 
   private async pollLoop(generation: number): Promise<void> {
@@ -331,10 +335,45 @@ export class TelegramThreadBridge {
       this.chatIdsByThreadId.clear()
     }
     this.token = normalizedToken
+    this.outbox.setStatusKey(this.notificationStatusKey())
     void this.syncBotCommands().catch(() => {})
   }
 
-  getStatus(): TelegramBridgeStatus {
+  private notificationStatusKey(): string {
+    const chatId = this.completionNotifications.chatIds[0] ?? 0
+    const digest = createHash('sha256').update(JSON.stringify([this.token, this.completionNotifications])).digest('hex')
+    return `${this.token.split(':')[0]}:${chatId}:${digest}`
+  }
+
+  async sendTestNotification(): Promise<void> {
+    const chatId = this.completionNotifications.chatIds[0]
+    if (!this.token || !Number.isSafeInteger(chatId) || chatId <= 0) throw new Error('Configure a bot token and private notification chat ID first')
+    if (this.testInProgress || Date.now() - this.lastTestRequestAt < 5000) throw new Error('Please wait before sending another test notification')
+    this.testInProgress = true
+    this.lastTestRequestAt = Date.now()
+    const startedAt = this.lastTestRequestAt
+    const key = this.notificationStatusKey()
+    try {
+      await this.outbox.reserveTest(key, startedAt)
+    } catch (error) {
+      this.testInProgress = false
+      throw error
+    }
+    try {
+      if (key !== this.notificationStatusKey()) throw new Error('Telegram configuration changed; save and try again')
+      try {
+        await this.sendMessageRequest(chatId, 'Codex notification test: Telegram accepted this message.')
+      } catch (error) {
+        await this.outbox.recordTest(key, startedAt, error)
+        throw new Error(redactTelegramError(error instanceof Error ? error.message : String(error)))
+      }
+      await this.outbox.recordTest(key, startedAt)
+    } finally {
+      this.testInProgress = false
+    }
+  }
+
+  async getStatus(): Promise<TelegramBridgeStatus> {
     return {
       configured: this.token.length > 0,
       active: this.active,
@@ -343,7 +382,7 @@ export class TelegramThreadBridge {
       allowedUsers: this.allowedUserIds.size,
       allowAllUsers: this.allowAllUsers,
       lastError: this.lastError,
-      lastNotificationError: this.outbox.lastError,
+      notification: await this.outbox.status(),
     }
   }
 
@@ -531,7 +570,7 @@ export class TelegramThreadBridge {
     }
 
     if (text === '/status') {
-      const status = this.getStatus()
+      const status = await this.getStatus()
       const mappedThreadId = this.threadIdByChatId.get(chatId) ?? 'none'
       await this.sendTelegramMessage(
         chatId,
