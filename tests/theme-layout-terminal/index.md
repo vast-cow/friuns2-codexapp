@@ -8,6 +8,7 @@ Return to the [manual test index](../../tests.md).
 
 | Section |
 | --- |
+| [Dark theme Settings controls and Telegram panel](dark-theme-settings-controls-and-telegram-panel.md) |
 | [Revert PR 131 project recency and mobile move mode](revert-pr-131-project-recency-and-mobile-move-mode.md) |
 | [Feature: Dark theme for worktree runtime selector and Skills Hub](dark-theme-for-worktree-runtime-selector-and-skills-hub.md) |
 | [Feature: Dark theme states for runtime mode toggle](dark-theme-states-for-runtime-mode-toggle.md) |
