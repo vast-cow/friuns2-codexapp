@@ -340,6 +340,55 @@
   @apply text-zinc-400;
 }
 
+:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger,
+:root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger,
+:root.dark .sidebar-settings-telegram-save {
+  @apply border-zinc-600 bg-zinc-700 text-zinc-200;
+}
+
+:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:hover:not(:disabled),
+:root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:hover:not(:disabled),
+:root.dark .sidebar-settings-telegram-save:hover:not(:disabled) {
+  @apply bg-zinc-600;
+}
+
+:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:focus-visible,
+:root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:focus-visible,
+:root.dark .sidebar-settings-telegram-save:focus-visible {
+  @apply outline-none ring-2 ring-zinc-400 ring-offset-2 ring-offset-zinc-900;
+}
+
+:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:disabled,
+:root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:disabled {
+  @apply text-zinc-400 opacity-60;
+}
+
+:root.dark .sidebar-settings-telegram-panel {
+  @apply border-zinc-700 bg-zinc-900/60;
+}
+
+:root.dark .sidebar-settings-telegram-panel .sidebar-settings-field-label {
+  @apply text-zinc-200;
+}
+
+:root.dark .sidebar-settings-telegram-panel .sidebar-settings-input,
+:root.dark .sidebar-settings-telegram-panel .sidebar-settings-textarea {
+  @apply border-zinc-600 bg-zinc-800 text-zinc-100 placeholder:text-zinc-400 focus:border-zinc-400 focus:ring-zinc-600;
+}
+
+:root.dark .sidebar-settings-telegram-panel input[type='checkbox'] {
+  color-scheme: dark;
+  accent-color: #a1a1aa;
+}
+
+:root.dark .sidebar-settings-telegram-panel .sidebar-settings-field-help {
+  @apply text-zinc-400;
+}
+
+:root.dark .sidebar-settings-telegram-error {
+  @apply bg-rose-950 text-rose-200;
+}
+
 
 :root.dark .composer-dropdown-menu {
   @apply border-zinc-600 bg-zinc-800;
