@@ -98,6 +98,8 @@ const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
 const TURN_START_FOLLOW_UP_SYNC_DELAY_MS = 3000
 const RECENT_THREAD_MESSAGE_LOAD_REUSE_MS = 2000
 const RECENT_THREAD_LIST_LOAD_REUSE_MS = 2000
+const LOCAL_THREAD_CONFIRMATION_GRACE_MS = 120_000
+const LOCAL_THREAD_RECONCILIATION_INTERVAL_MS = 5000
 const RECENT_SKILLS_LOAD_REUSE_MS = 2000
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.4-mini'
@@ -1061,46 +1063,37 @@ function mergeThreadGroups(
   return areGroupArraysEqual(previous, mergedGroups) ? previous : mergedGroups
 }
 
-function mergeIncomingWithLocalInProgressThreads(
+function mergeIncomingWithLocalThreads(
   previous: UiProjectGroup[],
   incoming: UiProjectGroup[],
   inProgressById: Record<string, boolean>,
+  awaitingConfirmation: Map<string, number>,
 ): UiProjectGroup[] {
   const incomingThreadIds = new Set(flattenThreads(incoming).map((thread) => thread.id))
-  const localInProgressThreads = flattenThreads(previous).filter(
-    (thread) => inProgressById[thread.id] === true && !incomingThreadIds.has(thread.id),
+  const localThreads = flattenThreads(previous).filter(
+    (thread) => (inProgressById[thread.id] === true || awaitingConfirmation.has(thread.id))
+      && !incomingThreadIds.has(thread.id),
   )
+  if (localThreads.length === 0) return incoming
 
-  if (localInProgressThreads.length === 0) {
-    return incoming
-  }
-
-  const incomingByProjectName = new Map(incoming.map((group) => [group.projectName, group]))
-  const merged: UiProjectGroup[] = incoming.map((group) => ({
+  const groupsByProject = new Map(incoming.map((group) => [group.projectName, {
     projectName: group.projectName,
     threads: [...group.threads],
-  }))
-
-  for (const thread of localInProgressThreads) {
-    const existingGroup = incomingByProjectName.get(thread.projectName)
-    if (existingGroup) {
-      const mergedGroupIndex = merged.findIndex((group) => group.projectName === thread.projectName)
-      if (mergedGroupIndex >= 0) {
-        merged[mergedGroupIndex] = {
-          projectName: merged[mergedGroupIndex].projectName,
-          threads: [thread, ...merged[mergedGroupIndex].threads],
-        }
-      }
-      continue
+  }]))
+  for (const thread of localThreads) {
+    let group = groupsByProject.get(thread.projectName)
+    if (!group) {
+      group = { projectName: thread.projectName, threads: [] }
+      groupsByProject.set(thread.projectName, group)
     }
-
-    merged.push({
-      projectName: thread.projectName,
-      threads: [thread],
-    })
+    group.threads.push(thread)
   }
-
-  return merged
+  return Array.from(groupsByProject.values()).map((group) => ({
+    ...group,
+    threads: group.threads.sort(
+      (first, second) => new Date(second.updatedAtIso).getTime() - new Date(first.updatedAtIso).getTime(),
+    ),
+  }))
 }
 
 function toProjectNameFromWorkspaceRoot(value: string): string {
@@ -1439,6 +1432,9 @@ export function useDesktopState() {
   const generationMetadataByThreadId = ref<Record<string, Record<string, TurnGenerationMetadata>>>({})
   const interruptBlockedUntilPersistedByThreadId = ref<Record<string, boolean>>({})
   const threadListedByServerById = ref<Record<string, boolean>>({})
+  // Separate from the interrupt gate, which is cleared on turn start/completion.
+  const localThreadConfirmationDeadlineById = new Map<string, number>()
+  let localThreadReconciliationTimer: number | null = null
   const persistedUserMessageByThreadId = ref<Record<string, boolean>>({})
   const pendingServerRequestsByThreadId = ref<Record<string, UiServerRequest[]>>({})
   const pendingTurnRequestByThreadId = ref<Record<string, PendingTurnRequest>>({})
@@ -2224,6 +2220,8 @@ export function useDesktopState() {
   }
 
   function insertOptimisticThread(threadId: string, cwd: string, firstMessageText: string): void {
+    localThreadConfirmationDeadlineById.set(threadId, Date.now() + LOCAL_THREAD_CONFIRMATION_GRACE_MS)
+    scheduleLocalThreadReconciliation()
     const nowIso = new Date().toISOString()
     const normalizedCwd = normalizePathForUi(cwd)
     const projectName = toProjectName(normalizedCwd)
@@ -2265,6 +2263,10 @@ export function useDesktopState() {
 
   function pruneThreadScopedState(flatThreads: UiThread[]): void {
     const activeThreadIds = new Set(flatThreads.map((thread) => thread.id))
+    for (const threadId of localThreadConfirmationDeadlineById.keys()) {
+      if (!activeThreadIds.has(threadId)) localThreadConfirmationDeadlineById.delete(threadId)
+    }
+    scheduleLocalThreadReconciliation()
     const currentThreadId = selectedThreadId.value.trim()
     if (currentThreadId) {
       activeThreadIds.add(currentThreadId)
@@ -2375,10 +2377,16 @@ export function useDesktopState() {
         [threadId]: true,
       }
     } else {
+      if (localThreadConfirmationDeadlineById.has(threadId)) {
+        // Long-running first turns still get an indexing grace period after completion.
+        localThreadConfirmationDeadlineById.set(threadId, Date.now() + LOCAL_THREAD_CONFIRMATION_GRACE_MS)
+        scheduleLocalThreadReconciliation()
+      }
       inProgressById.value = omitKey(inProgressById.value, threadId)
       clearCompletedTurnLiveState(threadId)
       clearInterruptPersistenceGate(threadId)
     }
+    scheduleLocalThreadReconciliation()
     applyThreadFlags()
     if (!nextInProgress && !hasActiveInProgressThreads() && threadListNextCursor) {
       scheduleRemainingThreadPages()
@@ -4220,13 +4228,26 @@ export function useDesktopState() {
     }
 
     const orderedGroups = orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
-    markServerListedThreads(new Set(flattenThreads(orderedGroups).map((thread) => thread.id)))
-    const mergedWithInProgress = mergeIncomingWithLocalInProgressThreads(
-      sourceGroups.value,
+    const serverThreadIds = new Set(flattenThreads(orderedGroups).map((thread) => thread.id))
+    markServerListedThreads(serverThreadIds)
+    // Filter local candidates as well: retention must never resurrect a removed workspace.
+    const visibleLocalGroups = filterGroupsByWorkspaceRoots(sourceGroups.value, rootsState)
+    const visibleLocalIds = new Set(flattenThreads(visibleLocalGroups).map((thread) => thread.id))
+    const now = Date.now()
+    for (const [threadId, deadline] of localThreadConfirmationDeadlineById) {
+      if (serverThreadIds.has(threadId) || !visibleLocalIds.has(threadId)
+        || (now >= deadline && inProgressById.value[threadId] !== true)) {
+        localThreadConfirmationDeadlineById.delete(threadId)
+      }
+    }
+    const mergedWithLocal = mergeIncomingWithLocalThreads(
+      visibleLocalGroups,
       orderedGroups,
       inProgressById.value,
+      localThreadConfirmationDeadlineById,
     )
-    sourceGroups.value = mergeThreadGroups(sourceGroups.value, mergedWithInProgress)
+    sourceGroups.value = mergeThreadGroups(sourceGroups.value, mergedWithLocal)
+    scheduleLocalThreadReconciliation()
     inProgressById.value = pruneThreadStateMap(
       inProgressById.value,
       new Set(flattenThreads(sourceGroups.value).map((thread) => thread.id)),
@@ -4272,10 +4293,35 @@ export function useDesktopState() {
   }
 
   function removeArchivedThreadFromLoadedLists(threadId: string): void {
+    localThreadConfirmationDeadlineById.delete(threadId)
+    scheduleLocalThreadReconciliation()
     loadedThreadListGroups = removeThreadFromGroups(loadedThreadListGroups, threadId)
     sourceGroups.value = removeThreadFromGroups(sourceGroups.value, threadId)
     inProgressById.value = omitKey(inProgressById.value, threadId)
     applyThreadFlags()
+  }
+
+  function scheduleLocalThreadReconciliation(): void {
+    if (typeof window === 'undefined') return
+    const now = Date.now()
+    const needsReconciliation = Array.from(localThreadConfirmationDeadlineById).some(
+      ([threadId, deadline]) => now < deadline || inProgressById.value[threadId] !== true,
+    )
+    if (!needsReconciliation) {
+      if (localThreadReconciliationTimer !== null) window.clearTimeout(localThreadReconciliationTimer)
+      localThreadReconciliationTimer = null
+      return
+    }
+    if (localThreadReconciliationTimer !== null) return
+    // One shared timer and the existing coalesced loader, regardless of chat count.
+    localThreadReconciliationTimer = window.setTimeout(() => {
+      localThreadReconciliationTimer = null
+      void loadThreads().catch(() => {
+        // Even if the bridge stays unavailable, the local retention lease is bounded.
+      }).finally(() => {
+        applyThreadGroups(loadedThreadListGroups, loadedThreadListRootsState)
+      })
+    }, LOCAL_THREAD_RECONCILIATION_INTERVAL_MS)
   }
 
   function mergeThreadGroupPages(previous: UiProjectGroup[], incoming: UiProjectGroup[]): UiProjectGroup[] {
@@ -5576,6 +5622,8 @@ export function useDesktopState() {
   }
 
   function stopPolling(): void {
+    localThreadConfirmationDeadlineById.clear()
+    scheduleLocalThreadReconciliation()
     invalidateThreadListGeneration()
     pendingForcedThreadLoad = false
     for (const timer of projectRenameTimers.values()) clearTimeout(timer)

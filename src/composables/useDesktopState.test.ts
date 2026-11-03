@@ -1063,7 +1063,9 @@ describe('provider model selection', () => {
 
   it('refreshes a loaded optimistic thread when completion events arrive', async () => {
     installTestWindow()
-    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {
+    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler, delay?: number) => {
+      // Flush notification debounce timers without triggering periodic indexing retries.
+      if (delay === 5000) return 2
       if (typeof callback === 'function') {
         void Promise.resolve().then(() => callback())
       }
@@ -1193,5 +1195,178 @@ describe('findAdjacentThreadId', () => {
 
   it('returns no fallback when there is no adjacent thread', () => {
     expect(findAdjacentThreadId([thread('selected-thread', '/tmp/project')], 'selected-thread')).toBe('')
+  })
+})
+
+describe('locally created threads awaiting sidebar indexing', () => {
+  let state: ReturnType<typeof useDesktopState>
+  let notify: (notification: { method: string; params: unknown }) => void
+  const ids = () => state.projectGroups.value.flatMap((group) => group.threads.map((row) => row.id))
+  const refresh = () => state.refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
+
+  beforeEach(() => {
+    installTestWindow()
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
+    gatewayMocks.startThread.mockResolvedValue({ threadId: 'new-chat', model: 'gpt-5.5' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      messages: [{ id: 'user-1', role: 'user', text: 'hello', turnId: 'turn-1' }],
+      inProgress: true,
+      activeTurnId: 'turn-1',
+      turnIndexByTurnId: {},
+    })
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notify = handler
+      return vi.fn()
+    })
+    state = useDesktopState()
+    state.startPolling()
+  })
+
+  afterEach(() => {
+    state.stopPolling()
+    vi.restoreAllMocks()
+  })
+
+  async function create(id = 'new-chat', cwd = '/tmp/project') {
+    gatewayMocks.startThread.mockResolvedValueOnce({ threadId: id, model: 'gpt-5.5' })
+    await state.sendMessageToNewThread('hello', cwd)
+    // Let the detached turn-start and its message synchronization finish.
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0))
+  }
+
+  function complete(id = 'new-chat') {
+    notify({ method: 'turn/completed', params: { threadId: id, turn: { id: 'turn-1', status: 'completed' } } })
+  }
+
+  it('keeps a new chat during an active turn and after completion before its first list appearance', async () => {
+    await create()
+    await refresh()
+    expect(ids()).toContain('new-chat')
+    complete()
+    expect(state.projectGroups.value[0]?.threads[0]?.inProgress).toBe(false)
+    await refresh()
+    expect(ids()).toContain('new-chat')
+    expect(state.selectedThreadId.value).toBe('new-chat')
+  })
+
+  it('reconciles a temporary omission, then releases the confirmation timer', async () => {
+    vi.mocked(window.setTimeout).mockImplementation(((_callback: TimerHandler, delay?: number) => (
+      delay === 5000 ? 91 : 92
+    )) as typeof window.setTimeout)
+    await create()
+    complete()
+    await refresh()
+    expect(ids()).toContain('new-chat')
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'project', threads: [thread('new-chat', '/tmp/project')] }], nextCursor: null,
+    })
+    await refresh()
+    expect(ids()).toEqual(['new-chat'])
+    expect(window.clearTimeout).toHaveBeenCalledWith(91)
+  })
+
+  it('bounds retention for a thread that is never indexed', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    await create()
+    complete()
+    vi.mocked(Date.now).mockReturnValue(now + 120001)
+    await refresh()
+    expect(ids()).not.toContain('new-chat')
+  })
+
+  it('reconciles without further notifications and expires even if list requests fail', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    let reconcile: (() => void) | undefined
+    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler, delay?: number) => {
+      if (delay === 5000) reconcile = callback as () => void
+      return 91
+    }) as typeof window.setTimeout)
+    await create()
+    complete()
+    expect(reconcile).toBeDefined()
+    gatewayMocks.getThreadGroupsPage.mockRejectedValue(new Error('bridge unavailable'))
+    vi.mocked(Date.now).mockReturnValue(now + 120001)
+    reconcile!()
+    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0))
+    expect(ids()).not.toContain('new-chat')
+  })
+
+  it('starts a fresh grace period when a long first turn completes', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    await create()
+    vi.mocked(Date.now).mockReturnValue(now + 180000)
+    await refresh()
+    expect(ids()).toContain('new-chat')
+    complete()
+    await refresh()
+    expect(ids()).toContain('new-chat')
+    vi.mocked(Date.now).mockReturnValue(now + 300001)
+    await refresh()
+    expect(ids()).not.toContain('new-chat')
+  })
+
+  it('does not insert a thread when creation fails', async () => {
+    gatewayMocks.startThread.mockRejectedValueOnce(new Error('creation failed'))
+    await expect(state.sendMessageToNewThread('hello', '/tmp/project')).rejects.toThrow('creation failed')
+    await refresh()
+    expect(ids()).toEqual([])
+  })
+
+  it('expires a failed first turn without leaving a permanent entry', async () => {
+    const now = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    gatewayMocks.startThreadTurn.mockRejectedValueOnce(new Error('turn failed'))
+    await create()
+    vi.mocked(Date.now).mockReturnValue(now + 120001)
+    await refresh()
+    expect(ids()).not.toContain('new-chat')
+  })
+
+  it('honors explicit archiving before server confirmation', async () => {
+    await create()
+    gatewayMocks.archiveThread.mockResolvedValue(undefined)
+    await state.archiveThreadById('new-chat')
+    await refresh()
+    expect(ids()).not.toContain('new-chat')
+  })
+
+  it('honors workspace filtering for pending and existing threads, including active turns', async () => {
+    await create()
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'project', threads: [thread('existing', '/tmp/project')] }], nextCursor: null,
+    })
+    gatewayMocks.getWorkspaceRootsState.mockResolvedValue({
+      order: ['/tmp/allowed'], active: ['/tmp/allowed'], labels: {}, projectOrder: [],
+    })
+    await refresh()
+    expect(ids()).toEqual([])
+  })
+
+  it('keeps concurrent pending chats grouped alongside paginated server history', async () => {
+    await create('first')
+    await create('second', '/tmp/other')
+    await create('third')
+    complete('first')
+    complete('second')
+    complete('third')
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'project', threads: [thread('older', '/tmp/project')] }], nextCursor: 'page-2',
+    })
+    await refresh()
+    expect(new Set(ids())).toEqual(new Set(['first', 'second', 'third', 'older']))
+    expect(state.isThreadListFullyLoaded.value).toBe(false)
+    expect(state.projectGroups.value.find((group) => group.projectName === 'project')?.threads.map((row) => row.id))
+      .toEqual(expect.arrayContaining(['third', 'first', 'older']))
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'other', threads: [thread('second', '/tmp/other'), thread('oldest', '/tmp/other')] }],
+      nextCursor: null,
+    })
+    await refresh()
+    expect(new Set(ids())).toEqual(new Set(['first', 'second', 'third', 'older', 'oldest']))
+    expect(state.isThreadListFullyLoaded.value).toBe(true)
   })
 })
