@@ -1061,6 +1061,38 @@ describe('provider model selection', () => {
     ])
   })
 
+  it('keeps a newly created thread through turn completion while server indexing is pending', async () => {
+    installTestWindow()
+    let notificationHandler: ((notification: { method: string; params?: unknown }) => void) | undefined
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler as typeof notificationHandler
+      return vi.fn()
+    })
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
+    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
+    gatewayMocks.getSkillsList.mockResolvedValue([])
+    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.5', providerId: '', reasoningEffort: 'medium', speedMode: 'standard',
+    })
+    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+    gatewayMocks.startThread.mockResolvedValue({ threadId: 'pending-thread', model: 'gpt-5.5', modelProvider: 'openai' })
+    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
+
+    const state = useDesktopState()
+    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+    await state.sendMessageToNewThread('hi', '/tmp/project')
+    expect(state.projectGroups.value.flatMap((group) => group.threads).some((row) => row.id === 'pending-thread')).toBe(true)
+
+    state.startPolling()
+    notificationHandler!({
+      method: 'turn/completed',
+      params: { threadId: 'pending-thread', turn: { id: 'turn-1', status: 'completed' } },
+    })
+    await state.loadThreads({ force: true })
+    expect(state.projectGroups.value.flatMap((group) => group.threads).some((row) => row.id === 'pending-thread')).toBe(true)
+  })
+
   it('refreshes a loaded optimistic thread when completion events arrive', async () => {
     installTestWindow()
     vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {

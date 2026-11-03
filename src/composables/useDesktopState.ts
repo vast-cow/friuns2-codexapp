@@ -1065,10 +1065,16 @@ function mergeIncomingWithLocalInProgressThreads(
   previous: UiProjectGroup[],
   incoming: UiProjectGroup[],
   inProgressById: Record<string, boolean>,
+  awaitingServerConfirmationById: Record<string, number>,
 ): UiProjectGroup[] {
   const incomingThreadIds = new Set(flattenThreads(incoming).map((thread) => thread.id))
+  const now = Date.now()
   const localInProgressThreads = flattenThreads(previous).filter(
-    (thread) => inProgressById[thread.id] === true && !incomingThreadIds.has(thread.id),
+    (thread) => (inProgressById[thread.id] === true || (
+      typeof awaitingServerConfirmationById[thread.id] === 'number'
+      && now - awaitingServerConfirmationById[thread.id] < 5 * 60 * 1000
+    ))
+      && !incomingThreadIds.has(thread.id),
   )
 
   if (localInProgressThreads.length === 0) {
@@ -1380,6 +1386,7 @@ export function useDesktopState() {
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const inProgressById = ref<Record<string, boolean>>({})
+  const awaitingServerConfirmationById = ref<Record<string, number>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
     id: string
@@ -2238,6 +2245,10 @@ export function useDesktopState() {
       preview: firstMessageText,
       unread: false,
       inProgress: false,
+    }
+    awaitingServerConfirmationById.value = {
+      ...awaitingServerConfirmationById.value,
+      [threadId]: Date.now(),
     }
 
     const existingGroupIndex = sourceGroups.value.findIndex((group) => group.projectName === projectName)
@@ -4201,6 +4212,15 @@ export function useDesktopState() {
   }
 
   function applyThreadGroups(groups: UiProjectGroup[], rootsState: WorkspaceRootsState | null): void {
+    const serverThreadIds = new Set(flattenThreads(groups).map((thread) => thread.id))
+    let nextAwaiting = awaitingServerConfirmationById.value
+    const now = Date.now()
+    for (const [threadId, createdAt] of Object.entries(nextAwaiting)) {
+      if (serverThreadIds.has(threadId) || now - createdAt >= 5 * 60 * 1000) {
+        nextAwaiting = omitKey(nextAwaiting, threadId)
+      }
+    }
+    awaitingServerConfirmationById.value = nextAwaiting
     const visibleGroups = filterGroupsByWorkspaceRoots(groups, rootsState)
     const hasWorkspaceRootsState = Boolean(
       rootsState && (rootsState.order.length > 0 || rootsState.projectOrder.length > 0 || (rootsState.remoteProjects ?? []).length > 0),
@@ -4225,6 +4245,7 @@ export function useDesktopState() {
       sourceGroups.value,
       orderedGroups,
       inProgressById.value,
+      awaitingServerConfirmationById.value,
     )
     sourceGroups.value = mergeThreadGroups(sourceGroups.value, mergedWithInProgress)
     inProgressById.value = pruneThreadStateMap(
@@ -4275,6 +4296,7 @@ export function useDesktopState() {
     loadedThreadListGroups = removeThreadFromGroups(loadedThreadListGroups, threadId)
     sourceGroups.value = removeThreadFromGroups(sourceGroups.value, threadId)
     inProgressById.value = omitKey(inProgressById.value, threadId)
+    awaitingServerConfirmationById.value = omitKey(awaitingServerConfirmationById.value, threadId)
     applyThreadFlags()
   }
 
@@ -5624,6 +5646,7 @@ export function useDesktopState() {
     generationMetadataByThreadId.value = {}
     interruptBlockedUntilPersistedByThreadId.value = {}
     threadListedByServerById.value = {}
+    awaitingServerConfirmationById.value = {}
     persistedUserMessageByThreadId.value = {}
     queuedMessagesByThreadId.value = {}
     queueProcessingByThreadId.value = {}
