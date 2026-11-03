@@ -61,6 +61,26 @@ describe('startThreadTurn collaboration mode payloads', () => {
   })
 })
 
+describe('startThreadTurn attachment-only payloads', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['pasted-text-2026-11-04-12-00-00.txt', 'notes.txt'])('sends an indexable request and original references for %s', async (name) => {
+    const { requests } = mockRpcFetch()
+    const file = { label: name, path: `/uploads/${name}`, fsPath: `/uploads/${name}` }
+
+    await startThreadTurn('new-thread', '', [], 'gpt-5.4', 'medium', undefined, [file])
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0].params.input).toEqual([{
+      type: 'text',
+      text: `# Files mentioned by the user:\n\n## ${name}: /uploads/${name}\n\n## My request for Codex:\n\nAttached file: ${name}\n`,
+    }])
+    expect(requests[0].params.attachments).toEqual([file])
+  })
+})
+
 describe('listDirectoryComposioConnectors', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

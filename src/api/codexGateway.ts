@@ -1,4 +1,5 @@
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
+import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 export type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 import { ref } from 'vue'
@@ -1754,18 +1755,6 @@ function extractLocalImagePathFromUrl(value: string): string | null {
   } catch {
     return null
   }
-}
-
-function buildTextWithAttachments(
-  prompt: string,
-  files: FileAttachmentParam[],
-): string {
-  if (files.length === 0) return prompt
-  let prefix = '# Files mentioned by the user:\n'
-  for (const f of files) {
-    prefix += `\n## ${f.label}: ${f.path}\n`
-  }
-  return `${prefix}\n## My request for Codex:\n\n${prompt}\n`
 }
 
 function fileNameFromPath(pathValue: string): string {

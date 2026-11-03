@@ -8,6 +8,7 @@ Return to the [manual test index](../../tests.md).
 
 | Section |
 | --- |
+| [Attachment-only thread persistence](attachment-only-thread-persistence.md) |
 | [Copy individual user messages](copy-user-messages.md) |
 | [Per-response model and reasoning effort](per-response-model-and-reasoning-effort.md) |
 | [Codex thread deep links render as local web thread URLs](codex-thread-deep-links-render-as-local-web-thread-urls.md) |

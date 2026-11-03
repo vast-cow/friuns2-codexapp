@@ -47,6 +47,7 @@ import { ThreadTerminalManager } from './terminalManager.js'
 import { inheritForkTurnMetadata, SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
 import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
+import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import {
   resolveCodexCommand,
   resolveRipgrepCommand,
@@ -5753,15 +5754,6 @@ function extractLocalImagePathFromUrl(value: string): string | null {
   } catch {
     return null
   }
-}
-
-function buildTextWithAttachments(prompt: string, files: StoredQueuedMessage['fileAttachments']): string {
-  if (files.length === 0) return prompt
-  let prefix = '# Files mentioned by the user:\n'
-  for (const f of files) {
-    prefix += `\n## ${f.label}: ${f.path}\n`
-  }
-  return `${prefix}\n## My request for Codex:\n\n${prompt}\n`
 }
 
 function escapeHeartbeatXmlText(value: string): string {

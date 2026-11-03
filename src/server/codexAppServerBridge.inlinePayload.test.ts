@@ -354,6 +354,30 @@ describe('thread session skill recovery', () => {
 })
 
 describe('backend queue scheduling', () => {
+  it.each(['', ' \n\t ', '  Read this.\n\nKeep the formatting.\n '])('builds queued attachment requests consistently for %j', async (text) => {
+    // Avoid constructor queue recovery; this case only exercises turn construction.
+    const processor = Object.create(BackendQueueProcessor.prototype) as BackendQueueProcessor
+    const file = { label: 'notes.txt', path: '/uploads/notes.txt', fsPath: '/uploads/notes.txt' }
+    const message = {
+      id: 'queued-attachment', text, imageUrls: [], skills: [],
+      fileAttachments: [file], collaborationMode: 'default' as const,
+    }
+    type QueueBuilder = {
+      buildQueuedTurnParams: (turn: { threadId: string; message: typeof message }) => Promise<Record<string, unknown>>
+      resolveCollaborationModeSettings: () => Promise<{ model: string; reasoningEffort: null }>
+    }
+    const builder = processor as unknown as QueueBuilder
+    vi.spyOn(builder, 'resolveCollaborationModeSettings').mockResolvedValue({ model: 'gpt-5.4', reasoningEffort: null })
+
+    const params = await builder.buildQueuedTurnParams({ threadId: 'thread-1', message })
+
+    expect(params.input).toEqual([{
+      type: 'text',
+      text: `# Files mentioned by the user:\n\n## notes.txt: /uploads/notes.txt\n\n## My request for Codex:\n\n${text.trim() ? text : 'Attached file: notes.txt'}\n`,
+    }])
+    expect(params.attachments).toEqual([file])
+  })
+
   it('reschedules a pending drain when a run-now request needs an earlier drain', async () => {
     vi.useFakeTimers()
     const processor = new BackendQueueProcessor({
