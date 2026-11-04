@@ -15,7 +15,7 @@
 8. Scroll to **Screenshots** section — verify four images render (2 desktop, 2 mobile).
 9. Scroll to **Features** section — verify 6 feature cards in a 3-column grid.
 10. Scroll to **Testimonials** section — verify two rows of auto-scrolling marquee cards (row 2 scrolls reverse). Hover to pause.
-11. Scroll through **Architecture**, **Boot Sequence**, **Quick Start**, and **Tech Stack** sections — verify content renders.
+11. In **Quick Start**, verify the commands clone `vast-cow/friuns2-codexapp`, install dependencies, build, and run `node dist-cli/index.js --no-open`. Confirm there are no Gradle, bootstrap-download, APK install, or native boot instructions. The page must state that external Android app links refer to a separate project and this repository does not publish APKs. Verify the Termux setup link remains available.
 12. Verify the **footer** includes a "Web Demo" link to `https://xcodex.slrv.md/#/`.
 13. Test responsive at 768px and 480px — nav links collapse, grids single-column, buttons stack vertically.
 
