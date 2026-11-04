@@ -46,16 +46,9 @@ import type {
   UiMessage,
   UiProjectGroup,
   UiThread,
-  UiReviewAction,
-  UiReviewActionLevel,
-  UiReviewFile,
   UiReviewFinding,
-  UiReviewHunk,
-  UiReviewLine,
   UiReviewResult,
   UiReviewScope,
-  UiReviewSnapshot,
-  UiReviewSummary,
   UiReviewWorkspaceView,
   UiRateLimitSnapshot,
   UiRateLimitWindow,
@@ -826,132 +819,6 @@ export async function getOlderThreadMessages(threadId: string, beforeTurnId: str
     return await getOlderThreadMessagesV2(threadId, beforeTurnId, limit)
   } catch (error) {
     throw normalizeCodexApiError(error, `Failed to load earlier messages for thread ${threadId}`, 'thread/read')
-  }
-}
-
-function normalizeReviewLine(value: unknown): UiReviewLine | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const key = readString(record.key)
-  const text = typeof record.text === 'string' ? record.text : ''
-  const kind = readString(record.kind)
-  if (!key || !kind) return null
-  if (kind !== 'meta' && kind !== 'hunk' && kind !== 'add' && kind !== 'remove' && kind !== 'context') {
-    return null
-  }
-
-  return {
-    key,
-    kind,
-    text,
-    oldLine: readNumber(record.oldLine),
-    newLine: readNumber(record.newLine),
-  }
-}
-
-function normalizeReviewHunk(value: unknown): UiReviewHunk | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const id = readString(record.id)
-  const header = typeof record.header === 'string' ? record.header : ''
-  const patch = typeof record.patch === 'string' ? record.patch : ''
-  if (!id) return null
-
-  return {
-    id,
-    header,
-    patch,
-    addedLineCount: readNumber(record.addedLineCount) ?? 0,
-    removedLineCount: readNumber(record.removedLineCount) ?? 0,
-    oldStart: readNumber(record.oldStart),
-    oldLineCount: readNumber(record.oldLineCount) ?? 0,
-    newStart: readNumber(record.newStart),
-    newLineCount: readNumber(record.newLineCount) ?? 0,
-    lines: Array.isArray(record.lines)
-      ? record.lines
-        .map((entry) => normalizeReviewLine(entry))
-        .filter((entry): entry is UiReviewLine => entry !== null)
-      : [],
-  }
-}
-
-function normalizeReviewFile(value: unknown): UiReviewFile | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const id = readString(record.id)
-  const path = readString(record.path)
-  const absolutePath = readString(record.absolutePath)
-  const operation = readString(record.operation)
-  if (!id || !path || !absolutePath || !operation) return null
-  if (operation !== 'add' && operation !== 'delete' && operation !== 'update' && operation !== 'rename') {
-    return null
-  }
-
-  return {
-    id,
-    path,
-    absolutePath,
-    previousPath: readString(record.previousPath),
-    previousAbsolutePath: readString(record.previousAbsolutePath),
-    operation,
-    addedLineCount: readNumber(record.addedLineCount) ?? 0,
-    removedLineCount: readNumber(record.removedLineCount) ?? 0,
-    diff: typeof record.diff === 'string' ? record.diff : '',
-    hunks: Array.isArray(record.hunks)
-      ? record.hunks
-        .map((entry) => normalizeReviewHunk(entry))
-        .filter((entry): entry is UiReviewHunk => entry !== null)
-      : [],
-  }
-}
-
-function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
-  const envelope = asRecord(payload)
-  const data = asRecord(envelope?.data)
-  const summaryRecord = asRecord(data?.summary)
-  const rawScope = readString(data?.scope)
-  const scope = rawScope === 'baseBranch' || rawScope === 'commit' ? rawScope : 'workspace'
-  const workspaceView = readString(data?.workspaceView) === 'staged' ? 'staged' : 'unstaged'
-
-  return {
-    cwd: readString(data?.cwd) ?? '',
-    gitRoot: readString(data?.gitRoot),
-    isGitRepo: readBoolean(data?.isGitRepo) ?? false,
-    scope,
-    workspaceView,
-    baseBranch: readString(data?.baseBranch),
-    baseBranchOptions: Array.isArray(data?.baseBranchOptions)
-      ? data.baseBranchOptions
-        .map((entry) => readString(entry))
-        .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
-      : [],
-    commitSha: readString(data?.commitSha),
-    headBranch: readString(data?.headBranch),
-    mergeBaseSha: readString(data?.mergeBaseSha),
-    generatedAtIso: readString(data?.generatedAtIso) ?? '',
-    summary: {
-      fileCount: readNumber(summaryRecord?.fileCount) ?? 0,
-      addedLineCount: readNumber(summaryRecord?.addedLineCount) ?? 0,
-      removedLineCount: readNumber(summaryRecord?.removedLineCount) ?? 0,
-    },
-    files: Array.isArray(data?.files)
-      ? data.files
-        .map((entry) => normalizeReviewFile(entry))
-        .filter((entry): entry is UiReviewFile => entry !== null)
-      : [],
-  }
-}
-
-function normalizeReviewSummary(payload: unknown): UiReviewSummary {
-  const envelope = asRecord(payload)
-  const data = asRecord(envelope?.data)
-  return {
-    fileCount: readNumber(data?.fileCount) ?? 0,
-    addedLineCount: readNumber(data?.addedLineCount) ?? 0,
-    removedLineCount: readNumber(data?.removedLineCount) ?? 0,
   }
 }
 
@@ -2633,75 +2500,6 @@ export async function getGitRepositoryStatus(cwd: string): Promise<GitRepository
   return {
     isGitRepo: record.isGitRepo === true,
     gitRoot: typeof record.gitRoot === 'string' ? normalizePathForUi(record.gitRoot) : '',
-  }
-}
-
-export async function getReviewSnapshot(
-  cwd: string,
-  scope: UiReviewScope,
-  workspaceView: UiReviewWorkspaceView,
-  baseBranch?: string | null,
-  commitSha?: string | null,
-): Promise<UiReviewSnapshot> {
-  const query = new URLSearchParams({ cwd, scope, workspaceView })
-  if (baseBranch && baseBranch.trim()) {
-    query.set('baseBranch', baseBranch.trim())
-  }
-  if (commitSha && commitSha.trim()) {
-    query.set('commitSha', commitSha.trim())
-  }
-  const response = await fetch(`/codex-api/review/snapshot?${query.toString()}`)
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review snapshot'))
-  }
-  return normalizeReviewSnapshot(payload)
-}
-
-export async function getReviewSummary(
-  cwd: string,
-  workspaceView: UiReviewWorkspaceView,
-): Promise<UiReviewSummary> {
-  const query = new URLSearchParams({ cwd, workspaceView })
-  const response = await fetch(`/codex-api/review/summary?${query.toString()}`)
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review summary'))
-  }
-  return normalizeReviewSummary(payload)
-}
-
-export async function applyReviewAction(payload: {
-  cwd: string
-  scope: UiReviewScope
-  workspaceView: UiReviewWorkspaceView
-  action: UiReviewAction
-  level: UiReviewActionLevel
-  path?: string
-  previousPath?: string | null
-  patch?: string
-}): Promise<UiReviewSnapshot> {
-  const response = await fetch('/codex-api/review/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  const data = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(data, 'Failed to apply review action'))
-  }
-  return normalizeReviewSnapshot(data)
-}
-
-export async function initializeReviewGit(cwd: string): Promise<void> {
-  const response = await fetch('/codex-api/review/git/init', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cwd }),
-  })
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to initialize Git'))
   }
 }
 

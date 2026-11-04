@@ -563,17 +563,6 @@
               <IconTablerBolt />
             </span>
           </template>
-          <template #actions>
-            <button
-              v-if="route.name === 'thread' && selectedThreadId.length > 0"
-              type="button"
-              class="content-header-review-button"
-              :aria-pressed="isReviewPaneOpen"
-              @click="isReviewPaneOpen = !isReviewPaneOpen"
-            >
-              {{ t('Review Worktree Changes') }}
-            </button>
-          </template>
         </ContentHeader>
 
         <section class="content-body">
@@ -930,84 +919,74 @@
           </template>
           <template v-else>
             <div class="content-grid">
-              <ReviewPane
-                v-if="isReviewPaneOpen && selectedThreadId && composerCwd"
-                :thread-id="selectedThreadId"
-                :cwd="composerCwd"
-                :is-thread-in-progress="isSelectedThreadInProgress"
-                @close="isReviewPaneOpen = false"
-              />
+              <div class="content-thread">
+                <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
+                  :active-thread-id="composerThreadContextId" :cwd="composerCwd"
+                  :live-overlay="liveOverlay"
+                  :pending-requests="selectedThreadServerRequests"
+                  :has-more-persisted-above="hasMoreOlderMessages"
+                  :is-loading-persisted-above="isLoadingOlderMessages"
+                  :load-earlier-messages="loadOlderMessages"
+                  @fork-thread="onForkThreadFromMessage"
+                  @rollback="onRollback"
+                  @implement-plan="onImplementPlan"
+                  @respond-server-request="onRespondServerRequest" />
+              </div>
 
-              <template v-else>
-                <div class="content-thread">
-                  <ThreadConversation ref="threadConversationRef" :messages="filteredMessages" :is-loading="isLoadingMessages"
-                    :active-thread-id="composerThreadContextId" :cwd="composerCwd"
-                    :live-overlay="liveOverlay"
-                    :pending-requests="selectedThreadServerRequests"
-                    :has-more-persisted-above="hasMoreOlderMessages"
-                    :is-loading-persisted-above="isLoadingOlderMessages"
-                    :load-earlier-messages="loadOlderMessages"
-                    @fork-thread="onForkThreadFromMessage"
-                    @rollback="onRollback"
-                    @implement-plan="onImplementPlan"
-                    @respond-server-request="onRespondServerRequest" />
+              <div class="composer-with-queue">
+                <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
+                  <span>{{ t(codexCliMissingError) }}</span>
+                  <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
                 </div>
-
-                <div class="composer-with-queue">
-                  <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
-                    <span>{{ t(codexCliMissingError) }}</span>
-                    <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
-                  </div>
-                  <QueuedMessages
-                    :messages="selectedThreadQueuedMessages"
-                    @edit="onEditQueuedMessage"
-                    @steer="steerQueuedMessage"
-                    @delete="removeQueuedMessage"
-                    @reorder="onReorderQueuedMessage"
-                  />
-                  <ThreadGoalPanel
-                    ref="threadGoalPanelRef"
-                    :thread-id="selectedThreadId"
-                    :in-progress="isSelectedThreadInProgress"
-                  />
-                  <ThreadPendingRequestPanel
-                    v-if="selectedThreadPendingRequest"
-                    :request="selectedThreadPendingRequest"
-                    :request-count="selectedThreadServerRequests.length"
-                    :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                    @respond-server-request="onRespondServerRequest"
-                  />
-                  <ThreadComposer
-                    v-else
-                    ref="threadComposerRef"
-                    :active-thread-id="composerThreadContextId"
-                    :cwd="composerCwd"
-                    :collaboration-modes="availableCollaborationModes"
-                    :selected-collaboration-mode="selectedCollaborationMode"
-                    :models="availableModelIds"
-                    :selected-model="composerSelectedModelId"
-                    :selected-reasoning-effort="composerReasoningEffort"
-                    :reasoning-effort-options="composerReasoningOptions"
-                    :selected-speed-mode="selectedSpeedMode"
-                    :is-updating-speed-mode="isUpdatingSpeedMode"
-                    :skills="installedSkills"
-                    :thread-token-usage="selectedThreadTokenUsage"
-                    :codex-quota="codexQuota"
-                    :is-turn-in-progress="isSelectedThreadInProgress"
-                    :is-stop-pending="isSelectedThreadInterruptPending"
-                    :is-interrupting-turn="isInterruptingTurn"
-                    :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                    :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
-                    :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
-                    :dictation-language="dictationLanguage"
-                    @update:selected-collaboration-mode="onSelectCollaborationMode"
-                    @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
-                    @update:selected-reasoning-effort="onSelectReasoningEffort"
-                    @update:selected-speed-mode="onSelectSpeedMode"
-                    @edit-goal="threadGoalPanelRef?.edit()"
-                    @interrupt="onInterruptTurn" />
-                </div>
-              </template>
+                <QueuedMessages
+                  :messages="selectedThreadQueuedMessages"
+                  @edit="onEditQueuedMessage"
+                  @steer="steerQueuedMessage"
+                  @delete="removeQueuedMessage"
+                  @reorder="onReorderQueuedMessage"
+                />
+                <ThreadGoalPanel
+                  ref="threadGoalPanelRef"
+                  :thread-id="selectedThreadId"
+                  :in-progress="isSelectedThreadInProgress"
+                />
+                <ThreadPendingRequestPanel
+                  v-if="selectedThreadPendingRequest"
+                  :request="selectedThreadPendingRequest"
+                  :request-count="selectedThreadServerRequests.length"
+                  :has-queue-above="selectedThreadQueuedMessages.length > 0"
+                  @respond-server-request="onRespondServerRequest"
+                />
+                <ThreadComposer
+                  v-else
+                  ref="threadComposerRef"
+                  :active-thread-id="composerThreadContextId"
+                  :cwd="composerCwd"
+                  :collaboration-modes="availableCollaborationModes"
+                  :selected-collaboration-mode="selectedCollaborationMode"
+                  :models="availableModelIds"
+                  :selected-model="composerSelectedModelId"
+                  :selected-reasoning-effort="composerReasoningEffort"
+                  :reasoning-effort-options="composerReasoningOptions"
+                  :selected-speed-mode="selectedSpeedMode"
+                  :is-updating-speed-mode="isUpdatingSpeedMode"
+                  :skills="installedSkills"
+                  :thread-token-usage="selectedThreadTokenUsage"
+                  :codex-quota="codexQuota"
+                  :is-turn-in-progress="isSelectedThreadInProgress"
+                  :is-stop-pending="isSelectedThreadInterruptPending"
+                  :is-interrupting-turn="isInterruptingTurn"
+                  :has-queue-above="selectedThreadQueuedMessages.length > 0"
+                  :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                  :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
+                  :dictation-language="dictationLanguage"
+                  @update:selected-collaboration-mode="onSelectCollaborationMode"
+                  @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
+                  @update:selected-reasoning-effort="onSelectReasoningEffort"
+                  @update:selected-speed-mode="onSelectSpeedMode"
+                  @edit-goal="threadGoalPanelRef?.edit()"
+                  @interrupt="onInterruptTurn" />
+              </div>
             </div>
           </template>
         </section>
@@ -1183,7 +1162,6 @@ import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathFor
 import { copyTextToClipboard } from './utils/clipboard'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
-const ReviewPane = defineAsyncComponent(() => import('./components/content/ReviewPane.vue'))
 const DirectoryHub = defineAsyncComponent(() => import('./components/content/DirectoryHub.vue'))
 const AutomationsPanel = defineAsyncComponent(() => import('./components/content/AutomationsPanel.vue'))
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
@@ -1488,7 +1466,6 @@ const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
 const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
-const isReviewPaneOpen = ref(false)
 const createFolderInputRef = ref<HTMLInputElement | null>(null)
 const accounts = ref<UiAccountEntry[]>([])
 const isRefreshingAccounts = ref(false)
@@ -4207,9 +4184,6 @@ watch(
   (name) => {
     if (name !== 'home') {
       worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
-    }
-    if (name !== 'thread') {
-      isReviewPaneOpen.value = false
     }
   },
 )

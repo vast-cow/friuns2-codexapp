@@ -114,66 +114,6 @@ export type UiFileChange = {
 
 export type UiReviewScope = 'workspace' | 'baseBranch' | 'commit'
 export type UiReviewWorkspaceView = 'unstaged' | 'staged'
-export type UiReviewAction = 'stage' | 'unstage' | 'revert'
-export type UiReviewActionLevel = 'all' | 'file' | 'hunk'
-export type UiReviewFileOperation = 'add' | 'delete' | 'update' | 'rename'
-
-export type UiReviewLine = {
-  key: string
-  kind: 'meta' | 'hunk' | 'add' | 'remove' | 'context'
-  text: string
-  oldLine: number | null
-  newLine: number | null
-}
-
-export type UiReviewHunk = {
-  id: string
-  header: string
-  patch: string
-  addedLineCount: number
-  removedLineCount: number
-  oldStart: number | null
-  oldLineCount: number
-  newStart: number | null
-  newLineCount: number
-  lines: UiReviewLine[]
-}
-
-export type UiReviewFile = {
-  id: string
-  path: string
-  absolutePath: string
-  previousPath: string | null
-  previousAbsolutePath: string | null
-  operation: UiReviewFileOperation
-  addedLineCount: number
-  removedLineCount: number
-  diff: string
-  hunks: UiReviewHunk[]
-}
-
-export type UiReviewSnapshot = {
-  cwd: string
-  gitRoot: string | null
-  isGitRepo: boolean
-  scope: UiReviewScope
-  workspaceView: UiReviewWorkspaceView
-  baseBranch: string | null
-  baseBranchOptions: string[]
-  commitSha: string | null
-  headBranch: string | null
-  mergeBaseSha: string | null
-  generatedAtIso: string
-  summary: {
-    fileCount: number
-    addedLineCount: number
-    removedLineCount: number
-  }
-  files: UiReviewFile[]
-}
-
-export type UiReviewSummary = UiReviewSnapshot['summary']
-
 export type UiReviewFinding = {
   id: string
   title: string
