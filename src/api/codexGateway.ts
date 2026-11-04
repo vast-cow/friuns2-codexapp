@@ -1,3 +1,4 @@
+import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
 import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
@@ -279,6 +280,7 @@ let workspaceRootsMutation: Promise<unknown> = Promise.resolve()
 let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
 
 export type StoredQueuedMessage = {
+  generationSettings?: QueuedGenerationSettings
   id: string
   text: string
   imageUrls: string[]
@@ -1790,6 +1792,7 @@ export async function startThreadTurn(
   fileAttachments: FileAttachmentParam[] = [],
   collaborationMode?: CollaborationModeKind,
   providerId?: string,
+  preserveExplicitSettings = false,
 ): Promise<string> {
   try {
     const normalizedModel = model?.trim() ?? ''
@@ -1837,7 +1840,10 @@ export async function startThreadTurn(
     }
     if (attachments.length > 0) params.attachments = attachments
     const resolvedModel = collaborationMode ? await resolveCollaborationModeModel(collaborationMode, normalizedModel) : normalizedModel
-    const resolvedEffort = resolveReasoningEffort(findReasoningModel(resolvedModel, providerId), effort)
+    const reasoningModel = findReasoningModel(resolvedModel, providerId)
+    const resolvedEffort = preserveExplicitSettings && (!Array.isArray(reasoningModel?.supportedReasoningEfforts) || !effort)
+      ? effort ?? ''
+      : resolveReasoningEffort(reasoningModel, effort)
     if (resolvedModel) params.model = resolvedModel
     if (resolvedEffort) params.effort = resolvedEffort
     if (collaborationMode) {
@@ -2548,6 +2554,8 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     })
     : []
 
+  const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
+
   return {
     id,
     text: typeof record.text === 'string' ? record.text : '',
@@ -2555,6 +2563,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills,
     fileAttachments,
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    ...(generationSettings ? { generationSettings } : {}),
   }
 }
 

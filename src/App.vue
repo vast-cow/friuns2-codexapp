@@ -1534,7 +1534,7 @@ const isThreadTerminalAvailable = ref(true)
 const terminalProjectQuickCommands = ref<ThreadTerminalQuickCommand[]>([])
 const terminalStoredQuickCommands = ref<TerminalHeaderQuickCommand[]>(loadTerminalStoredQuickCommands())
 const terminalHeaderDropdownValue = ref('')
-const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
+const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number; message: (typeof selectedThreadQueuedMessages.value)[number] } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const directoryTryInFlightKey = ref('')
 let hasPendingRouteSync = false
@@ -3477,7 +3477,9 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
     void submitFirstMessageForNewThread(text, payload.imageUrls, payload.skills, payload.fileAttachments)
     return
   }
-  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex)
+  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex,
+    editingState?.threadId === selectedThreadId.value ? editingState.message.collaborationMode : undefined,
+    editingState?.threadId === selectedThreadId.value ? editingState.message.generationSettings ?? null : undefined)
 }
 
 function onEditQueuedMessage(messageId: string): void {
@@ -3492,7 +3494,7 @@ function onEditQueuedMessage(messageId: string): void {
   }
 
   editingQueuedMessageState.value = selectedThreadId.value
-    ? { threadId: selectedThreadId.value, queueIndex }
+    ? { threadId: selectedThreadId.value, queueIndex, message }
     : null
   const payload: ComposerDraftPayload = {
     text: message.text,

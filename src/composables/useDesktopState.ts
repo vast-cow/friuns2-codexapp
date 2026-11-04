@@ -1,3 +1,4 @@
+import { normalizeQueueProvider, type QueuedGenerationSettings } from '../queuedGenerationSettings'
 import { computed, ref, watch } from 'vue'
 import {
 
@@ -1386,6 +1387,7 @@ export function useDesktopState() {
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
+    generationSettings?: QueuedGenerationSettings
     id: string
     text: string
     imageUrls: string[]
@@ -1401,6 +1403,7 @@ export function useDesktopState() {
     effort: ReasoningEffort | ''
     collaborationMode: CollaborationModeKind
     fallbackRetried: boolean
+    preserveGenerationSettings?: boolean
   }
   const queuedMessagesByThreadId = ref<Record<string, QueuedMessage[]>>({})
   const queueProcessingByThreadId = ref<Record<string, boolean>>({})
@@ -1876,7 +1879,7 @@ export function useDesktopState() {
   async function retryPendingTurnWithFallback(threadId: string): Promise<void> {
     if (fallbackRetryInFlightThreadIds.has(threadId)) return
     const pending = pendingTurnRequestByThreadId.value[threadId]
-    if (!pending || pending.fallbackRetried) return
+    if (!pending || pending.fallbackRetried || pending.preserveGenerationSettings) return
 
     fallbackRetryInFlightThreadIds.add(threadId)
     setPendingTurnRequest(threadId, {
@@ -3886,6 +3889,7 @@ export function useDesktopState() {
     const shouldRetryWithFallback =
       Boolean(completedThreadId) &&
       Boolean(turnErrorMessage) &&
+      pendingTurnRequestByThreadId.value[completedThreadId]?.preserveGenerationSettings !== true &&
       completedThreadModelId !== MODEL_FALLBACK_ID &&
       isUnsupportedChatGptModelError(new Error(turnErrorMessage))
     if (completedTurn) {
@@ -4282,6 +4286,7 @@ export function useDesktopState() {
           fsPath: attachment.fsPath,
         })),
         collaborationMode: message.collaborationMode,
+        ...(message.generationSettings ? { generationSettings: { ...message.generationSettings } } : {}),
       }))
     }
     return next
@@ -4985,12 +4990,25 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[] = [],
     queueInsertIndex?: number,
     collaborationModeOverride?: CollaborationModeKind,
+    generationSettingsOverride?: QueuedGenerationSettings | null,
   ): Promise<void> {
     if (isUpdatingSpeedMode.value) return
 
     const threadId = selectedThreadId.value
     const nextText = text.trim()
     if (!threadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) return
+
+    // Capture before the first await: later composer changes belong to later submissions.
+    const generationSettings = generationSettingsOverride === null ? undefined : {
+      ...(generationSettingsOverride ?? {
+        model: readModelIdForThread(threadId),
+        effort: selectedReasoningEffort.value,
+        providerId: normalizeQueueProvider(readProviderIdForThread(threadId)),
+      }),
+    }
+    const submittedMode = collaborationModeOverride ?? selectedCollaborationMode.value
+    const submittedGenerationSettings = generationSettingsOverride
+      || (mode === 'queue' && inProgressById.value[threadId] === true ? generationSettings : undefined)
 
     if (await maybeReplyToPendingUserInputRequest(threadId, nextText, imageUrls, skills, fileAttachments)) {
       return
@@ -5006,16 +5024,11 @@ export function useDesktopState() {
         ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
         : nextQueue.length
       nextQueue.splice(insertIndex, 0, {
-        id,
-        text: nextText,
-        imageUrls,
-        skills,
-        fileAttachments,
-        collaborationMode: collaborationModeOverride === 'plan'
-          ? 'plan'
-          : collaborationModeOverride === 'default'
-            ? 'default'
-            : selectedCollaborationMode.value,
+        id, text: nextText, imageUrls: [...imageUrls],
+        skills: skills.map((skill) => ({ ...skill })),
+        fileAttachments: fileAttachments.map((file) => ({ ...file })),
+        collaborationMode: submittedMode,
+        ...(generationSettings ? { generationSettings } : {}),
       })
       queuedMessagesByThreadId.value = {
         ...queuedMessagesByThreadId.value,
@@ -5035,8 +5048,9 @@ export function useDesktopState() {
         imageUrls,
         skills,
         fileAttachments,
-        collaborationModeOverride,
+        submittedMode,
         optimisticMessageId,
+        submittedGenerationSettings,
       ).catch((unknownError) => {
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(threadId, errorMessage)
@@ -5073,8 +5087,9 @@ export function useDesktopState() {
         imageUrls,
         skills,
         fileAttachments,
-        collaborationModeOverride,
+        submittedMode,
         optimisticMessageId,
+        submittedGenerationSettings,
       )
     } catch (unknownError) {
       shouldAutoScrollOnNextAgentEvent = false
@@ -5191,9 +5206,10 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[] = [],
     collaborationModeOverride?: CollaborationModeKind,
     optimisticMessageId?: string,
+    generationSettings?: QueuedGenerationSettings,
   ): Promise<void> {
     realtimeRevisionByThreadId.set(threadId, (realtimeRevisionByThreadId.get(threadId) ?? 0) + 1)
-    const reasoningEffort = selectedReasoningEffort.value
+    const reasoningEffort = generationSettings?.effort ?? selectedReasoningEffort.value
     const collaborationMode = collaborationModeOverride === 'plan' ? 'plan' : collaborationModeOverride === 'default'
       ? 'default'
       : selectedCollaborationMode.value
@@ -5219,6 +5235,7 @@ export function useDesktopState() {
       effort: reasoningEffort,
       collaborationMode,
       fallbackRetried: false,
+      preserveGenerationSettings: Boolean(generationSettings),
     })
 
     try {
@@ -5235,7 +5252,10 @@ export function useDesktopState() {
           [threadId]: true,
         }
       }
-      const modelId = readModelIdForThread(threadId)
+      if (generationSettings && normalizeQueueProvider(readProviderIdForThread(threadId)) !== generationSettings.providerId) {
+        throw new Error('Queued message provider no longer matches this thread.')
+      }
+      const modelId = generationSettings?.model ?? readModelIdForThread(threadId)
 
       let startedTurnId = ''
       try {
@@ -5248,10 +5268,11 @@ export function useDesktopState() {
           skills.length > 0 ? skills : undefined,
           fileAttachments,
           collaborationMode,
-          readProviderIdForThread(threadId),
+          generationSettings?.providerId ?? readProviderIdForThread(threadId),
+          Boolean(generationSettings),
         )
       } catch (unknownError) {
-        if (modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
+        if (!generationSettings && modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
           await applyFallbackModelSelection(threadId)
           setPendingTurnRequest(threadId, {
             text: normalizedText,
@@ -5737,8 +5758,7 @@ export function useDesktopState() {
     const msg = queue.find((m) => m.id === messageId)
     if (!msg) return
     removeQueuedMessage(messageId)
-    setSelectedCollaborationMode(msg.collaborationMode)
-    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments)
+    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments, undefined, msg.collaborationMode, msg.generationSettings ?? null)
   }
 
   function primeSelectedThread(threadId: string, options: { persist?: boolean } = {}): void {

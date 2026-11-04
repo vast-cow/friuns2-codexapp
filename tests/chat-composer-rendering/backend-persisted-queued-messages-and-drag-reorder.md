@@ -31,3 +31,30 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 - Delete any queued test messages that should not be sent
 
 ---
+
+### Per-message queued model and reasoning settings
+
+#### Prerequisites/Setup
+- Run the app with an authenticated provider and a model supporting both `low` and `medium` reasoning. Keep an existing turn running long enough to queue follow-ups.
+- Open network/RPC inspection or use app-server tracing to inspect actual `turn/start` payloads. Footer labels alone do not establish execution correctness.
+
+#### Steps
+1. Select model M with `low` reasoning and queue message A. Select M with `medium` reasoning and queue message B.
+2. Change the composer to another model/effort after queuing both messages.
+3. Refresh the page while the initial turn is running; confirm A and B remain queued. Restart the backend and reopen the thread if restart coverage is needed.
+4. Let the initial turn and queued turns finish. Inspect A and B's `turn/start` requests: both top-level `model`/`effort` and `collaborationMode.settings.model`/`reasoning_effort` must match M/low and M/medium respectively. Check recorded per-turn metadata too.
+5. Repeat with different models for A and B and different collaboration modes. Drag B before A, refresh, and confirm B runs first with its own settings.
+6. Queue A with low, change composer settings to medium, edit A's text, and resubmit. Confirm it retains low and its original collaboration mode. Repeat using Steer; inspect the actual request and confirm the composer preferences remain medium. Editing queue text preserves its original generation settings.
+7. With a disposable test profile, load a legacy queue record lacking `generationSettings`. Refresh, reorder, and edit it. Confirm no snapshot is invented; execution uses the existing legacy fallback.
+8. If two providers expose identical model IDs, repeat for each provider using its supported efforts. A queued entry must never inherit the other provider's capabilities. An entry whose saved provider differs from the resumed thread must remain queued without a `turn/start` request.
+9. Check a supported explicit `none` and an unspecified effort separately. `none` stays explicit; an unspecified effort remains null in collaboration settings. For an effort no longer supported by the matching provider/model catalog, expect its capability default (or first supported effort), consistently in both payload locations.
+10. Repeat queue edit, reorder, and Steer in light and dark themes; existing queue controls must remain readable.
+
+#### Expected Results
+- Each queued entry retains its submission-time model, effort, provider identity, and collaboration mode across persistence and reorder.
+- A/low followed by B/medium produces two independent turns with the respective effort values. Later composer or global configuration changes do not overwrite them.
+- Executing saved settings does not write global model preferences. Legacy entries retain their prior fallback behavior.
+
+#### Rollback/Cleanup
+- Delete remaining test queue entries, stop disposable test turns, and restore the original composer model, reasoning effort, collaboration mode, and appearance.
+- Restore any manually edited queue state from the disposable profile's backup.

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDesktopState } from './useDesktopState'
+import { reasoningCatalog } from '../api/codexGateway'
 import type { ResumedThread, RpcNotification } from '../api/codexGateway'
 import type { UiMessage, UiThread } from '../types/codex'
 
@@ -312,6 +313,72 @@ describe('message visibility during sends and history synchronization', () => {
     expect(state.messages.value.some((message) => message.text === 'queued')).toBe(false)
     expect(state.selectedThreadQueuedMessages.value.map((message) => message.text)).toEqual(['queued'])
     expect(gateway.startThreadTurn).not.toHaveBeenCalled()
+  })
+
+  it.each(['gpt-5.5', 'other-model'])('captures independent queue settings before awaits, retains them through reorder and reload (%s)', async (secondModel) => {
+    const state = await loadState()
+    turnStarted()
+    reasoningCatalog.value = { providerId: 'codex', models: ['gpt-5.5', 'other-model'].map((id) => ({
+      id, supportedReasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'low',
+    })) }
+    state.setSelectedReasoningEffort('low')
+    // Change the composer immediately, before the first submission resumes after its await.
+    const first = state.sendMessageToSelectedThread('A', [], [], 'queue')
+    state.setSelectedModelId(secondModel)
+    state.setSelectedReasoningEffort('medium')
+    const second = state.sendMessageToSelectedThread('B', [], [], 'queue')
+    state.setSelectedReasoningEffort('high')
+    await Promise.all([first, second])
+    const [a, b] = state.selectedThreadQueuedMessages.value
+    expect(a?.generationSettings).toEqual({ model: 'gpt-5.5', effort: 'low', providerId: 'openai' })
+    expect(b?.generationSettings).toEqual({ model: secondModel, effort: 'medium', providerId: 'openai' })
+    state.reorderQueuedMessage(b!.id, a!.id)
+    const saved = gateway.setThreadQueueState.mock.calls.at(-1)![0]
+    expect(saved[thread.id].map((item: { text: string }) => item.text)).toEqual(['B', 'A'])
+    gateway.getThreadQueueState.mockResolvedValue(JSON.parse(JSON.stringify(saved)))
+    const reopened = await loadState()
+    expect(reopened.selectedThreadQueuedMessages.value).toEqual([b, a])
+  })
+
+  it('retains submission settings if the active turn completes during the enqueue await', async () => {
+    const state = await loadState()
+    turnStarted()
+    reasoningCatalog.value = { providerId: 'codex', models: [{
+      id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
+    }] }
+    state.setSelectedReasoningEffort('low')
+    const submitted = state.sendMessageToSelectedThread('queued as the turn finishes', [], [], 'queue')
+    state.setSelectedReasoningEffort('medium')
+    turnCompleted()
+    await submitted
+    expect(gateway.startThreadTurn.mock.calls[0]?.slice(3, 5)).toEqual(['gpt-5.5', 'low'])
+  })
+
+  it('keeps saved settings when editing and steering without altering composer preferences', async () => {
+    const state = await loadState()
+    turnStarted()
+    reasoningCatalog.value = { providerId: 'codex', models: [{
+      id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
+    }] }
+    state.setSelectedReasoningEffort('low')
+    await state.sendMessageToSelectedThread('original', [], [], 'queue')
+    const original = state.selectedThreadQueuedMessages.value[0]!
+    state.removeQueuedMessage(original.id)
+    state.setSelectedReasoningEffort('medium')
+    await state.sendMessageToSelectedThread('edited', [], [], 'queue', [], 0, original.collaborationMode, original.generationSettings)
+    expect(state.selectedThreadQueuedMessages.value[0]?.generationSettings).toEqual(original.generationSettings)
+    state.steerQueuedMessage(state.selectedThreadQueuedMessages.value[0]!.id)
+    await vi.waitFor(() => expect(gateway.startThreadTurn).toHaveBeenCalled())
+    expect(gateway.startThreadTurn.mock.calls[0]?.slice(3, 5)).toEqual(['gpt-5.5', 'low'])
+    expect(state.selectedReasoningEffort.value).toBe('medium')
+  })
+
+  it('does not assign a snapshot when an edited legacy entry is resubmitted', async () => {
+    const state = await loadState()
+    turnStarted()
+    await state.sendMessageToSelectedThread('legacy edit', [], [], 'queue', [], 0, 'plan', null)
+    expect(state.selectedThreadQueuedMessages.value[0]).not.toHaveProperty('generationSettings')
+    expect(gateway.setThreadQueueState.mock.calls.at(-1)![0][thread.id][0]).not.toHaveProperty('generationSettings')
   })
 
   it('shows steering submissions immediately with unique IDs for rapid sends', async () => {

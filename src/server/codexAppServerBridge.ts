@@ -1,3 +1,4 @@
+import { normalizeQueuedGenerationSettings, normalizeQueueProvider, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink, realpath, utimes } from 'node:fs/promises'
@@ -5564,6 +5565,7 @@ const FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY = 'first-launch-plugins-card-dismi
 const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
 
 type StoredQueuedMessage = {
+  generationSettings?: QueuedGenerationSettings
   id: string
   text: string
   imageUrls: string[]
@@ -5619,6 +5621,8 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     })
   }
 
+  const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
+
   return {
     id,
     text: typeof record.text === 'string' ? record.text : '',
@@ -5626,6 +5630,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills: normalizeNamedPathItems(record.skills),
     fileAttachments: normalizeFileAttachments(record.fileAttachments),
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    ...(generationSettings ? { generationSettings } : {}),
   }
 }
 
@@ -7165,7 +7170,10 @@ export class BackendQueueProcessor {
     })
   }
 
-  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, providerId?: string): Promise<ResolvedCollaborationModeSettings> {
+  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, providerId?: string, saved?: QueuedGenerationSettings): Promise<ResolvedCollaborationModeSettings> {
+    if (saved && (!providerId || normalizeQueueProvider(providerId) !== saved.providerId)) {
+      throw new Error('Queued message provider no longer matches this thread.')
+    }
     let currentConfig: Record<string, unknown> | null = null
     try {
       const configPayload = asRecord(await this.appServer.rpc('config/read', {}))
@@ -7191,7 +7199,7 @@ export class BackendQueueProcessor {
     } catch {
       models.length = 0
     }
-    const model = configuredModel || readNonEmptyString(models[0]?.id) || readNonEmptyString(models[0]?.model)
+    const model = saved?.model || configuredModel || readNonEmptyString(models[0]?.id) || readNonEmptyString(models[0]?.model)
     if (model) {
       const normalizeProvider = (value: unknown): string => {
         const provider = (readNonEmptyString(value) || 'openai').toLowerCase().replace(/_/g, '-')
@@ -7199,7 +7207,13 @@ export class BackendQueueProcessor {
       }
       const sameProvider = providerId && normalizeProvider(providerId) === normalizeProvider(currentConfig?.model_provider)
       const capabilities = sameProvider ? models.find((entry) => entry.id === model || entry.model === model) : null
-      return { model, reasoningEffort: normalizeReasoningEffort(currentConfig?.model_reasoning_effort, capabilities) }
+      // An unavailable or differently scoped catalog cannot invalidate an explicit choice.
+      // Empty effort means unspecified, whereas "none" is a real reasoning effort.
+      const reasoningEffort = saved
+        ? !saved.effort ? null
+          : Array.isArray(capabilities?.supportedReasoningEfforts) ? normalizeReasoningEffort(saved.effort, capabilities) : saved.effort
+        : normalizeReasoningEffort(currentConfig?.model_reasoning_effort, capabilities)
+      return { model, reasoningEffort }
     }
     throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model.`)
   }
@@ -7248,8 +7262,9 @@ export class BackendQueueProcessor {
       params.attachments = dedupedFileAttachments.map((f) => ({ label: f.label, path: f.path, fsPath: f.fsPath }))
     }
 
-    try {
-      const settings = await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId)
+    const applySettings = (settings: ResolvedCollaborationModeSettings): void => {
+      params.model = settings.model
+      if (settings.reasoningEffort !== null) params.effort = settings.reasoningEffort
       params.collaborationMode = {
         mode: turn.message.collaborationMode,
         settings: {
@@ -7258,8 +7273,15 @@ export class BackendQueueProcessor {
           developer_instructions: null,
         },
       }
-    } catch {
-      // Older app-server versions still accept a plain turn/start without collaborationMode.
+    }
+    if (turn.message.generationSettings) {
+      applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId, turn.message.generationSettings))
+    } else {
+      try {
+        applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId))
+      } catch {
+        // Older app-server versions still accept a plain turn/start without collaborationMode.
+      }
     }
 
     return params
