@@ -63,19 +63,19 @@ The Skills tab includes a registry search panel backed by `npx skills find`, sho
 
 ---
 
-### Skills and Automations sidebar lightning icons
+### Skills sidebar lightning icon
 
 #### Prerequisites/Setup
 - Run the app with the sidebar expanded.
 
 #### Steps
-1. Inspect the Skills and Automations sidebar buttons in light and dark themes.
-2. Click each button and inspect its destination and selected state.
+1. Inspect the Skills sidebar button in light and dark themes.
+2. Click the button and inspect its destination and selected state.
 
 #### Expected Results
-- Both buttons display the existing lightning icon with the sidebar icon sizing and theme color.
-- Tooltips and accessible labels remain Skills and Automations respectively.
-- Each button opens its corresponding route and shows its selected state.
+- The button displays the existing lightning icon with the sidebar icon sizing and theme color.
+- The tooltip and accessible label remain Skills.
+- The button opens the Skills route and shows its selected state.
 
 #### Rollback/Cleanup
 - Restore the original theme; no persistent data changes are required.

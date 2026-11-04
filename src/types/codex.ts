@@ -76,22 +76,6 @@ export type UiThread = {
 
 export type UiPendingRequestState = 'approval' | 'response'
 
-export type UiThreadAutomationStatus = 'ACTIVE' | 'PAUSED'
-
-export type UiThreadAutomation = {
-  id: string
-  kind: 'heartbeat' | 'cron'
-  name: string
-  prompt: string
-  rrule: string
-  status: UiThreadAutomationStatus
-  targetThreadId: string | null
-  cwds: string[]
-  createdAtMs: number | null
-  updatedAtMs: number | null
-  nextRunAtMs: number | null
-}
-
 export type CommandExecutionData = {
   command: string
   cwd: string | null

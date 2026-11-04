@@ -15,7 +15,7 @@
 7. Switch to dark theme and repeat steps 1-3.
 
 #### Expected Results
-- The project menu contains `Export Project` between `Browse files` and automation actions.
+- The project menu contains `Export Project` after `Browse files`.
 - Each thread menu contains `Export Project` after `Browse files`, exporting that thread's project folder, including projectless chat folders and other local directories.
 - Clicking `Export Project` opens a modal, shows progress while the ZIP downloads into a blob, then keeps the modal open with `Download` and `Share` buttons.
 - Clicking `Download` saves the prepared ZIP; clicking `Share` invokes the browser file share flow when supported.

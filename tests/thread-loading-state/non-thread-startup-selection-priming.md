@@ -1,7 +1,7 @@
 ### Non-thread startup selection priming
 
 #### Feature/Change Name
-Home, skills, and automations startup priming clears the active in-memory selected thread without erasing the persisted selected thread id.
+Home and Skills startup priming clears the active in-memory selected thread without erasing the persisted selected thread id.
 
 #### Prerequisites/Setup
 1. Start local Vite: `pnpm run dev --host 127.0.0.1 --port 4173`.

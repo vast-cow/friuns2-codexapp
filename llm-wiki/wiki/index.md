@@ -13,11 +13,12 @@
 - [concepts/opencode-zen-big-pickle.md](./concepts/opencode-zen-big-pickle.md): retired alternative-provider integration and the current Codex-only boundary.
 - [concepts/realtime-chat-rendering.md](./concepts/realtime-chat-rendering.md): realtime chat rendering, sync-churn reduction, and inline media sanitization.
 - [concepts/skills-route-ui.md](./concepts/skills-route-ui.md): Skills route naming, first-launch Plugins card persistence, dark-theme fixes, and verification lessons.
-- [concepts/thread-heartbeat-automations.md](./concepts/thread-heartbeat-automations.md): thread-scoped heartbeat automation storage, multi-automation management, and manual run behavior.
-- [concepts/project-cron-automations.md](./concepts/project-cron-automations.md): project-scoped cron automation storage and sidebar management UI.
+- [concepts/thread-heartbeat-automations.md](./concepts/thread-heartbeat-automations.md): removed thread automation management and preserved historical message rendering.
+- [concepts/project-cron-automations.md](./concepts/project-cron-automations.md): removed project automation management and preserved existing data.
 - [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): project ZIP export/import, chat JSONL portability, and local-only security posture.
 
 ## Sources
+- [../raw/features/automation-management-removal.md](../raw/features/automation-management-removal.md): removed management layer and preserved local data, history, and shared queue processing.
 - [../raw/features/codex-only-client.md](../raw/features/codex-only-client.md): current official-only authentication, model catalog, runtime and legacy-data boundaries.
 - [../raw/features/single-active-codex-account.md](../raw/features/single-active-codex-account.md): current single-account authentication boundary and preservation of active credentials/Keyring.
 - [../raw/features/local-skills-without-github-sync.md](../raw/features/local-skills-without-github-sync.md): local Skills without manual GitHub synchronization or Firebase authentication.

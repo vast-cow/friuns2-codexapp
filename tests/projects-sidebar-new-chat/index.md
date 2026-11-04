@@ -26,9 +26,9 @@ Return to the [manual test index](../../tests.md).
 | [Sidebar scroll position survives collapse](sidebar-scroll-position-survives-collapse.md) |
 | [Toolbar new thread keeps active project](toolbar-new-thread-keeps-active-project.md) |
 
-## Compact Skills and Automations toolbar actions
+## Compact Skills toolbar action
 
 - Setup: Open the app with the sidebar expanded.
-- Actions: Click the Skills and Automations icons beside Search; repeat with keyboard navigation and on mobile. Check both light and dark themes.
-- Expected: Each icon opens its matching route, exposes a translated label and tooltip, and marks the active route with `aria-current="page"` and active styling. Mobile navigation closes the sidebar. The previous full-width cards are absent; search and new-thread actions still work.
+- Actions: Click the Skills icon beside Search; repeat with keyboard navigation and on mobile. Check both light and dark themes.
+- Expected: The icon opens the Skills route, exposes a translated label and tooltip, and marks the active route with `aria-current="page"` and active styling. Mobile navigation closes the sidebar. The previous full-width cards are absent; search and new-thread actions still work.
 - Cleanup: Return to the home route and restore the original theme. No persistent data is changed.

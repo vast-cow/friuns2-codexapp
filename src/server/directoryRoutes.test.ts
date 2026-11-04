@@ -15,7 +15,7 @@ beforeEach(async () => {
   vi.stubEnv('CODEX_HOME', home)
   previous = scope.__codexRemoteSharedBridge__
   rpc.mockReset().mockResolvedValue({ data: [] })
-  scope.__codexRemoteSharedBridge__ = { version: 'codex-only-api-v1', appServer: { rpc }, telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {} }
+  scope.__codexRemoteSharedBridge__ = { version: 'local-chat-api-v1', appServer: { rpc }, telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {} }
 })
 afterEach(async () => { scope.__codexRemoteSharedBridge__ = previous; vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }) })
 async function request(path: string, method = 'GET') {
@@ -68,4 +68,24 @@ it.each([
   expect(body).toBe('')
   expect(rpc).not.toHaveBeenCalled()
   expect(await readFile(join(home, 'webui-custom-providers.json'), 'utf8')).toBe(contents)
+})
+
+it.each([
+  ['GET', 'thread-automations'], ['GET', 'project-automations'],
+  ['GET', 'thread-automation'], ['GET', 'project-automation'],
+  ['PUT', 'thread-automation'], ['PUT', 'project-automation'],
+  ['DELETE', 'thread-automation'], ['DELETE', 'project-automation'],
+  ['POST', 'thread-automation/run'],
+])('does not handle retired automation route %s %s or touch existing automation data', async (method, suffix) => {
+  const root = join(home, 'automations', 'saved-example')
+  await mkdir(root, { recursive: true })
+  const contents = 'id = "saved-example"\nkind = "heartbeat"\nstatus = "ACTIVE"\nprompt = "Keep my data"\n'
+  await writeFile(join(root, 'automation.toml'), contents)
+  await writeFile(join(root, 'memory.md'), 'Existing automation memory')
+  const { next, body } = await request(`/codex-api/${suffix}?threadId=example&projectName=/tmp/example&automationId=saved-example`, method)
+  expect(next).toHaveBeenCalledOnce()
+  expect(body).toBe('')
+  expect(rpc).not.toHaveBeenCalled()
+  expect(await readFile(join(root, 'automation.toml'), 'utf8')).toBe(contents)
+  expect(await readFile(join(root, 'memory.md'), 'utf8')).toBe('Existing automation memory')
 })
