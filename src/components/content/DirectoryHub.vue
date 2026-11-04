@@ -660,34 +660,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  getDirectoryComposioStatus,
-  getMethodCatalog,
-  installDirectoryPlugin,
-  installDirectoryComposioCli,
-  listDirectoryComposioConnectors,
-  listDirectoryApps,
-  listDirectoryMcpServers,
-  listDirectoryPlugins,
-  readDirectoryComposioConnector,
-  readDirectoryPlugin,
-  reloadDirectoryMcpServers,
-  setDirectoryAppEnabled,
-  setDirectoryPluginEnabled,
-  startDirectoryComposioCliLogin,
-  startDirectoryComposioLogin,
-  startDirectoryMcpLogin,
-  uninstallDirectoryPlugin,
-  type DirectoryAppInfo,
-  type DirectoryComposioConnection,
-  type DirectoryComposioConnector,
-  type DirectoryComposioConnectorDetail,
-  type DirectoryComposioStatus,
-  type DirectoryMcpServerStatus,
-  type DirectoryPluginAppSummary,
-  type DirectoryPluginDetail,
-  type DirectoryPluginSummary,
-} from '../../api/codexGateway'
+import { getDirectoryComposioStatus, installDirectoryPlugin, installDirectoryComposioCli, listDirectoryComposioConnectors, listDirectoryApps, listDirectoryMcpServers, listDirectoryPlugins, readDirectoryComposioConnector, readDirectoryPlugin, reloadDirectoryMcpServers, setDirectoryAppEnabled, setDirectoryPluginEnabled, startDirectoryComposioCliLogin, startDirectoryComposioLogin, startDirectoryMcpLogin, uninstallDirectoryPlugin } from '../../api/directoryGateway'
+import { getMethodCatalog, type DirectoryAppInfo, type DirectoryComposioConnection, type DirectoryComposioConnector, type DirectoryComposioConnectorDetail, type DirectoryComposioStatus, type DirectoryMcpServerStatus, type DirectoryPluginAppSummary, type DirectoryPluginDetail, type DirectoryPluginSummary } from '../../api/codexGateway'
 import { sortComposioConnectors, type DirectorySortMode } from './directoryHubUtils'
 import SkillsHub from './SkillsHub.vue'
 

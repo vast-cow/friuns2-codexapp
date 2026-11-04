@@ -1,67 +1,14 @@
 import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
-import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
+import { type TelegramCompletionConfig } from '../telegramCompletionConfig'
 import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 export type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 import { ref } from 'vue'
-import {
-  fetchRpcMethodCatalog,
-  fetchRpcNotificationCatalog,
-  fetchPendingServerRequests,
-  rpcCall,
-  respondServerRequest,
-  subscribeRpcNotifications,
-  type RpcNotification,
-} from './codexRpcClient'
-import type {
-  CollaborationModeListResponse,
-  ConfigReadResponse,
-  GetAccountRateLimitsResponse,
-  ModelListResponse,
-  ReasoningEffort,
-  ThreadForkResponse,
-  ThreadListResponse,
-  ThreadReadResponse,
-  ThreadResumeResponse,
-  ThreadStartResponse,
-  Turn,
-} from './appServerDtos'
+import { fetchRpcMethodCatalog, fetchRpcNotificationCatalog, fetchPendingServerRequests, rpcCall, respondServerRequest, subscribeRpcNotifications, type RpcNotification } from './codexRpcClient'
+import type { CollaborationModeListResponse, ConfigReadResponse, GetAccountRateLimitsResponse, ModelListResponse, ReasoningEffort, ThreadForkResponse, ThreadListResponse, ThreadReadResponse, ThreadResumeResponse, ThreadStartResponse, Turn } from './appServerDtos'
 import { extractErrorMessage, normalizeCodexApiError } from './codexErrors'
-import {
-  readActiveTurnIdFromResponse,
-  normalizeThreadGroupsV2,
-  normalizeThreadMessagesV2,
-  normalizeThreadSummaryV2,
-  readThreadInProgressFromResponse,
-} from './normalizers/v2'
-import type {
-  SpeedMode,
-  UiAccountEntry,
-  UiAccountQuotaStatus,
-  UiAccountUnavailableReason,
-  CollaborationModeKind,
-  CollaborationModeOption,
-  UiCreditsSnapshot,
-  UiFileChange,
-  UiMessage,
-  UiProjectGroup,
-  UiThread,
-  UiReviewAction,
-  UiReviewActionLevel,
-  UiReviewFile,
-  UiReviewFinding,
-  UiReviewHunk,
-  UiReviewLine,
-  UiReviewResult,
-  UiReviewScope,
-  UiReviewSnapshot,
-  UiReviewSummary,
-  UiReviewWorkspaceView,
-  UiRateLimitSnapshot,
-  UiRateLimitWindow,
-  UiThreadAutomation,
-  UiThreadAutomationStatus,
-} from '../types/codex'
+import { readActiveTurnIdFromResponse, normalizeThreadGroupsV2, normalizeThreadMessagesV2, normalizeThreadSummaryV2, readThreadInProgressFromResponse } from './normalizers/v2'
+import type { SpeedMode, UiAccountEntry, UiAccountQuotaStatus, UiAccountUnavailableReason, CollaborationModeKind, CollaborationModeOption, UiCreditsSnapshot, UiFileChange, UiMessage, UiProjectGroup, UiThread, UiReviewSummary, UiReviewWorkspaceView, UiRateLimitSnapshot, UiRateLimitWindow, UiThreadAutomation, UiThreadAutomationStatus } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
 
 type CurrentModelConfig = {
@@ -247,7 +194,7 @@ export type DirectoryComposioInstallResult = {
   output: string
 }
 
-type DirectoryComposioConnectorPage = {
+export type DirectoryComposioConnectorPage = {
   data: DirectoryComposioConnector[]
   nextCursor: string | null
   total: number
@@ -345,8 +292,6 @@ export type GitRepositoryStatus = {
   gitRoot: string
 }
 
-
-
 export type ThreadSearchResult = {
   threadIds: string[]
   indexedThreadCount: number
@@ -420,25 +365,25 @@ type ThreadFileChangeFallbackEntry = {
 
 type ThreadTurnIndexById = Record<string, number>
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-function readNumber(value: unknown): number | null {
+export function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function readBoolean(value: unknown): boolean | null {
+export function readBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
 }
 
-function readStringArray(value: unknown): string[] {
+export function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
 }
 
@@ -550,7 +495,7 @@ export function pickCodexRateLimitSnapshot(payload: unknown): UiRateLimitSnapsho
   return normalizeRateLimitSnapshot(record.rateLimits ?? record.rate_limits)
 }
 
-async function callRpc<T>(method: string, params?: unknown): Promise<T> {
+export async function callRpc<T>(method: string, params?: unknown): Promise<T> {
   try {
     return await rpcCall<T>(method, params)
   } catch (error) {
@@ -880,122 +825,6 @@ export async function getOlderThreadMessages(threadId: string, beforeTurnId: str
   }
 }
 
-function normalizeReviewLine(value: unknown): UiReviewLine | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const key = readString(record.key)
-  const text = typeof record.text === 'string' ? record.text : ''
-  const kind = readString(record.kind)
-  if (!key || !kind) return null
-  if (kind !== 'meta' && kind !== 'hunk' && kind !== 'add' && kind !== 'remove' && kind !== 'context') {
-    return null
-  }
-
-  return {
-    key,
-    kind,
-    text,
-    oldLine: readNumber(record.oldLine),
-    newLine: readNumber(record.newLine),
-  }
-}
-
-function normalizeReviewHunk(value: unknown): UiReviewHunk | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const id = readString(record.id)
-  const header = typeof record.header === 'string' ? record.header : ''
-  const patch = typeof record.patch === 'string' ? record.patch : ''
-  if (!id) return null
-
-  return {
-    id,
-    header,
-    patch,
-    addedLineCount: readNumber(record.addedLineCount) ?? 0,
-    removedLineCount: readNumber(record.removedLineCount) ?? 0,
-    oldStart: readNumber(record.oldStart),
-    oldLineCount: readNumber(record.oldLineCount) ?? 0,
-    newStart: readNumber(record.newStart),
-    newLineCount: readNumber(record.newLineCount) ?? 0,
-    lines: Array.isArray(record.lines)
-      ? record.lines
-        .map((entry) => normalizeReviewLine(entry))
-        .filter((entry): entry is UiReviewLine => entry !== null)
-      : [],
-  }
-}
-
-function normalizeReviewFile(value: unknown): UiReviewFile | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const id = readString(record.id)
-  const path = readString(record.path)
-  const absolutePath = readString(record.absolutePath)
-  const operation = readString(record.operation)
-  if (!id || !path || !absolutePath || !operation) return null
-  if (operation !== 'add' && operation !== 'delete' && operation !== 'update' && operation !== 'rename') {
-    return null
-  }
-
-  return {
-    id,
-    path,
-    absolutePath,
-    previousPath: readString(record.previousPath),
-    previousAbsolutePath: readString(record.previousAbsolutePath),
-    operation,
-    addedLineCount: readNumber(record.addedLineCount) ?? 0,
-    removedLineCount: readNumber(record.removedLineCount) ?? 0,
-    diff: typeof record.diff === 'string' ? record.diff : '',
-    hunks: Array.isArray(record.hunks)
-      ? record.hunks
-        .map((entry) => normalizeReviewHunk(entry))
-        .filter((entry): entry is UiReviewHunk => entry !== null)
-      : [],
-  }
-}
-
-function normalizeReviewSnapshot(payload: unknown): UiReviewSnapshot {
-  const envelope = asRecord(payload)
-  const data = asRecord(envelope?.data)
-  const summaryRecord = asRecord(data?.summary)
-  const rawScope = readString(data?.scope)
-  const scope = rawScope === 'baseBranch' || rawScope === 'commit' ? rawScope : 'workspace'
-  const workspaceView = readString(data?.workspaceView) === 'staged' ? 'staged' : 'unstaged'
-
-  return {
-    cwd: readString(data?.cwd) ?? '',
-    gitRoot: readString(data?.gitRoot),
-    isGitRepo: readBoolean(data?.isGitRepo) ?? false,
-    scope,
-    workspaceView,
-    baseBranch: readString(data?.baseBranch),
-    baseBranchOptions: Array.isArray(data?.baseBranchOptions)
-      ? data.baseBranchOptions
-        .map((entry) => readString(entry))
-        .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
-      : [],
-    commitSha: readString(data?.commitSha),
-    headBranch: readString(data?.headBranch),
-    mergeBaseSha: readString(data?.mergeBaseSha),
-    generatedAtIso: readString(data?.generatedAtIso) ?? '',
-    summary: {
-      fileCount: readNumber(summaryRecord?.fileCount) ?? 0,
-      addedLineCount: readNumber(summaryRecord?.addedLineCount) ?? 0,
-      removedLineCount: readNumber(summaryRecord?.removedLineCount) ?? 0,
-    },
-    files: Array.isArray(data?.files)
-      ? data.files
-        .map((entry) => normalizeReviewFile(entry))
-        .filter((entry): entry is UiReviewFile => entry !== null)
-      : [],
-  }
-}
-
 function normalizeReviewSummary(payload: unknown): UiReviewSummary {
   const envelope = asRecord(payload)
   const data = asRecord(envelope?.data)
@@ -1003,107 +832,6 @@ function normalizeReviewSummary(payload: unknown): UiReviewSummary {
     fileCount: readNumber(data?.fileCount) ?? 0,
     addedLineCount: readNumber(data?.addedLineCount) ?? 0,
     removedLineCount: readNumber(data?.removedLineCount) ?? 0,
-  }
-}
-
-function parseReviewLocation(value: string): {
-  absolutePath: string | null
-  startLine: number | null
-  endLine: number | null
-} {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return { absolutePath: null, startLine: null, endLine: null }
-  }
-
-  const match = trimmed.match(/^(.*?):(\d+)-(\d+)$/u)
-  if (!match) {
-    return { absolutePath: trimmed || null, startLine: null, endLine: null }
-  }
-
-  return {
-    absolutePath: match[1]?.trim() || null,
-    startLine: Number(match[2]),
-    endLine: Number(match[3]),
-  }
-}
-
-function parseReviewText(reviewText: string): UiReviewResult {
-  const normalized = reviewText.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return { reviewText: '', summary: '', findings: [] }
-  }
-
-  const markerIndex = normalized.search(/\n(?:Full review comments|Review comment):\n/iu)
-  const summary = markerIndex >= 0 ? normalized.slice(0, markerIndex).trim() : normalized
-  const findingsSection = markerIndex >= 0 ? normalized.slice(markerIndex).trim() : ''
-  const findings: UiReviewFinding[] = []
-
-  if (findingsSection) {
-    const body = findingsSection
-      .replace(/^(?:Full review comments|Review comment):\n*/iu, '')
-      .trim()
-    const matches = body.matchAll(/^- (.+?) — (.+)\n?((?:  .*(?:\n|$))*)/gmu)
-    let index = 0
-    for (const match of matches) {
-      const title = match[1]?.trim() ?? ''
-      const location = parseReviewLocation(match[2] ?? '')
-      const block = (match[0] ?? '').trim()
-      const findingBody = (match[3] ?? '')
-        .split('\n')
-        .map((line) => line.replace(/^  /u, ''))
-        .join('\n')
-        .trim()
-
-      findings.push({
-        id: `finding:${index}`,
-        title: title || `Finding ${index + 1}`,
-        body: findingBody,
-        path: location.absolutePath ? location.absolutePath.split('/').filter(Boolean).slice(-1)[0] ?? location.absolutePath : null,
-        absolutePath: location.absolutePath,
-        startLine: location.startLine,
-        endLine: location.endLine,
-        rawText: block,
-      })
-      index += 1
-    }
-  }
-
-  return {
-    reviewText: normalized,
-    summary,
-    findings,
-  }
-}
-
-function readLatestReviewItem(payload: ThreadReadResponse, type: 'enteredReviewMode' | 'exitedReviewMode'): string | null {
-  const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
-  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = turns[turnIndex]
-    const items = Array.isArray(turn?.items) ? turn.items : []
-    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = items[itemIndex]
-      if (item?.type !== type) continue
-      const review = typeof item.review === 'string' ? item.review.trim() : ''
-      if (review) return review
-    }
-  }
-  return null
-}
-
-export async function getThreadReviewResult(threadId: string): Promise<{
-  enteredReviewLabel: string | null
-  result: UiReviewResult | null
-}> {
-  const payload = await callRpc<ThreadReadResponse>('thread/read', {
-    threadId,
-    includeTurns: true,
-  })
-
-  const exitedReview = readLatestReviewItem(payload, 'exitedReviewMode')
-  return {
-    enteredReviewLabel: readLatestReviewItem(payload, 'enteredReviewMode'),
-    result: exitedReview ? parseReviewText(exitedReview) : null,
   }
 }
 
@@ -1282,42 +1010,13 @@ export function subscribeCodexNotifications(onNotification: (value: RpcNotificat
 
 export type { RpcNotification }
 
-function normalizeThreadTerminalSession(value: unknown): ThreadTerminalSession | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const id = readString(record.id)
-  const threadId = readString(record.threadId)
-  const cwd = readString(record.cwd)
-  const shell = readString(record.shell)
-  if (!id || !threadId || !cwd || !shell) return null
-  return {
-    id,
-    threadId,
-    cwd,
-    shell,
-    buffer: typeof record.buffer === 'string' ? record.buffer : '',
-    truncated: readBoolean(record.truncated) ?? false,
-  }
-}
-
-async function fetchTerminalJson(path: string, init?: RequestInit): Promise<unknown> {
+export async function fetchTerminalJson(path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(path, init)
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(extractErrorMessage(payload, `Terminal request failed with HTTP ${response.status}`))
   }
   return payload
-}
-
-export async function attachThreadTerminal(input: ThreadTerminalAttachInput): Promise<ThreadTerminalSession> {
-  const payload = await fetchTerminalJson('/codex-api/thread-terminal/attach', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const session = normalizeThreadTerminalSession(asRecord(payload)?.session)
-  if (!session) throw new Error('Terminal attach response was malformed')
-  return session
 }
 
 export async function getThreadTerminalStatus(): Promise<{ available: boolean, reason: string | null }> {
@@ -1341,35 +1040,6 @@ export async function getThreadTerminalQuickCommands(cwd: string): Promise<Threa
     if (!label || !value || (source !== 'package' && source !== 'script' && source !== 'make')) return []
     return [{ label, value, source }]
   })
-}
-
-export async function sendThreadTerminalInput(sessionId: string, data: string): Promise<void> {
-  await fetchTerminalJson('/codex-api/thread-terminal/input', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, data }),
-  })
-}
-
-export async function resizeThreadTerminal(sessionId: string, cols: number, rows: number): Promise<void> {
-  await fetchTerminalJson('/codex-api/thread-terminal/resize', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, cols, rows }),
-  })
-}
-
-export async function closeThreadTerminal(sessionId: string): Promise<void> {
-  await fetchTerminalJson('/codex-api/thread-terminal/close', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId }),
-  })
-}
-
-export async function getThreadTerminalSnapshot(threadId: string): Promise<ThreadTerminalSession | null> {
-  const payload = await fetchTerminalJson(`/codex-api/thread-terminal-snapshot?threadId=${encodeURIComponent(threadId)}`)
-  return normalizeThreadTerminalSession(asRecord(payload)?.session)
 }
 
 export async function replyToServerRequest(
@@ -2072,364 +1742,6 @@ export async function getCurrentModelConfig(): Promise<CurrentModelConfig> {
   return { model, providerId, reasoningEffort, speedMode }
 }
 
-function normalizeDirectoryPluginApp(value: unknown): DirectoryPluginAppSummary | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const id = readString(record.id)
-  const name = readString(record.name)
-  if (!id || !name) return null
-  return {
-    id,
-    name,
-    description: readString(record.description) ?? '',
-    installUrl: readString(record.installUrl ?? record.install_url) ?? '',
-    needsAuth: readBoolean(record.needsAuth ?? record.needs_auth) ?? false,
-  }
-}
-
-function normalizeDirectoryPluginSkill(value: unknown): DirectoryPluginSkillSummary | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const name = readString(record.name)
-  const path = readString(record.path)
-  if (!name || !path) return null
-  const iface = asRecord(record.interface)
-  return {
-    name,
-    path,
-    description: readString(record.description) ?? '',
-    enabled: readBoolean(record.enabled) ?? true,
-    displayName: readString(iface?.displayName ?? iface?.display_name) ?? name,
-    shortDescription: readString(record.shortDescription ?? record.short_description) ?? '',
-  }
-}
-
-function normalizeDirectoryPluginSummary(
-  value: unknown,
-  marketplace: { name?: string; displayName?: string; path?: string | null } = {},
-): DirectoryPluginSummary | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const id = readString(record.id)
-  const name = readString(record.name)
-  if (!id || !name) return null
-  const iface = asRecord(record.interface)
-  const source = asRecord(record.source)
-  const sourceType = readString(source?.type) ?? ''
-  const sourcePath = readString(source?.path)
-  const sourceUrl = readString(source?.url) ?? ''
-  const remoteMarketplaceName = sourceType === 'remote' ? marketplace.name ?? null : null
-  const marketplacePath = marketplace.path ?? (sourceType === 'local' ? sourcePath : null)
-  const displayName = readString(iface?.displayName ?? iface?.display_name) ?? name
-  const shortDescription = readString(iface?.shortDescription ?? iface?.short_description)
-  const longDescription = readString(iface?.longDescription ?? iface?.long_description) ?? ''
-
-  return {
-    id,
-    name,
-    displayName,
-    description: shortDescription ?? longDescription,
-    longDescription,
-    developerName: readString(iface?.developerName ?? iface?.developer_name) ?? '',
-    category: readString(iface?.category) ?? '',
-    marketplaceName: marketplace.name ?? '',
-    marketplaceDisplayName: marketplace.displayName ?? marketplace.name ?? '',
-    marketplacePath,
-    remoteMarketplaceName,
-    sourceType,
-    sourceUrl,
-    installed: readBoolean(record.installed) ?? false,
-    enabled: readBoolean(record.enabled) ?? true,
-    installPolicy: readString(record.installPolicy ?? record.install_policy) ?? '',
-    authPolicy: readString(record.authPolicy ?? record.auth_policy) ?? '',
-    logoUrl: readString(iface?.logoUrl ?? iface?.logo_url) ?? '',
-    logoPath: readString(iface?.logo) ?? '',
-    composerIconUrl: readString(iface?.composerIconUrl ?? iface?.composer_icon_url) ?? '',
-    composerIconPath: readString(iface?.composerIcon ?? iface?.composer_icon) ?? '',
-    brandColor: readString(iface?.brandColor ?? iface?.brand_color) ?? '',
-    capabilities: readStringArray(iface?.capabilities),
-    defaultPrompt: readStringArray(iface?.defaultPrompt ?? iface?.default_prompt),
-    screenshotUrls: readStringArray(iface?.screenshotUrls ?? iface?.screenshot_urls),
-    screenshots: readStringArray(iface?.screenshots),
-    websiteUrl: readString(iface?.websiteUrl ?? iface?.website_url) ?? '',
-    privacyPolicyUrl: readString(iface?.privacyPolicyUrl ?? iface?.privacy_policy_url) ?? '',
-    termsOfServiceUrl: readString(iface?.termsOfServiceUrl ?? iface?.terms_of_service_url) ?? '',
-  }
-}
-
-function normalizeDirectoryApp(value: unknown, catalogRank = 0): DirectoryAppInfo | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const id = readString(record.id)
-  const name = readString(record.name)
-  if (!id || !name) return null
-  const branding = asRecord(record.branding)
-  const metadata = asRecord(record.appMetadata ?? record.app_metadata)
-  return {
-    id,
-    name,
-    description: readString(record.description) ?? readString(metadata?.seoDescription ?? metadata?.seo_description) ?? '',
-    logoUrl: readString(record.logoUrl ?? record.logo_url) ?? '',
-    logoUrlDark: readString(record.logoUrlDark ?? record.logo_url_dark) ?? '',
-    distributionChannel: readString(record.distributionChannel ?? record.distribution_channel) ?? '',
-    installUrl: readString(record.installUrl ?? record.install_url) ?? '',
-    isAccessible: readBoolean(record.isAccessible ?? record.is_accessible) ?? false,
-    isEnabled: readBoolean(record.isEnabled ?? record.is_enabled) ?? true,
-    pluginDisplayNames: readStringArray(record.pluginDisplayNames ?? record.plugin_display_names),
-    category: readString(branding?.category) ?? '',
-    developer: readString(branding?.developer) ?? readString(metadata?.developer) ?? '',
-    website: readString(branding?.website) ?? '',
-    privacyPolicy: readString(branding?.privacyPolicy ?? branding?.privacy_policy) ?? '',
-    termsOfService: readString(branding?.termsOfService ?? branding?.terms_of_service) ?? '',
-    catalogRank,
-  }
-}
-
-function normalizeDirectoryMcpServer(value: unknown): DirectoryMcpServerStatus | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const name = readString(record.name)
-  if (!name) return null
-  const toolsRecord = asRecord(record.tools) ?? {}
-  const tools = Object.entries(toolsRecord).map(([fallbackName, raw]) => {
-    const tool = asRecord(raw)
-    return {
-      name: readString(tool?.name) ?? fallbackName,
-      title: readString(tool?.title) ?? '',
-      description: readString(tool?.description) ?? '',
-    }
-  })
-  const resources = Array.isArray(record.resources)
-    ? record.resources.map((raw) => {
-      const resource = asRecord(raw)
-      return {
-        name: readString(resource?.name) ?? '',
-        title: readString(resource?.title) ?? '',
-        uri: readString(resource?.uri) ?? '',
-        description: readString(resource?.description) ?? '',
-      }
-    }).filter((resource) => resource.name || resource.uri)
-    : []
-  const rawResourceTemplates = record.resourceTemplates ?? record.resource_templates
-  const resourceTemplates = Array.isArray(rawResourceTemplates)
-    ? rawResourceTemplates.map((raw: unknown) => {
-      const template = asRecord(raw)
-      return {
-        name: readString(template?.name) ?? '',
-        title: readString(template?.title) ?? '',
-        uriTemplate: readString(template?.uriTemplate ?? template?.uri_template) ?? '',
-        description: readString(template?.description) ?? '',
-      }
-    }).filter((template) => template.name || template.uriTemplate)
-    : []
-
-  return {
-    name,
-    authStatus: readString(record.authStatus ?? record.auth_status) ?? 'unsupported',
-    tools,
-    resources,
-    resourceTemplates,
-  }
-}
-
-export async function listDirectoryPlugins(cwds?: string[]): Promise<DirectoryPluginSummary[]> {
-  const params: Record<string, unknown> = {}
-  if (cwds && cwds.length > 0) params.cwds = cwds
-  const payload = await callRpc<{ marketplaces?: unknown[] }>('plugin/list', params)
-  const plugins: DirectoryPluginSummary[] = []
-  for (const marketplaceValue of payload.marketplaces ?? []) {
-    const marketplace = asRecord(marketplaceValue)
-    if (!marketplace) continue
-    const iface = asRecord(marketplace.interface)
-    const meta = {
-      name: readString(marketplace.name) ?? '',
-      displayName: readString(iface?.displayName ?? iface?.display_name) ?? '',
-      path: readString(marketplace.path),
-    }
-    const rows = Array.isArray(marketplace.plugins) ? marketplace.plugins : []
-    for (const row of rows) {
-      const plugin = normalizeDirectoryPluginSummary(row, meta)
-      if (plugin) plugins.push(plugin)
-    }
-  }
-  return plugins
-}
-
-export async function readDirectoryPlugin(plugin: DirectoryPluginSummary): Promise<DirectoryPluginDetail> {
-  const params: Record<string, unknown> = { pluginName: plugin.name }
-  if (plugin.marketplacePath) params.marketplacePath = plugin.marketplacePath
-  if (plugin.remoteMarketplaceName) params.remoteMarketplaceName = plugin.remoteMarketplaceName
-  const payload = await callRpc<{ plugin?: unknown }>('plugin/read', params)
-  const detailRecord = asRecord(payload.plugin)
-  if (!detailRecord) throw new Error('Plugin detail response is empty')
-  const summary = normalizeDirectoryPluginSummary(detailRecord.summary, {
-    name: readString(detailRecord.marketplaceName) ?? plugin.marketplaceName,
-    displayName: plugin.marketplaceDisplayName,
-    path: readString(detailRecord.marketplacePath) ?? plugin.marketplacePath,
-  }) ?? plugin
-  return {
-    summary,
-    description: readString(detailRecord.description) ?? summary.longDescription,
-    apps: Array.isArray(detailRecord.apps)
-      ? detailRecord.apps.map(normalizeDirectoryPluginApp).filter((row): row is DirectoryPluginAppSummary => row !== null)
-      : [],
-    skills: Array.isArray(detailRecord.skills)
-      ? detailRecord.skills.map(normalizeDirectoryPluginSkill).filter((row): row is DirectoryPluginSkillSummary => row !== null)
-      : [],
-    mcpServers: readStringArray(detailRecord.mcpServers ?? detailRecord.mcp_servers),
-  }
-}
-
-export async function installDirectoryPlugin(plugin: DirectoryPluginSummary): Promise<DirectoryPluginInstallResult> {
-  const params: Record<string, unknown> = { pluginName: plugin.name }
-  if (plugin.marketplacePath) params.marketplacePath = plugin.marketplacePath
-  if (plugin.remoteMarketplaceName) params.remoteMarketplaceName = plugin.remoteMarketplaceName
-  const payload = await callRpc<{ authPolicy?: string; auth_policy?: string; appsNeedingAuth?: unknown[]; apps_needing_auth?: unknown[] }>('plugin/install', params)
-  const apps = payload.appsNeedingAuth ?? payload.apps_needing_auth ?? []
-  return {
-    authPolicy: readString(payload.authPolicy ?? payload.auth_policy) ?? '',
-    appsNeedingAuth: apps.map(normalizeDirectoryPluginApp).filter((row): row is DirectoryPluginAppSummary => row !== null),
-  }
-}
-
-export async function uninstallDirectoryPlugin(pluginId: string): Promise<void> {
-  await callRpc('plugin/uninstall', { pluginId })
-}
-
-export async function setDirectoryPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
-  await callRpc('config/batchWrite', {
-    edits: [{ keyPath: `plugins.${pluginId}.enabled`, value: enabled, mergeStrategy: 'upsert' }],
-    filePath: null,
-    expectedVersion: null,
-    reloadUserConfig: true,
-  })
-}
-
-export async function listDirectoryApps(threadId?: string): Promise<DirectoryAppInfo[]> {
-  const apps: DirectoryAppInfo[] = []
-  let cursor: string | null = null
-  let catalogRank = 0
-  do {
-    const params: Record<string, unknown> = { limit: 100 }
-    if (cursor) params.cursor = cursor
-    if (threadId) params.threadId = threadId
-    const payload = await callRpc<{ data?: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>('app/list', params)
-    for (const item of payload.data ?? []) {
-      const app = normalizeDirectoryApp(item, catalogRank)
-      if (app) apps.push(app)
-      catalogRank += 1
-    }
-    cursor = readString(payload.nextCursor ?? payload.next_cursor)
-  } while (cursor)
-  return apps
-}
-
-export async function setDirectoryAppEnabled(appId: string, enabled: boolean): Promise<void> {
-  await callRpc('config/batchWrite', {
-    edits: [{ keyPath: `apps.${appId}.enabled`, value: enabled, mergeStrategy: 'upsert' }],
-    filePath: null,
-    expectedVersion: null,
-    reloadUserConfig: true,
-  })
-}
-
-export async function listDirectoryMcpServers(): Promise<DirectoryMcpServerStatus[]> {
-  const servers: DirectoryMcpServerStatus[] = []
-  let cursor: string | null = null
-  do {
-    const params: Record<string, unknown> = {}
-    if (cursor) params.cursor = cursor
-    const payload = await callRpc<{ data?: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>('mcpServerStatus/list', params)
-    for (const item of payload.data ?? []) {
-      const server = normalizeDirectoryMcpServer(item)
-      if (server) servers.push(server)
-    }
-    cursor = readString(payload.nextCursor ?? payload.next_cursor)
-  } while (cursor)
-  return servers
-}
-
-export async function reloadDirectoryMcpServers(): Promise<void> {
-  await callRpc('config/mcpServer/reload', {})
-}
-
-export async function startDirectoryMcpLogin(name: string): Promise<DirectoryMcpLoginResult> {
-  const payload = await callRpc<{ authorizationUrl?: string; authorization_url?: string }>('mcpServer/oauth/login', { name })
-  return {
-    authorizationUrl: readString(payload.authorizationUrl ?? payload.authorization_url) ?? '',
-  }
-}
-
-export async function getDirectoryComposioStatus(): Promise<DirectoryComposioStatus> {
-  const response = await fetch('/codex-api/composio/status')
-  if (!response.ok) {
-    throw new Error(`Failed to load Composio status (${response.status})`)
-  }
-  return await response.json() as DirectoryComposioStatus
-}
-
-export async function listDirectoryComposioConnectors(
-  query = '',
-  cursor: string | null = null,
-  limit = 50,
-): Promise<DirectoryComposioConnectorPage> {
-  const params = new URLSearchParams()
-  if (query.trim()) params.set('query', query.trim())
-  if (cursor) params.set('cursor', cursor)
-  if (limit && Number.isFinite(limit)) params.set('limit', String(Math.max(1, Math.floor(limit))))
-  const suffix = params.toString()
-  const response = await fetch(`/codex-api/composio/connectors${suffix ? `?${suffix}` : ''}`)
-  if (!response.ok) {
-    throw new Error(`Failed to list Composio connectors (${response.status})`)
-  }
-  const payload = await response.json() as DirectoryComposioConnectorPage | { data?: DirectoryComposioConnector[]; nextCursor?: string | null; total?: number }
-  return {
-    data: Array.isArray(payload.data) ? payload.data : [],
-    nextCursor: typeof payload.nextCursor === 'string' && payload.nextCursor.length > 0 ? payload.nextCursor : null,
-    total: typeof payload.total === 'number' && Number.isFinite(payload.total) ? Math.max(0, Math.floor(payload.total)) : 0,
-  }
-}
-
-export async function readDirectoryComposioConnector(slug: string): Promise<DirectoryComposioConnectorDetail> {
-  const response = await fetch(`/codex-api/composio/connector?slug=${encodeURIComponent(slug)}`)
-  if (!response.ok) {
-    throw new Error(`Failed to load Composio connector (${response.status})`)
-  }
-  return await response.json() as DirectoryComposioConnectorDetail
-}
-
-export async function startDirectoryComposioLogin(slug: string): Promise<DirectoryComposioLinkResult> {
-  const response = await fetch('/codex-api/composio/link', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug }),
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to start Composio login (${response.status})`)
-  }
-  return await response.json() as DirectoryComposioLinkResult
-}
-
-export async function startDirectoryComposioCliLogin(): Promise<DirectoryComposioLoginResult> {
-  const response = await fetch('/codex-api/composio/login', {
-    method: 'POST',
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to start Composio CLI login (${response.status})`)
-  }
-  return await response.json() as DirectoryComposioLoginResult
-}
-
-export async function installDirectoryComposioCli(): Promise<DirectoryComposioInstallResult> {
-  const response = await fetch('/codex-api/composio/install', {
-    method: 'POST',
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to install Composio CLI (${response.status})`)
-  }
-  return await response.json() as DirectoryComposioInstallResult
-}
-
 export async function getAccountRateLimitsResponse(): Promise<GetAccountRateLimitsResponse> {
   return await callRpc<GetAccountRateLimitsResponse>('account/rateLimits/read')
 }
@@ -2932,28 +2244,6 @@ export async function resetGitBranchToCommit(cwd: string, branch: string, sha: s
   }
 }
 
-export async function getReviewSnapshot(
-  cwd: string,
-  scope: UiReviewScope,
-  workspaceView: UiReviewWorkspaceView,
-  baseBranch?: string | null,
-  commitSha?: string | null,
-): Promise<UiReviewSnapshot> {
-  const query = new URLSearchParams({ cwd, scope, workspaceView })
-  if (baseBranch && baseBranch.trim()) {
-    query.set('baseBranch', baseBranch.trim())
-  }
-  if (commitSha && commitSha.trim()) {
-    query.set('commitSha', commitSha.trim())
-  }
-  const response = await fetch(`/codex-api/review/snapshot?${query.toString()}`)
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review snapshot'))
-  }
-  return normalizeReviewSnapshot(payload)
-}
-
 export async function getReviewSummary(
   cwd: string,
   workspaceView: UiReviewWorkspaceView,
@@ -2965,59 +2255,6 @@ export async function getReviewSummary(
     throw new Error(getErrorMessageFromPayload(payload, 'Failed to load review summary'))
   }
   return normalizeReviewSummary(payload)
-}
-
-export async function applyReviewAction(payload: {
-  cwd: string
-  scope: UiReviewScope
-  workspaceView: UiReviewWorkspaceView
-  action: UiReviewAction
-  level: UiReviewActionLevel
-  path?: string
-  previousPath?: string | null
-  patch?: string
-}): Promise<UiReviewSnapshot> {
-  const response = await fetch('/codex-api/review/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  const data = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(data, 'Failed to apply review action'))
-  }
-  return normalizeReviewSnapshot(data)
-}
-
-export async function initializeReviewGit(cwd: string): Promise<void> {
-  const response = await fetch('/codex-api/review/git/init', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cwd }),
-  })
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to initialize Git'))
-  }
-}
-
-export async function startThreadReview(
-  threadId: string,
-  scope: UiReviewScope,
-  workspaceView: UiReviewWorkspaceView,
-  baseBranch?: string | null,
-): Promise<void> {
-  const target = scope === 'baseBranch'
-    ? { type: 'baseBranch' as const, branch: (baseBranch ?? '').trim() }
-    : { type: 'uncommittedChanges' as const }
-  if (target.type === 'baseBranch' && !target.branch) {
-    throw new Error('Base branch is unavailable')
-  }
-  await callRpc('review/start', {
-    threadId,
-    target,
-    delivery: 'inline',
-  })
 }
 
 export async function getHomeDirectory(): Promise<string> {
@@ -3383,94 +2620,7 @@ export async function searchThreads(
   return payload.data ?? { threadIds: [], indexedThreadCount: 0 }
 }
 
-export async function configureTelegramBot(
-  botToken: string,
-  allowedUserIds: Array<number | '*'>,
-  completionNotifications?: TelegramCompletionConfig,
-): Promise<void> {
-  const response = await fetch('/codex-api/telegram/configure-bot', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      botToken,
-      allowedUserIds,
-      completionNotifications,
-    }),
-  })
-  const payload = await response.json()
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to connect Telegram bot')
-    throw new Error(message)
-  }
-}
-
-export async function getTelegramConfig(): Promise<TelegramConfig> {
-  const response = await fetch('/codex-api/telegram/config')
-  const payload = await response.json()
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to load Telegram configuration')
-    throw new Error(message)
-  }
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {}
-  const rawAllowedUserIds = Array.isArray(data.allowedUserIds) ? data.allowedUserIds : []
-  const allowedUserIds: Array<number | '*'> = []
-  for (const value of rawAllowedUserIds) {
-    if (value === '*') {
-      allowedUserIds.push('*')
-      continue
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      allowedUserIds.push(Math.trunc(value))
-    }
-  }
-  return {
-    botToken: typeof data.botToken === 'string' ? data.botToken : '',
-    completionNotifications: normalizeTelegramCompletionConfig(data.completionNotifications),
-    allowedUserIds,
-  }
-}
-
-export async function sendTelegramTestNotification(): Promise<void> {
-  const response = await fetch('/codex-api/telegram/test-notification', { method: 'POST' })
-  const payload = await response.json()
-  if (!response.ok) throw new Error(getErrorMessageFromPayload(payload, 'Test notification failed'))
-}
-
-export async function getTelegramStatus(): Promise<TelegramStatus> {
-  const response = await fetch('/codex-api/telegram/status')
-  const payload = await response.json()
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to load Telegram status')
-    throw new Error(message)
-  }
-  const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-  const data =
-    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
-      ? (record.data as Record<string, unknown>)
-      : {}
-  return {
-    configured: data.configured === true,
-    active: data.active === true,
-    mappedChats: typeof data.mappedChats === 'number' ? data.mappedChats : 0,
-    mappedThreads: typeof data.mappedThreads === 'number' ? data.mappedThreads : 0,
-    allowedUsers: typeof data.allowedUsers === 'number' ? data.allowedUsers : 0,
-    allowAllUsers: data.allowAllUsers === true,
-    lastError: typeof data.lastError === 'string' ? data.lastError : '',
-    notification: data.notification && typeof data.notification === 'object' ? data.notification as TelegramStatus['notification'] : undefined,
-  }
-}
-
-function getErrorMessageFromPayload(payload: unknown, fallback: string): string {
+export function getErrorMessageFromPayload(payload: unknown, fallback: string): string {
   const record = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? (payload as Record<string, unknown>)
     : {}

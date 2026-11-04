@@ -44,16 +44,8 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useUiLanguage } from '../../composables/useUiLanguage'
-import {
-  attachThreadTerminal,
-  closeThreadTerminal,
-  getThreadTerminalQuickCommands,
-  resizeThreadTerminal,
-  sendThreadTerminalInput,
-  subscribeCodexNotifications,
-  type RpcNotification,
-  type ThreadTerminalQuickCommand,
-} from '../../api/codexGateway'
+import { attachThreadTerminal, closeThreadTerminal, resizeThreadTerminal, sendThreadTerminalInput } from '../../api/terminalGateway'
+import { getThreadTerminalQuickCommands, subscribeCodexNotifications, type RpcNotification, type ThreadTerminalQuickCommand } from '../../api/codexGateway'
 
 const props = defineProps<{
   threadId: string

@@ -46,3 +46,19 @@
 - CJS-hosted smoke command for the public ESM CLI: `node -e "require('node:child_process').execFileSync(process.execPath,['dist-cli/index.js','--help'],{stdio:'inherit'})"`. Help output loads successfully; the CLI has no library exports.
 - `pnpm run test:unit`: 166 passed, 23 failed across four files, with two unhandled errors. An unchanged-HEAD `App.vue` run reproduces the identical failing tests and error count (gateway, desktop state/preferences, and free-mode fixtures/mocks). No test failure was introduced by the import changes.
 - No live browser timing, interaction, or theme measurement was performed. The manual steps above remain to be exercised. Entry size is only 2.08 kB below the warning threshold, so later entry growth can trigger the warning again.
+
+### Architectural extraction regression cases (implementation incomplete)
+
+Prerequisites: build with `pnpm run build`; serve `dist` through the built CLI with a working backend on port 4173. Use an isolated CODEX_HOME with a representative existing thread and project. Keep port 5173 untouched. Use a fresh browser context with service workers blocked and HTTP cache disabled for size measurements; separately verify normal service-worker reload behavior.
+
+1. Open Home, type a draft, and use navigation/model controls. Run `pnpm run profile:bundle`; no conversation, Settings, project-dialog, automation-editor, directory-management, review, or terminal-session implementation should download without its route/action. Run `pnpm run check:bundle`; it must report the manifest-derived entry/static closure. The current implementation still exceeds its budgets and must not pass acceptance.
+2. Open and reopen Settings in light and dark themes. Account/provider status must already be initialized before opening it. Change a preference, close, reopen, and refresh; it must persist. Closing Settings during an in-flight account/login action must not reset its shared state.
+3. Block the Settings chunk before first opening it, type a draft, and open Settings. Expect an actionable load error. Restore requests and use Retry loading; expect Settings to open with the original composer draft intact. Repeat with throttled project/editor downloads and verify the original target/action survives.
+4. Open folder selection and Create Project for the first time and again. Expect correct input focus after the actual component mount, preserved validation, and no duplicate mutations. Exercise import selection from a real user click, then ZIP export/download/share; picker and share activation must still work.
+5. From both sidebar and Automations, create/edit/run/delete a temporary automation, including when the sidebar starts collapsed. Expect consistent shared maps and no second state/subscription owner. Reopen the editor and verify saved changes remain visible.
+6. Start a terminal quick command with its chunk throttled beyond 500 ms. Expect the command to execute once when the panel is ready. Navigate away while loading and confirm the command is not sent to another thread/project.
+7. Direct-load an existing thread and exercise streaming, stop, queued messages, drafts, thread switching, approvals, and reconnect while Home or another route is visible. Compare initial JS and API/subscription counts with the unchanged baseline.
+
+Expected results: required navigation/composer controls remain usable, optional code loads only for its feature, retries retain intent, and no new duplicate requests/subscriptions occur. These cases are not all verified by the current partial implementation; consult `docs/performance/frontend-bundle.md` for exact evidence and gaps.
+
+Cleanup: remove only test-created threads/projects/automations and isolated state, restore modified preferences/network interception, and retain the reusable 4173 server unless explicitly asked to stop it.
