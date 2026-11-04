@@ -36,9 +36,6 @@ import {
 } from './normalizers/v2'
 import type {
   SpeedMode,
-  UiAccountEntry,
-  UiAccountQuotaStatus,
-  UiAccountUnavailableReason,
   CollaborationModeKind,
   CollaborationModeOption,
   UiCreditsSnapshot,
@@ -264,14 +261,6 @@ export type LocalDirectoryListing = {
   entries: LocalDirectoryEntry[]
 }
 
-export type AccountsListResult = {
-  activeAccountId: string | null
-  activeStorageId: string | null
-  accounts: UiAccountEntry[]
-  importedAccountId?: string
-  importedStorageId?: string
-}
-
 type ThreadFileChangeFallbackEntry = {
   turnId: string
   turnIndex: number
@@ -300,16 +289,6 @@ function readBoolean(value: unknown): boolean | null {
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
-}
-
-function normalizeAccountUnavailableReason(value: unknown): UiAccountUnavailableReason | null {
-  return value === 'payment_required' ? value : null
-}
-
-function isPaymentRequiredErrorMessage(value: string | null): boolean {
-  if (!value) return false
-  const normalized = value.toLowerCase()
-  return normalized.includes('payment required') || /\b402\b/.test(normalized)
 }
 
 function normalizeRateLimitWindow(value: unknown): UiRateLimitWindow | null {
@@ -360,42 +339,6 @@ function normalizeRateLimitSnapshot(value: unknown): UiRateLimitSnapshot | null 
     secondary,
     credits,
     planType: readString(record.planType ?? record.plan_type),
-  }
-}
-
-function normalizeAccountEntry(
-  value: unknown,
-  activeAccountId: string | null = null,
-  activeStorageId: string | null = null,
-): UiAccountEntry | null {
-  const record = asRecord(value)
-  if (!record) return null
-  const accountId = readString(record.accountId)
-  const storageId = readString(record.storageId) ?? accountId
-  const quotaStatusRaw = readString(record.quotaStatus)
-  const quotaStatus: UiAccountQuotaStatus =
-    quotaStatusRaw === 'loading' || quotaStatusRaw === 'ready' || quotaStatusRaw === 'error' ? quotaStatusRaw : 'idle'
-  if (!accountId) return null
-  return {
-    credentialSource: record.credentialSource === 'runtime' ? 'runtime' : 'file',
-    canSwitch: readBoolean(record.canSwitch) ?? true,
-    canRemove: readBoolean(record.canRemove) ?? true,
-    managementReason: readString(record.managementReason),
-    accountId,
-    storageId: storageId ?? accountId,
-    userId: readString(record.userId),
-    authMode: readString(record.authMode),
-    email: readString(record.email),
-    planType: readString(record.planType),
-    lastRefreshedAtIso: readString(record.lastRefreshedAtIso) ?? '',
-    lastActivatedAtIso: readString(record.lastActivatedAtIso),
-    quotaSnapshot: normalizeRateLimitSnapshot(record.quotaSnapshot),
-    quotaUpdatedAtIso: readString(record.quotaUpdatedAtIso),
-    quotaStatus,
-    quotaError: readString(record.quotaError),
-    unavailableReason: normalizeAccountUnavailableReason(record.unavailableReason)
-      ?? (isPaymentRequiredErrorMessage(readString(record.quotaError)) ? 'payment_required' : null),
-    isActive: readBoolean(record.isActive) ?? (storageId === activeStorageId || accountId === activeAccountId),
   }
 }
 
@@ -1039,44 +982,6 @@ export async function getAccountRateLimits(): Promise<UiRateLimitSnapshot | null
   }
 }
 
-function normalizeAccountsListResult(payload: unknown): AccountsListResult {
-  const record = asRecord(payload)
-  const activeAccountId = readString(record?.activeAccountId)
-  const activeStorageId = readString(record?.activeStorageId)
-  const data = Array.isArray(record?.accounts) ? record?.accounts : []
-  return {
-    activeAccountId,
-    activeStorageId,
-    importedAccountId: readString(record?.importedAccountId) ?? undefined,
-    importedStorageId: readString(record?.importedStorageId) ?? undefined,
-    accounts: data
-      .map((entry) => normalizeAccountEntry(entry, activeAccountId, activeStorageId))
-      .filter((entry): entry is UiAccountEntry => entry !== null),
-  }
-}
-
-export async function getAccounts(): Promise<AccountsListResult> {
-  const response = await fetch('/codex-api/accounts')
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to load accounts'))
-  }
-  const envelope = asRecord(payload)
-  return normalizeAccountsListResult(envelope?.data)
-}
-
-export async function refreshAccountsFromAuth(): Promise<AccountsListResult> {
-  const response = await fetch('/codex-api/accounts/refresh', {
-    method: 'POST',
-  })
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to refresh accounts'))
-  }
-  const envelope = asRecord(payload)
-  return normalizeAccountsListResult(envelope?.data)
-}
-
 export async function startCodexLogin(): Promise<string> {
   const response = await fetch('/codex-api/accounts/login/start', {
     method: 'POST',
@@ -1094,7 +999,7 @@ export async function startCodexLogin(): Promise<string> {
   return loginUrl
 }
 
-export async function completeCodexLogin(callbackUrl: string): Promise<AccountsListResult> {
+export async function completeCodexLogin(callbackUrl: string): Promise<void> {
   const response = await fetch('/codex-api/accounts/login/complete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1104,41 +1009,6 @@ export async function completeCodexLogin(callbackUrl: string): Promise<AccountsL
   if (!response.ok) {
     throw new Error(getErrorMessageFromPayload(payload, 'Failed to complete Codex login'))
   }
-  const envelope = asRecord(payload)
-  return normalizeAccountsListResult(envelope?.data)
-}
-
-export async function switchAccount(storageId: string): Promise<UiAccountEntry> {
-  const response = await fetch('/codex-api/accounts/switch', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ storageId }),
-  })
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to switch account'))
-  }
-  const envelope = asRecord(payload)
-  const data = asRecord(envelope?.data)
-  const account = normalizeAccountEntry(data?.account, readString(data?.activeAccountId), readString(data?.activeStorageId))
-  if (!account) {
-    throw new Error('Failed to switch account')
-  }
-  return account
-}
-
-export async function removeAccount(storageId: string): Promise<AccountsListResult> {
-  const response = await fetch('/codex-api/accounts/remove', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ storageId }),
-  })
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error(getErrorMessageFromPayload(payload, 'Failed to remove account'))
-  }
-  const envelope = asRecord(payload)
-  return normalizeAccountsListResult(envelope?.data)
 }
 
 export type ResumedThread = {
@@ -3114,4 +2984,8 @@ export async function setThreadGoal(threadId: string, changes: { objective?: str
 export async function clearThreadGoal(threadId: string): Promise<boolean> {
   if (!threadId.trim()) return false
   return (await callRpc<{ cleared: boolean }>('thread/goal/clear', { threadId: threadId.trim() })).cleared === true
+}
+
+export async function logoutCodex(): Promise<void> {
+  await callRpc('account/logout', {})
 }

@@ -109,113 +109,18 @@
             >
               <div class="sidebar-settings-account-section">
                 <div class="sidebar-settings-account-header">
-                  <div class="sidebar-settings-account-header-main">
-                    <button
-                      class="sidebar-settings-account-collapse"
-                      type="button"
-                      :aria-expanded="!isAccountsSectionCollapsed"
-                      :title="isAccountsSectionCollapsed ? t('Expand accounts') : t('Collapse accounts')"
-                      @click="toggleAccountsSectionCollapsed"
-                    >
-                      <span class="sidebar-settings-account-collapse-icon">{{ isAccountsSectionCollapsed ? '▸' : '▾' }}</span>
-                    </button>
-                    <span class="sidebar-settings-account-title">{{ t('Accounts') }}</span>
-                    <span class="sidebar-settings-account-count">{{ accounts.length }}</span>
-                  </div>
-                  <button
-                    class="sidebar-settings-account-refresh"
-                    type="button"
-                    :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
-                    @click="onRefreshAccounts"
-                  >
-                    {{ isRefreshingAccounts ? t('Reloading…') : t('Reload') }}
-                  </button>
+                  <span class="sidebar-settings-account-title">{{ t('Codex account') }}</span>
+                  <button class="sidebar-settings-account-refresh" type="button" :disabled="isRefreshingCodexAuth || isStartingCodexLogin || isCompletingCodexLogin" @click="onRefreshCodexAuth">{{ isRefreshingCodexAuth ? t('Reloading…') : t('Reload') }}</button>
                 </div>
-                <template v-if="!isAccountsSectionCollapsed">
-                  <div v-if="accountActionError" class="sidebar-settings-account-error">
-                    <span>{{ accountActionError }}</span>
-                  </div>
-                  <div class="sidebar-settings-account-login">
-                    <button
-                      class="sidebar-settings-account-login-button"
-                      type="button"
-                      :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
-                      @click="onStartCodexLogin"
-                    >
-                      {{ isStartingCodexLogin ? t('Starting login…') : t('Login') }}
-                    </button>
-                    <a
-                      v-if="codexLoginUrl"
-                      class="sidebar-settings-account-login-link"
-                      :href="codexLoginUrl"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {{ t('Open login URL') }}
-                    </a>
-                  </div>
-                  <p v-if="accounts.length === 0" class="sidebar-settings-account-empty">
-                    {{ t('Click Login, or run `codex login`, then click reload.') }}
-                  </p>
-                  <div v-else class="sidebar-settings-account-list">
-                  <article
-                    v-for="account in accounts"
-                    :key="account.storageId"
-                    class="sidebar-settings-account-item"
-                    :class="{
-                      'is-active': account.isActive,
-                      'is-unavailable': isAccountUnavailable(account),
-                      'is-confirming-remove': isRemoveConfirmationActive(account),
-                      'is-remove-visible': isRemoveVisible(account),
-                    }"
-                    :title="buildAccountTitle(account)"
-                    @mouseenter="onAccountCardPointerEnter(account.storageId)"
-                    @mouseleave="onAccountCardPointerLeave(account.storageId)"
-                  >
-                    <div class="sidebar-settings-account-main">
-                      <p class="sidebar-settings-account-email">{{ account.email || t('Account') }}</p>
-                      <p class="sidebar-settings-account-meta">
-                        {{ formatAccountMeta(account) }}
-                      </p>
-                      <p class="sidebar-settings-account-quota">
-                        {{ formatAccountQuota(account) }}
-                      </p>
-                      <p class="sidebar-settings-account-id">
-                        <template v-if="account.credentialSource === 'runtime'">{{ t('Active Codex login') }}</template>
-                        <template v-else>Workspace {{ shortAccountId(account.accountId) }}</template>
-                      </p>
-                      <p v-if="account.managementReason" class="sidebar-settings-account-meta">
-                        {{ account.managementReason }}
-                      </p>
-                    </div>
-                    <div class="sidebar-settings-account-actions">
-                      <button
-                        class="sidebar-settings-account-switch"
-                        type="button"
-                        :disabled="isAccountActionDisabled(account) || account.canSwitch === false || account.isActive || isAccountUnavailable(account)"
-                        :title="account.managementReason || undefined"
-                        @click="onSwitchAccount(account.storageId)"
-                      >
-                        {{ getAccountSwitchLabel(account) }}
-                      </button>
-                      <button
-                        class="sidebar-settings-account-remove"
-                        :class="{
-                          'is-visible': isRemoveVisible(account),
-                          'is-confirming': isRemoveConfirmationActive(account),
-                        }"
-                        type="button"
-                        :disabled="isAccountActionDisabled(account) || account.canRemove === false"
-                        :title="account.managementReason || undefined"
-                        @click="onRemoveAccount(account.storageId)"
-                      >
-                        {{ getAccountRemoveLabel(account) }}
-                      </button>
-                    </div>
-                  </article>
-                  </div>
-                </template>
+                <p class="sidebar-settings-account-empty">{{ codexAuthAvailable === true ? t('Signed in to Codex') : codexAuthAvailable === false ? t('Click Login, or run `codex login`, then click reload.') : t('Codex authentication status unavailable. Reload or use Codex CLI.') }}</p>
+                <div v-if="accountActionError" class="sidebar-settings-account-error">{{ accountActionError }}</div>
+                <div class="sidebar-settings-account-login">
+                  <button class="sidebar-settings-account-login-button" type="button" :disabled="codexAuthAvailable === true || isCodexAuthChangeBlocked || isRefreshingCodexAuth || isStartingCodexLogin || isCompletingCodexLogin" @click="onStartCodexLogin">{{ isStartingCodexLogin ? t('Starting login…') : t('Login') }}</button>
+                  <button v-if="codexAuthAvailable === true" class="sidebar-settings-account-login-button" type="button" :disabled="isCodexAuthChangeBlocked || isRefreshingCodexAuth" @click="onLogoutCodex">{{ t('Logout') }}</button>
+                  <a v-if="codexLoginUrl" class="sidebar-settings-account-login-link" :href="codexLoginUrl" target="_blank" rel="noreferrer">{{ t('Open login URL') }}</a>
+                </div>
               </div>
+
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
                 <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
@@ -1118,8 +1023,8 @@ import {
   downloadProjectZip,
   getGitRepositoryStatus,
   getWorktreeBranchOptions,
-  getAccounts,
   completeCodexLogin,
+  logoutCodex,
   createLocalDirectory,
   getHomeDirectory,
   getTelegramConfig,
@@ -1130,13 +1035,10 @@ import {
   importProjectZip,
   listLocalDirectories,
   openProjectRoot,
-  removeAccount,
-  refreshAccountsFromAuth,
   startCodexLogin,
   searchThreads,
-  switchAccount,
 } from './api/codexGateway'
-import type { ReasoningEffort, SpeedMode, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
+import type { ReasoningEffort, SpeedMode, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
@@ -1149,7 +1051,6 @@ const AutomationsPanel = defineAsyncComponent(() => import('./components/content
 const { t, uiLanguage, uiLanguageOptions, setUiLanguage } = useUiLanguage()
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
-const ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY = 'codex-web-local.accounts-section-collapsed.v1'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const SETTINGS_HELP = {
@@ -1429,21 +1330,16 @@ let isRestoringSidebarScroll = false
 const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
-const isAccountsSectionCollapsed = ref(loadAccountsSectionCollapsed())
 const createFolderInputRef = ref<HTMLInputElement | null>(null)
-const accounts = ref<UiAccountEntry[]>([])
-const isRefreshingAccounts = ref(false)
-const isSwitchingAccounts = ref(false)
 const isStartingCodexLogin = ref(false)
 const isCompletingCodexLogin = ref(false)
 const isCodexLoginModalOpen = ref(false)
 const codexLoginUrl = ref('')
 const codexLoginCallbackUrl = ref('')
 const codexLoginCallbackInputRef = ref<HTMLInputElement | null>(null)
-const removingAccountId = ref('')
-const confirmingRemoveAccountId = ref('')
-const hoveredAccountId = ref('')
 const accountActionError = ref('')
+const codexAuthAvailable = ref<boolean | null>(null)
+const isRefreshingCodexAuth = ref(false)
 const SEND_WITH_ENTER_KEY = 'codex-web-local.send-with-enter.v1'
 const IN_PROGRESS_SEND_MODE_KEY = 'codex-web-local.in-progress-send-mode.v1'
 const DARK_MODE_KEY = 'codex-web-local.dark-mode.v1'
@@ -1563,10 +1459,6 @@ let lastWorkspaceRootsResumeAt = 0
 const visualViewportHeight = ref(typeof window !== 'undefined' ? window.visualViewport?.height ?? window.innerHeight : 0)
 const visualViewportOffsetTop = ref(typeof window !== 'undefined' ? window.visualViewport?.offsetTop ?? 0 : 0)
 const layoutViewportHeight = ref(typeof window !== 'undefined' ? window.innerHeight : 0)
-let accountStatePollTimer: number | null = null
-let isAccountStatePollInFlight = false
-let externalCodexAuthAvailable = false
-let externalAuthImportAttempted = false
 let existingFolderBrowseRequestId = 0
 
 const routeThreadId = computed(() => {
@@ -1633,7 +1525,7 @@ const isVirtualKeyboardOpen = computed(() => {
 const directoryCwd = computed(() => selectedThread.value?.cwd?.trim() ?? newThreadCwd.value.trim())
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
 const showThreadContextBadge = computed(() => !isHomeRoute.value && !isSkillsRoute.value && !isAutomationsRoute.value && selectedThreadId.value.trim().length > 0)
-const isAccountSwitchBlocked = computed(() =>
+const isCodexAuthChangeBlocked = computed(() =>
   isSendingMessage.value ||
   isInterruptingTurn.value ||
   isSelectedThreadInProgress.value ||
@@ -1936,10 +1828,6 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener('resize', updateVisualViewportState)
   window.visualViewport?.removeEventListener('scroll', updateVisualViewportState)
   darkModeMediaQuery?.removeEventListener('change', applyDarkMode)
-  if (accountStatePollTimer !== null) {
-    window.clearInterval(accountStatePollTimer)
-    accountStatePollTimer = null
-  }
   if (threadSearchTimer) {
     clearTimeout(threadSearchTimer)
     threadSearchTimer = null
@@ -1982,55 +1870,6 @@ watch(sidebarSearchQuery, (value) => {
 watch(isVirtualKeyboardOpen, (open) => {
   if (open) return
 })
-
-watch(accounts, () => {
-  if (typeof window === 'undefined') return
-  const shouldPoll = accounts.value.some((account) => account.quotaStatus === 'loading')
-  if (!shouldPoll) {
-    if (accountStatePollTimer !== null) {
-      window.clearInterval(accountStatePollTimer)
-      accountStatePollTimer = null
-    }
-    return
-  }
-  if (accountStatePollTimer !== null) return
-  accountStatePollTimer = window.setInterval(() => {
-    if (isAccountStatePollInFlight) return
-    isAccountStatePollInFlight = true
-    void loadAccountsState({ silent: true }).finally(() => {
-      isAccountStatePollInFlight = false
-    })
-  }, 1500)
-}, { deep: true })
-
-watch(accountRateLimitSnapshots, () => {
-  void maybeImportExternalCodexAuthAccount().then((imported) => {
-    if (!imported) return
-    void refreshAll({
-      includeSelectedThreadMessages: false,
-      providerChanged: true,
-      awaitAncillaryRefreshes: true,
-    })
-  })
-}, { deep: true })
-
-async function maybeImportExternalCodexAuthAccount(): Promise<boolean> {
-  if (!externalCodexAuthAvailable) return false
-  if (externalAuthImportAttempted) return false
-  if (selectedProvider.value !== 'codex') return false
-  if (accounts.value.length > 0) return false
-  if (accountRateLimitSnapshots.value.length === 0) return false
-  externalAuthImportAttempted = true
-  const previousAccountsJson = JSON.stringify(accounts.value.map((account) => account.accountId).sort())
-  try {
-    const result = await refreshAccountsFromAuth()
-    accounts.value = result.accounts
-  } catch {
-    await loadAccountsState({ silent: true })
-  }
-  const nextAccountsJson = JSON.stringify(accounts.value.map((account) => account.accountId).sort())
-  return previousAccountsJson !== nextAccountsJson
-}
 
 function onSkillsChanged(): void {
   void refreshSkills({ force: true })
@@ -2267,205 +2106,14 @@ async function onCopyThreadChat(threadId: string): Promise<void> {
   await copySelectedThreadChat()
 }
 
-function shortAccountId(accountId: string): string {
-  return accountId.length > 8 ? accountId.slice(-8) : accountId
-}
-
-function formatAccountMeta(account: UiAccountEntry): string {
-  const segments = [account.planType || t('unknown')]
-  if (account.authMode) {
-    segments.unshift(account.authMode)
-  }
-  return segments.join(' · ')
-}
-
 function isPaymentRequiredErrorMessage(value: string | null): boolean {
   if (!value) return false
   const normalized = value.toLowerCase()
   return normalized.includes('payment required') || /\b402\b/.test(normalized)
 }
 
-function isAccountUnavailable(account: UiAccountEntry): boolean {
-  return account.unavailableReason === 'payment_required' || isPaymentRequiredErrorMessage(account.quotaError)
-}
-
-function isAccountActionDisabled(account: UiAccountEntry): boolean {
-  return isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0
-    || (account.isActive && removingAccountId.value !== account.storageId && isAccountSwitchBlocked.value)
-}
-
-function isRemoveConfirmationActive(account: UiAccountEntry): boolean {
-  return confirmingRemoveAccountId.value === account.storageId
-}
-
-function isRemoveVisible(account: UiAccountEntry): boolean {
-  return hoveredAccountId.value === account.storageId || isRemoveConfirmationActive(account)
-}
-
-function getAccountSwitchLabel(account: UiAccountEntry): string {
-  if (isAccountUnavailable(account)) return t('Unavailable')
-  if (account.isActive) return t('Active')
-  if (account.canSwitch === false) return t('Switch unavailable')
-  if (isSwitchingAccounts.value) return t('Switching…')
-  return t('Switch')
-}
-
-function getAccountRemoveLabel(account: UiAccountEntry): string {
-  if (removingAccountId.value === account.storageId) return t('Removing…')
-  if (isRemoveConfirmationActive(account)) return t('Click again to remove')
-  return t('Remove')
-}
-
-function onAccountCardPointerEnter(accountId: string): void {
-  hoveredAccountId.value = accountId
-}
-
-function onAccountCardPointerLeave(accountId: string): void {
-  if (hoveredAccountId.value === accountId) {
-    hoveredAccountId.value = ''
-  }
-  if (removingAccountId.value === accountId) return
-  if (confirmingRemoveAccountId.value === accountId) {
-    confirmingRemoveAccountId.value = ''
-  }
-}
-
-function pickWeeklyQuotaWindow(account: UiAccountEntry) {
-  const quota = account.quotaSnapshot
-  if (!quota) return null
-  const windows = [quota?.primary, quota?.secondary].filter((quotaWindow): quotaWindow is UiRateLimitWindow => quotaWindow !== null)
-  const exactWeekly = windows.find((quotaWindow) => quotaWindow.windowMinutes === 7 * 24 * 60)
-  if (exactWeekly) {
-    return exactWeekly
-  }
-  const longerWindow = windows
-    .filter((quotaWindow) => typeof quotaWindow.windowMinutes === 'number' && quotaWindow.windowMinutes >= 7 * 24 * 60)
-    .sort((first, second) => (first.windowMinutes ?? 0) - (second.windowMinutes ?? 0))[0] ?? null
-  if (longerWindow) {
-    return longerWindow
-  }
-  return quota.secondary ?? null
-}
-
-function formatResetDateCompact(resetsAt: number | null): string {
-  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return ''
-  const date = new Date(resetsAt * 1000)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
-}
-
-function formatAccountQuota(account: UiAccountEntry): string {
-  if (isAccountUnavailable(account)) {
-    return account.quotaError || t('402 Payment Required')
-  }
-  const quota = account.quotaSnapshot
-  const window = pickWeeklyQuotaWindow(account)
-  const fallbackWindow = quota?.primary ?? quota?.secondary ?? null
-  const displayWindow = window ?? fallbackWindow
-  if (displayWindow) {
-    const remainingPercent = Math.max(0, Math.min(100, 100 - Math.round(displayWindow.usedPercent)))
-    const refreshDate = formatResetDateCompact(displayWindow.resetsAt)
-    return refreshDate
-      ? `${remainingPercent}% ${t('weekly remaining')} · ${refreshDate}`
-      : `${remainingPercent}% ${t('weekly remaining')}`
-  }
-  if (quota?.credits?.unlimited) {
-    return t('Unlimited credits')
-  }
-  if (quota?.credits?.hasCredits && quota.credits.balance) {
-    return `${quota.credits.balance} ${t('credits')}`
-  }
-  if (account.quotaStatus === 'loading') {
-    return t('Loading quota…')
-  }
-  if (account.quotaStatus === 'error') {
-    return account.quotaError || t('Quota unavailable')
-  }
-  if (account.quotaStatus === 'ready' || account.quotaStatus === 'idle') {
-    return t('Quota unavailable')
-  }
-  return t('Fetching account details…')
-}
-
-function buildAccountTitle(account: UiAccountEntry): string {
-  return [
-    account.email || t('Account'),
-    formatAccountMeta(account),
-    isAccountUnavailable(account) ? t('Unavailable account') : null,
-    formatAccountQuota(account),
-    account.credentialSource === 'runtime' ? t('Active Codex login') : `${t('Workspace')} ${account.accountId}`,
-    account.managementReason,
-  ].filter(Boolean).join('\n')
-}
-
-async function loadAccountsState(options: { silent?: boolean } = {}): Promise<void> {
-  try {
-    const result = await getAccounts()
-    accounts.value = result.accounts
-    if (!result.accounts.some((account) => account.storageId === hoveredAccountId.value)) {
-      hoveredAccountId.value = ''
-    }
-    if (!result.accounts.some((account) => account.storageId === confirmingRemoveAccountId.value)) {
-      confirmingRemoveAccountId.value = ''
-    }
-  } catch (error) {
-    if (options.silent === true) return
-    accountActionError.value = error instanceof Error ? error.message : t('Failed to load accounts')
-  }
-}
-
-async function onRefreshAccounts(): Promise<void> {
-  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
-  accountActionError.value = ''
-  hoveredAccountId.value = ''
-  confirmingRemoveAccountId.value = ''
-  isRefreshingAccounts.value = true
-  try {
-    const result = await refreshAccountsFromAuth()
-    accounts.value = result.accounts
-    stopPolling()
-    startPolling()
-    void refreshAll({
-      includeSelectedThreadMessages: true,
-    })
-  } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : t('Failed to refresh accounts')
-  } finally {
-    isRefreshingAccounts.value = false
-  }
-}
-
-async function onSwitchAccount(storageId: string): Promise<void> {
-  if (isSwitchingAccounts.value || isRefreshingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
-  if (isAccountSwitchBlocked.value) {
-    accountActionError.value = t('Finish the current turn and pending requests before switching accounts.')
-    return
-  }
-  accountActionError.value = ''
-  hoveredAccountId.value = ''
-  confirmingRemoveAccountId.value = ''
-  isSwitchingAccounts.value = true
-  try {
-    const nextActiveAccount = await switchAccount(storageId)
-    accounts.value = accounts.value.map((account) => (
-      account.storageId === storageId
-        ? nextActiveAccount
-        : { ...account, isActive: false }
-    ))
-    stopPolling()
-    startPolling()
-    void refreshAll({
-      includeSelectedThreadMessages: true,
-    })
-    void loadAccountsState({ silent: true })
-  } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : t('Failed to switch account')
-  } finally {
-    isSwitchingAccounts.value = false
-  }
-}
-
 async function onStartCodexLogin(): Promise<void> {
-  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
+  if (isRefreshingCodexAuth.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
   accountActionError.value = ''
   codexLoginCallbackUrl.value = ''
   isStartingCodexLogin.value = true
@@ -2500,8 +2148,9 @@ async function completeCodexLoginFromCallback(callbackUrl: string): Promise<void
   accountActionError.value = ''
   isCompletingCodexLogin.value = true
   try {
-    const result = await completeCodexLogin(callbackUrl)
-    accounts.value = result.accounts
+    await completeCodexLogin(callbackUrl)
+    codexAuthAvailable.value = true
+    await loadFreeModeStatus()
     codexLoginUrl.value = ''
     codexLoginCallbackUrl.value = ''
     isCodexLoginModalOpen.value = false
@@ -2514,41 +2163,6 @@ async function completeCodexLoginFromCallback(callbackUrl: string): Promise<void
     accountActionError.value = error instanceof Error ? error.message : t('Failed to complete Codex login')
   } finally {
     isCompletingCodexLogin.value = false
-  }
-}
-
-async function onRemoveAccount(storageId: string): Promise<void> {
-  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0) return
-  const targetAccount = accounts.value.find((account) => account.storageId === storageId) ?? null
-  if (!targetAccount) return
-  if (confirmingRemoveAccountId.value !== storageId) {
-    confirmingRemoveAccountId.value = storageId
-    return
-  }
-  if (targetAccount.isActive && isAccountSwitchBlocked.value) {
-    accountActionError.value = t('Finish the current turn and pending requests before removing the active account.')
-    return
-  }
-
-  const removedWasActive = targetAccount.isActive
-  accountActionError.value = ''
-  confirmingRemoveAccountId.value = ''
-  removingAccountId.value = storageId
-  try {
-    const result = await removeAccount(storageId)
-    accounts.value = result.accounts
-    stopPolling()
-    startPolling()
-    if (removedWasActive) {
-      void refreshAll({
-        includeSelectedThreadMessages: true,
-      })
-    }
-    void loadAccountsState({ silent: true })
-  } catch (error) {
-    accountActionError.value = error instanceof Error ? error.message : t('Failed to remove account')
-  } finally {
-    removingAccountId.value = ''
   }
 }
 
@@ -3805,24 +3419,13 @@ async function loadFreeModeStatus(): Promise<void> {
     }
     // A failed credential-service probe is unknown, not a sign-out.
     if (typeof status.hasCodexAuth === 'boolean') {
-      externalCodexAuthAvailable = status.hasCodexAuth
-      if (!externalCodexAuthAvailable) {
-        externalAuthImportAttempted = false
-      }
+      codexAuthAvailable.value = status.hasCodexAuth
     }
     const providerChanged = selectedProvider.value !== previousProvider
     if (providerChanged) {
       await refreshAll({
         includeSelectedThreadMessages: false,
         providerChanged: true,
-        awaitAncillaryRefreshes: true,
-      })
-    }
-    const importedExternalAuth = await maybeImportExternalCodexAuthAccount()
-    if (importedExternalAuth) {
-      await refreshAll({
-        includeSelectedThreadMessages: false,
-        providerChanged: providerChanged || importedExternalAuth,
         awaitAncillaryRefreshes: true,
       })
     }
@@ -3915,22 +3518,6 @@ function saveSidebarCollapsed(value: boolean): void {
   window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, value ? '1' : '0')
 }
 
-function loadAccountsSectionCollapsed(): boolean {
-  if (typeof window === 'undefined') return true
-  const value = window.localStorage.getItem(ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY)
-  if (value === null) return true
-  return value === '1'
-}
-
-function toggleAccountsSectionCollapsed(): void {
-  isAccountsSectionCollapsed.value = !isAccountsSectionCollapsed.value
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(
-    ACCOUNTS_SECTION_COLLAPSED_STORAGE_KEY,
-    isAccountsSectionCollapsed.value ? '1' : '0',
-  )
-}
-
 function normalizeMessageType(rawType: string | undefined, role: string): string {
   const normalized = (rawType ?? '').trim()
   if (normalized.length > 0) {
@@ -3955,7 +3542,6 @@ async function initialize(): Promise<void> {
   await refreshAll({
     includeSelectedThreadMessages: route.name === 'thread',
   })
-  void loadAccountsState({ silent: true })
   await applyLaunchProjectPathFromUrl()
   hasInitialized.value = true
   await syncThreadSelectionWithRoute()
@@ -4253,6 +3839,35 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
     newWorktreeBaseBranch.value = ''
   } finally {
     isLoadingWorktreeBranches.value = false
+  }
+}
+
+async function onRefreshCodexAuth(): Promise<void> {
+  if (isRefreshingCodexAuth.value) return
+  isRefreshingCodexAuth.value = true
+  accountActionError.value = ''
+  try {
+    await loadFreeModeStatus()
+    await refreshAll({ includeSelectedThreadMessages: false })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : 'Failed to refresh authentication'
+  } finally {
+    isRefreshingCodexAuth.value = false
+  }
+}
+async function onLogoutCodex(): Promise<void> {
+  if (isCodexAuthChangeBlocked.value || isRefreshingCodexAuth.value) return
+  isRefreshingCodexAuth.value = true
+  accountActionError.value = ''
+  try {
+    await logoutCodex()
+    codexAuthAvailable.value = false
+    await loadFreeModeStatus()
+    await refreshAll({ includeSelectedThreadMessages: false })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : 'Failed to log out'
+  } finally {
+    isRefreshingCodexAuth.value = false
   }
 }
 </script>
@@ -4787,25 +4402,13 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply mb-2 flex items-center justify-between gap-2;
 }
 
-.sidebar-settings-account-header-main {
-  @apply flex items-center gap-2;
-}
 
-.sidebar-settings-account-collapse {
-  @apply inline-flex h-5 w-5 items-center justify-center rounded border border-zinc-200 bg-white text-zinc-600 transition hover:bg-zinc-100;
-}
 
-.sidebar-settings-account-collapse-icon {
-  @apply text-[11px] leading-none;
-}
 
 .sidebar-settings-account-title {
   @apply text-sm font-medium text-zinc-800;
 }
 
-.sidebar-settings-account-count {
-  @apply rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600;
-}
 
 .sidebar-settings-account-error {
   @apply mb-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-700;
@@ -4913,69 +4516,21 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
   @apply border-zinc-200 bg-zinc-100 text-zinc-900 hover:bg-white;
 }
 
-.sidebar-settings-account-list {
-  @apply flex flex-col gap-2;
-}
 
-.sidebar-settings-account-item {
-  @apply flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-2;
-}
 
-.sidebar-settings-account-item.is-active {
-  @apply border-emerald-200 bg-emerald-50;
-}
 
-.sidebar-settings-account-item.is-unavailable {
-  @apply border-rose-200 bg-rose-50;
-}
 
-.sidebar-settings-account-main {
-  @apply min-w-0 flex-1;
-}
 
-.sidebar-settings-account-actions {
-  @apply flex w-24 shrink-0 flex-col items-end gap-1.5;
-}
 
-.sidebar-settings-account-email {
-  @apply truncate text-sm text-zinc-800;
-}
 
-.sidebar-settings-account-meta {
-  @apply truncate text-[11px] text-zinc-500;
-}
 
-.sidebar-settings-account-quota {
-  @apply truncate text-[11px] text-zinc-600;
-}
 
-.sidebar-settings-account-id {
-  @apply mt-1 inline-flex max-w-full rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[11px] text-zinc-700;
-}
 
-.sidebar-settings-account-item.is-active .sidebar-settings-account-id {
-  @apply bg-emerald-100 text-emerald-800;
-}
 
-.sidebar-settings-account-item.is-unavailable .sidebar-settings-account-id {
-  @apply bg-rose-100 text-rose-800;
-}
 
-.sidebar-settings-account-switch {
-  @apply min-w-[4.75rem] shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-center text-xs text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
-}
 
-.sidebar-settings-account-remove {
-  @apply invisible shrink-0 rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] leading-4 text-zinc-500 opacity-0 pointer-events-none transition-colors hover:bg-amber-50 disabled:cursor-default disabled:opacity-60;
-}
 
-.sidebar-settings-account-remove.is-visible {
-  @apply visible opacity-100 pointer-events-auto;
-}
 
-.sidebar-settings-account-remove.is-confirming {
-  @apply border-amber-300 bg-amber-50 text-amber-700 font-medium;
-}
 
 .sidebar-settings-label {
   @apply text-left;

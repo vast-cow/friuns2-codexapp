@@ -1,62 +1,26 @@
-### Accounts panel Codex login callback modal
+### Single active Codex login
 
-#### Feature/Change Name
-Accounts settings includes an always-available `Login` button that starts `codex login`, opens the returned authorization URL, shows an in-app callback modal, requests the pasted localhost callback URL from the server, and imports the completed Codex account.
+#### Prerequisites
+- Use a disposable `CODEX_HOME`, supported Codex CLI, and both file/Keyring credential-store environments when available.
+- Keep an existing authenticated fixture and a logged-out fixture. Record active credential bytes and any legacy `accounts.json`/`accounts/` files before testing. Never put real tokens in reports.
 
-#### Prerequisites/Setup
-1. Dev server running (`pnpm run dev`)
-2. `codex` CLI available in the server process `PATH`
-3. Browser can open the authorization URL returned by the server
-4. Light theme and dark theme are available from the appearance switcher
+#### Actions and expected results
+1. Start with an existing active Codex login and open Settings. It shows `Codex account` and `Signed in to Codex`, with no stored-account list, selector, registration, snapshot import, switch, rotation, or remove controls. Reload the page: the login remains active without requesting authentication or rewriting credentials/snapshots.
+2. Click Reload: refresh current authentication status without inspecting other stored accounts. No `/accounts`, `/accounts/active`, `/accounts/refresh`, `/accounts/switch`, or `/accounts/remove` requests occur. Active-account rate limits continue through normal Codex APIs.
+3. Explicitly click Logout: the app calls standard `account/logout` and shows Login. Legacy saved-account files remain untouched; there is no replacement-account selection.
+4. Click Login. The existing `codex login` flow opens the authorization URL and callback modal. Complete the browser login, paste its localhost callback URL, and submit. Successful CLI exit establishes login for the configured file or Keyring backend without creating account registry/snapshot files. Invalid callbacks and failed logins must not invalidate existing credentials.
+5. Repeat in light/dark themes. During active turns or pending approvals, login/logout are blocked to preserve the active workflow.
+6. Check transcription/connector credential access, metadata-only public auth, and token refresh with their focused tests. Never export Keyring secrets or use snapshot fallback.
 
-#### Steps
-1. Open settings and expand `Accounts`.
-2. In light theme, verify `Login` appears even when an active account is already listed.
-3. Click `Login`.
-4. Verify a new tab opens to the OpenAI authorization URL and an in-app `Complete Codex login` modal asks for the localhost callback URL.
-5. Complete authorization in the browser until it redirects to a `http://localhost:<port>/auth/callback?...` URL.
-6. Paste that full localhost callback URL into the modal input and click `Complete`.
-7. Verify the account list refreshes, the new or refreshed account is active, and normal thread/account data reloads.
-8. Click `Login` again, close the modal, and verify the Accounts panel keeps the `Open login URL` fallback link available.
-9. Switch to dark theme and repeat steps 1-4, verifying the Login button, link, modal, input, and buttons have readable contrast.
+#### Cleanup
+Stop disposable processes and remove only test fixtures. Existing credential files, legacy account archives and current login must not be migrated, deleted, or invalidated by app startup.
 
-#### Expected Results
-- `Login` is available regardless of current login state.
-- Starting login runs `codex login` on the server and exposes the generated OpenAI authorization URL.
-- Completing login uses the modal input value, only accepts local callback URLs, and uses the server to request the pasted callback.
-- After completion, the active account is read from Codex. File-backed credentials are saved as a snapshot when account identity is available; Keyring credentials remain managed by Codex.
-- Completion waits for the successful `codex login` exit with a bounded timeout, without depending on an `auth.json` update.
-- Light-theme and dark-theme controls are readable and do not overlap.
+#### Performance audit
+The stored-account registry, snapshot migrations, background quota inspections/temporary Codex servers, card polling, and import-on-startup requests are removed. Status uses existing Codex authentication interfaces; active-account quota reporting remains. No alternate-account requests, fanout, new caches or polling are added. Live latency was not measured.
 
-#### Rollback/Cleanup
-- Remove any test-only account from the Accounts panel if needed.
-- If a login is abandoned, restart the dev server to clear any in-memory pending login process.
-
----
-
-### Keyring account discovery and login completion
-
-#### Prerequisites/Setup
-- Prepare isolated Codex homes for `file` and `keyring` credential storage, with a working Keyring backend for the latter. Authenticate through the CLI and confirm `codex login status` succeeds. Keep the user's original profile unchanged.
-- For file storage, save two accounts through Reload to exercise snapshot switching. For Keyring, confirm `auth.json` is absent.
-
-#### Steps
-1. Start with the externally authenticated Keyring profile. Open Accounts and verify the active email, plan, and quota appear when Codex exposes them. Restart the application and repeat.
-2. Click Reload. Confirm the active account remains visible and no credential file or snapshot is created.
-3. Complete Login from the application's callback modal with each storage mode. Also test a browser callback that has already completed before clicking Complete. Confirm a successful CLI exit completes the workflow without waiting for an auth-file timestamp.
-4. Under Keyring, attempt snapshot switching and active-account removal. Confirm the controls explain that Codex manages this login; direct requests must return a clear unsupported-operation error without modifying credentials.
-5. Under file storage, switch between saved accounts and remove an inactive snapshot. Confirm the existing behavior remains available.
-6. With one saved snapshot matching the active Keyring email, Reload and confirm only one row represents that account. With multiple snapshots sharing an email, confirm they remain separate: email alone cannot identify the active workspace.
-7. Exercise an active account with missing email/plan metadata and a quota RPC failure. Confirm the account still appears with safe fallback labels and quota error feedback; the UI must not show the runtime UI identifier as a workspace ID.
-8. Check the account rows, explanatory text, and disabled actions in both light and dark themes.
-
-#### Expected Results and Limitations
-- `account/read` supplies the active runtime account. It exposes no stable account/workspace ID or raw tokens, so runtime identity is temporary and never saved as a credential snapshot.
-- Keyring, auto, ephemeral, and unknown backends do not support snapshot switching or active-login removal through this app. Manage those credentials using Codex CLI. Inactive file snapshots may still be removed without touching the active credentials.
-- File snapshots retain multi-account functionality. Keyring credentials are never extracted, copied, deleted, or used to create plaintext auth files. An existing stale `auth.json` under Keyring is ignored.
-- Metadata matching deduplicates a unique email match; ambiguous matches retain separate rows rather than inventing a workspace identity.
-- Runtime reads are shared across list/active endpoints and cached for 30 seconds, including failures. Reload and successful login explicitly invalidate the cache. Account/config/quota reads each have a five-second response deadline. Existing background snapshot inspection excludes the active login.
-- Login success follows successful completion of `codex login`, and quota failure does not prevent account discovery or successful login completion. See the [credential compatibility audit](../../documentation/keyring-auth-compatibility.md) for transcription/logo support and external token-refresh limitations.
-
-#### Rollback/Cleanup
-- Stop the temporary app and discard only the isolated test profiles. Do not remove the active Keyring login through the app or change the user's credential storage configuration.
+#### Verification boundary
+- Production build with frontend typecheck, package creation, and public ESM CLI smoke pass.
+- Focused authentication tests: 43 passed, covering file/Keyring CLI completion, normal login/logout gateway requests, legacy file preservation, failed login/callback behavior, secure credential access, and token refresh.
+- Full suite: 286 passed, 32 failed, two unhandled errors; failure signatures match the pre-change suite. Server-only typecheck retains ten baseline browser-type errors in `codexRpcClient.ts`.
+- Playwright at `http://127.0.0.1:4173/`, viewport 1440x1000, confirms an existing active login across page reload without any login request, explicit logout, callback login completion, and no multi-account management requests/controls. Screenshots: `output/playwright/single-account-light.png` and `output/playwright/single-account-dark.png`.
+- Browser RPC/auth/login endpoints use controlled fixtures because Codex CLI is unavailable. Browser Use is unavailable; Playwright supplies required request interception. Docker is unavailable, so the isolated provider/auth container matrix and live Keyring/Codex authentication were not run. No real credentials were used or changed.

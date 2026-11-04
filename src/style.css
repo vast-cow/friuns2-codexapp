@@ -105,16 +105,12 @@
   @apply text-zinc-200;
 }
 
-:root.dark .sidebar-settings-account-count {
-  @apply bg-zinc-700 text-zinc-300;
-}
 
 :root.dark .sidebar-settings-account-error {
   @apply bg-rose-950/40 text-rose-200;
 }
 
 :root.dark .sidebar-settings-account-refresh,
-:root.dark .sidebar-settings-account-switch,
 :root.dark .sidebar-settings-account-login-button {
   @apply border-zinc-600 bg-zinc-700 text-zinc-200 hover:bg-zinc-600;
 }
@@ -127,49 +123,16 @@
   @apply text-zinc-400;
 }
 
-:root.dark .sidebar-settings-account-item {
-  @apply border-zinc-700 bg-zinc-900/70;
-}
 
-:root.dark .sidebar-settings-account-item.is-active {
-  @apply border-emerald-500/35 bg-emerald-500/10;
-}
 
-:root.dark .sidebar-settings-account-item.is-unavailable {
-  @apply border-rose-500/35 bg-rose-500/10;
-}
 
-:root.dark .sidebar-settings-account-email {
-  @apply text-zinc-100;
-}
 
-:root.dark .sidebar-settings-account-meta {
-  @apply text-zinc-400;
-}
 
-:root.dark .sidebar-settings-account-quota {
-  @apply text-zinc-300;
-}
 
-:root.dark .sidebar-settings-account-id {
-  @apply bg-zinc-800 text-zinc-300;
-}
 
-:root.dark .sidebar-settings-account-item.is-active .sidebar-settings-account-id {
-  @apply bg-emerald-500/15 text-emerald-200;
-}
 
-:root.dark .sidebar-settings-account-item.is-unavailable .sidebar-settings-account-id {
-  @apply bg-rose-500/15 text-rose-200;
-}
 
-:root.dark .sidebar-settings-account-remove {
-  @apply border-amber-500/35 bg-zinc-700 text-zinc-400 hover:bg-amber-500/10;
-}
 
-:root.dark .sidebar-settings-account-remove.is-confirming {
-  @apply border-amber-400/50 bg-amber-500/10 text-amber-200;
-}
 
 :root.dark .sidebar-settings-value {
   @apply text-zinc-400 bg-zinc-700;

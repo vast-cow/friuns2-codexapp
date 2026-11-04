@@ -239,30 +239,6 @@ export type UiProjectGroup = {
   threads: UiThread[]
 }
 
-export type UiAccountQuotaStatus = 'idle' | 'loading' | 'ready' | 'error'
-export type UiAccountUnavailableReason = 'payment_required'
-
-export type UiAccountEntry = {
-  credentialSource?: 'file' | 'runtime'
-  canSwitch?: boolean
-  canRemove?: boolean
-  managementReason?: string | null
-  accountId: string
-  storageId: string
-  userId: string | null
-  authMode: string | null
-  email: string | null
-  planType: string | null
-  lastRefreshedAtIso: string
-  lastActivatedAtIso: string | null
-  quotaSnapshot: UiRateLimitSnapshot | null
-  quotaUpdatedAtIso: string | null
-  quotaStatus: UiAccountQuotaStatus
-  quotaError: string | null
-  unavailableReason: UiAccountUnavailableReason | null
-  isActive: boolean
-}
-
 export type ChatMessage = {
   id: string
   role: string

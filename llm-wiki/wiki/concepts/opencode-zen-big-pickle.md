@@ -77,7 +77,7 @@ If a container starts without auth and later receives a valid `auth.json`, Codex
 Expected behavior after copying auth and reloading:
 - Community fallback provider state (`openrouter` or `opencode-zen` without a custom key) is suppressed.
 - Provider promotes to Codex.
-- Accounts imports the copied active auth file and the badge updates from `0` to at least `1`.
+- The old Accounts registry import is removed. Current Settings reads active Codex authentication without creating snapshots or requiring reauthentication; see [single-account evidence](../../raw/features/single-active-codex-account.md).
 - The new-thread composer shows a concrete Codex model, not a generic `Model` placeholder.
 - Stale historical diagnostics do not show a `Send feedback / Issue detected` row unless a current visible error remains.
 

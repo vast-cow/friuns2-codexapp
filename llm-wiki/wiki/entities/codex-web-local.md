@@ -33,3 +33,5 @@
 - [Merge-to-main workflow concept](../concepts/merge-to-main-workflow.md)
 - [Skills route UI concept](../concepts/skills-route-ui.md)
 - [OpenCode Zen + Big Pickle concept](../concepts/opencode-zen-big-pickle.md)
+
+The application uses a single active Codex login; the stored-account manager is removed without altering existing credential/archive files. Normal login/logout, Keyring and token refresh remain. See [single-account implementation evidence](../../raw/features/single-active-codex-account.md).

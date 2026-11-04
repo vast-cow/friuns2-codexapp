@@ -6,7 +6,7 @@
 #### Steps
 1. Open Settings panel from the sidebar.
 2. Verify the settings panel is scrollable when content overflows.
-3. Verify the Accounts section does NOT have its own scrollbar — it flows naturally within the settings panel scroll.
+3. Verify the Codex account status section does NOT have its own scrollbar — it flows naturally within the settings panel scroll.
 4. Locate the **Provider** dropdown (default: "Codex").
 5. Open the Provider dropdown and verify it renders as the app custom menu, not a native browser `<select>` control.
 6. Change provider to **OpenRouter**.
@@ -26,7 +26,7 @@
 - Selecting OpenRouter requires a personal API key; no shared-key fallback is available.
 - Selecting Custom endpoint allows setting a custom API base URL and bearer token.
 - Selecting Codex disables external provider mode and uses the default Codex backend.
-- Settings panel scrolls as a whole; accounts section has no independent scrollbar.
+- Settings panel scrolls as a whole; Codex account status section has no independent scrollbar.
 - OpenRouter option includes a "Get API key" link to openrouter.ai/keys.
 
 #### Rollback/Cleanup
