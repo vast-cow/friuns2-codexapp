@@ -1631,12 +1631,12 @@ export async function setCodexSpeedMode(mode: SpeedMode): Promise<void> {
 export interface FreeModeStatus {
   enabled: boolean
   hasCodexAuth?: boolean | null
-  keyCount: number
+  authenticationError?: string | null
   models: string[]
   currentModel: string | null
   customKey: boolean
   maskedKey: string | null
-  provider?: 'openrouter' | 'custom' | 'opencode-zen'
+  provider?: 'openrouter' | 'custom' | 'opencode-zen' | null
   customBaseUrl?: string
   wireApi?: 'responses' | 'chat' | null
 }
@@ -1652,6 +1652,10 @@ export async function setFreeMode(enable: boolean): Promise<{ ok: boolean; enabl
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enable }),
   })
+  if (!response.ok) {
+    const payload = await response.json() as { error?: string }
+    throw new Error(payload.error || 'Failed to configure provider')
+  }
   return await response.json() as { ok: boolean; enabled: boolean; model?: string; models?: string[] }
 }
 
@@ -1661,6 +1665,10 @@ export async function setFreeModeCustomKey(key: string): Promise<{ ok: boolean; 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key }),
   })
+  if (!response.ok) {
+    const payload = await response.json() as { error?: string }
+    throw new Error(payload.error || 'Failed to configure provider')
+  }
   return await response.json() as { ok: boolean; customKey: boolean }
 }
 
@@ -1679,6 +1687,10 @@ export async function setCustomProvider(
       provider: options?.provider,
     }),
   })
+  if (!response.ok) {
+    const payload = await response.json() as { error?: string }
+    throw new Error(payload.error || 'Failed to configure provider')
+  }
   return await response.json() as { ok: boolean }
 }
 

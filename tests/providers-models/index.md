@@ -9,7 +9,7 @@ Return to the [manual test index](../../tests.md).
 | Section |
 | --- |
 | [Feature: Per-thread model selection](per-thread-model-selection.md) |
-| [Free Mode (OpenRouter)](free-mode-openrouter.md) |
+| [Explicit provider authentication](free-mode-openrouter.md) |
 | [Feature: Codex.app Thread Provider Filter Patch (fix-codex-thread-filter.sh)](codex-app-thread-provider-filter-patch-fix-codex-thread-filter-sh.md) |
 | [Feature: Provider dropdown in settings (replaces free mode toggle)](provider-dropdown-in-settings-replaces-free-mode-toggle.md) |
 | [Codex CLI + OpenCode Zen Big Pickle Model](codex-cli-opencode-zen-big-pickle-model.md) |

@@ -25,7 +25,7 @@ Android `codexui-android` startup passes the bound server port to app-server fre
 #### Expected Results
 - `config/read` returns `200` and includes `model_providers.opencode-zen.base_url` pointing at `http://127.0.0.1:17923/codex-api/zen-proxy/v1`.
 - `config/read` includes `model_providers.opencode-zen.wire_api` as `responses`, not `chat`.
-- Fresh no-auth startup uses OpenCode Zen as a runtime fallback without creating `~/.codex/webui-custom-providers.json`.
+- Fresh no-auth startup shows an authentication error without selecting a provider or creating `~/.codex/webui-custom-providers.json`. Explicitly configure Zen to test its runtime.
 - Fresh no-auth startup with a top-level `model_provider` in `config.toml` does not force `model_provider="opencode_zen"`; the configured provider remains active.
 - After a usable Codex `auth.json` is added and the server restarts with no saved free-mode state, startup does not keep forcing `model_provider="opencode-zen"`.
 - Existing `~/.codex/webui-free-mode.json` files are ignored and not migrated to `~/.codex/webui-custom-providers.json`.

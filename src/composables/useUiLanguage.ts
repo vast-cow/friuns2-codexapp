@@ -43,7 +43,6 @@ const zhCN: Record<string, string> = {
   'Choose the API provider for the Codex backend': '选择 Codex 后端使用的 API 提供方',
   'OpenRouter API key': 'OpenRouter API Key',
   'Get API key': '获取 API Key',
-  'Remove custom key, use community keys': '移除自定义 key，改用社区 key',
   'Set': '设置',
   'Save': '保存',
   'API format': 'API 格式',

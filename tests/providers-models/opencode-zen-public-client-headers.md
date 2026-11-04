@@ -6,7 +6,7 @@ OpenCode Zen no-auth requests sent through the local Zen proxy include OpenCode-
 
 ## Prerequisites / Setup
 
-- Start the app with no Codex auth available so OpenCode Zen fallback is active.
+- Start the app with no Codex auth available so an explicit OpenCode Zen configuration is active.
 - Confirm `config/read` reports `model_provider = "opencode_zen"` and `model = "muse-spark-1.3-contributor-free"`.
 
 ## Actions

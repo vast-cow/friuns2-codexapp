@@ -7,7 +7,7 @@ OpenRouter settings expose a two-option API format toggle and persist the select
 1. Dev server running (`pnpm run dev`)
 2. Open Settings panel
 3. Select provider `OpenRouter`
-4. OpenRouter key configured (community or custom key)
+4. OpenRouter key configured (personal key)
 
 #### Steps
 1. In OpenRouter settings, find `API format` toggle

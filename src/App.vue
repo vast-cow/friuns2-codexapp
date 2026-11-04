@@ -274,6 +274,7 @@
                   @update:model-value="onProviderChange"
                 />
               </div>
+              <div class="sidebar-settings-row"><span>{{ t('Sign in with Codex or configure your own provider below. No shared API keys are provided.') }}</span></div>
               <div v-if="providerError" class="sidebar-settings-row sidebar-settings-error">
                 <span>{{ providerError }}</span>
                 <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, providerError)">{{ t('Send feedback') }}</a>
@@ -295,7 +296,7 @@
                       class="sidebar-settings-key-clear"
                       type="button"
                       :disabled="freeModeCustomKeySaving"
-                      :title="t('Remove custom key, use community keys')"
+                      :title="t('Remove API key and disable OpenRouter')"
                       @click="clearFreeModeCustomKey"
                     >&#x2715;</button>
                   </template>
@@ -304,7 +305,7 @@
                       v-model="freeModeCustomKey"
                       class="sidebar-settings-key-input"
                       type="password"
-                      :placeholder="t('sk-or-v1-... (optional, uses free keys if empty)')"
+                      :placeholder="t('Your personal OpenRouter API key (required)')"
                       @keydown.enter="saveFreeModeCustomKey"
                     />
                     <button
@@ -3716,12 +3717,11 @@ async function onProviderChange(provider: string): Promise<void> {
       freeModeEnabled.value = result.enabled
     } else if (provider === 'openrouter') {
       selectedProvider.value = 'openrouter'
-      const result = await setFreeMode(true)
-      freeModeEnabled.value = result.enabled
-      await setCustomProvider('', '', {
+      await setCustomProvider('', freeModeCustomKey.value.trim(), {
         wireApi: openRouterWireApi.value,
         provider: 'openrouter',
       })
+      freeModeEnabled.value = true
     } else if (provider === 'opencode-zen') {
       selectedProvider.value = 'opencode-zen'
       await setCustomProvider('', opencodeZenKey.value.trim(), {
@@ -3843,6 +3843,7 @@ async function loadFreeModeStatus(): Promise<void> {
   try {
     const previousProvider = selectedProvider.value
     const status = await getFreeModeStatus()
+    providerError.value = status.authenticationError ?? ''
     freeModeEnabled.value = status.enabled
     freeModeHasCustomKey.value = status.customKey ?? false
     freeModeCustomKeyMasked.value = status.maskedKey ?? null

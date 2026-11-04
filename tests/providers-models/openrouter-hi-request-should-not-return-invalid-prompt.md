@@ -6,7 +6,7 @@ OpenRouter provider keeps Responses API but sanitizes unsupported tool entries v
 #### Prerequisites/Setup
 1. Dev server running (`pnpm run dev`)
 2. OpenRouter provider selected in Settings
-3. Valid OpenRouter API key configured (custom key or community key)
+3. Valid OpenRouter API key configured (personal key)
 4. Any OpenRouter model selected
 
 #### Steps

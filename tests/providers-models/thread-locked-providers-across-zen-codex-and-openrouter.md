@@ -11,7 +11,7 @@ Threads capture their provider at creation time and keep provider-scoped model m
 
 #### Steps
 1. In light theme, open `http://127.0.0.1:4173`.
-2. Create a project chat with no auth present and confirm the provider is OpenCode Zen.
+2. Explicitly select OpenCode Zen in Settings, then create a project chat and confirm its provider is OpenCode Zen.
 3. Open the model menu and confirm it only shows Zen models, including `big-pickle`, with no GPT/Codex entries.
 4. Send `hi` and confirm the request uses `big-pickle` and a visible assistant reply appears.
 5. Copy `/Users/igor/.codex/auth.json` into the isolated `CODEX_HOME` while the Vite server is still running, reload the app, and confirm the new-chat composer switches from `big-pickle` to a Codex/GPT model.
