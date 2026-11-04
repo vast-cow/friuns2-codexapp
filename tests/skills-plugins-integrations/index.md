@@ -1,6 +1,6 @@
 # Skills, Plugins, and Integrations
 
-Skills Hub, skill sync, plugin/app directory surfaces, prompts, Composio, Telegram, and installed skill behavior.
+Skills Hub, skill sync, plugin/app directory surfaces, prompts, Telegram, and installed skill behavior.
 
 Return to the [manual test index](../../tests.md).
 
@@ -13,7 +13,6 @@ Return to the [manual test index](../../tests.md).
 | [Feature: Telegram bridge rejects unauthorized senders](telegram-bridge-rejects-unauthorized-senders.md) |
 | [Feature: Skills dropdown closes after selection in composer](skills-dropdown-closes-after-selection-in-composer.md) |
 | [Feature: Skills Hub local-only installed skills](skills-hub-local-only-installed-skills.md) |
-| [Composio logged-out connector preview](composio-logged-out-connector-preview.md) |
 | [Composer skill chip opens SKILL.md](composer-skill-chip-opens-skill-md.md) |
 | [Selected skills visible on sent chat messages](selected-skills-visible-on-sent-chat-messages.md) |
 | [Session skill recovery cache and multi-message placement](session-skill-recovery-cache-and-multi-message-placement.md) |

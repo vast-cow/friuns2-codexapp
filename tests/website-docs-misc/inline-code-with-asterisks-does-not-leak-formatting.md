@@ -8,8 +8,8 @@ Inline code parsing preserves asterisks inside code spans without affecting late
 2. Open a thread that can display a rendered assistant or user message.
 
 #### Steps
-1. In light theme, render or send a message containing: ``generated `composio-*.md` connector documentation and starts the thread without attaching `composio-cli` as a skill``.
-2. Confirm only `composio-*.md` and `composio-cli` render as bold inline text without a grey box.
+1. In light theme, render or send a message containing: ``generated `notes-*.md` connector documentation and starts the thread without attaching `sample-skill` as a skill``.
+2. Confirm only `notes-*.md` and `sample-skill` render as bold inline text without a grey box.
 3. Confirm `connector documentation and starts the thread without attaching` remains normal prose.
 4. Repeat in dark theme and confirm the same two inline-code spans are bold inline text with readable dark contrast.
 

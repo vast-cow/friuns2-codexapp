@@ -9,7 +9,7 @@ This wiki tracks knowledge about the `codex-web-local` project and related workf
 - Codex.app-style integrated terminal implementation and tests
 - Realtime chat rendering performance and inline media sanitization
 - Skills route UI, first-launch Plugins card behavior, and dark-theme verification lessons
-- Directory Hub tab routing, Composio connector behavior, and Skills registry search/install semantics
+- Directory Hub tab routing, the integration removal boundary, and Skills registry search/install semantics
 - OpenCode Zen fallback, Docker auth switching, and provider-backed model loading
 
 ## Primary source
@@ -24,7 +24,7 @@ This wiki tracks knowledge about the `codex-web-local` project and related workf
 ## Linked pages
 - [Entity: codex-web-local](./entities/codex-web-local.md)
 - [Concept: Integrated terminal](./concepts/integrated-terminal.md)
-- [Concept: Directory Hub, Composio, and Skills Search](./concepts/directory-hub-composio-skills.md)
+- [Concept: Directory Hub and Skills Search](./concepts/directory-hub-composio-skills.md)
 - [Concept: Realtime chat rendering](./concepts/realtime-chat-rendering.md)
 - [Concept: Merge-to-main workflow](./concepts/merge-to-main-workflow.md)
 - [Concept: Skills route UI](./concepts/skills-route-ui.md)

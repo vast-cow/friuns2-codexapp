@@ -50,7 +50,7 @@ describe('normalizeThreadMessagesV2', () => {
       type: 'userMessage',
       id: 'user-2',
       content: [
-        { type: 'skill', name: 'composio-cli', path: '/Users/igor/.codex/skills/composio-cli/SKILL.md' },
+        { type: 'skill', name: 'sample-skill', path: '/local/skills/sample-skill/SKILL.md' },
       ],
     }]))
 
@@ -59,7 +59,7 @@ describe('normalizeThreadMessagesV2', () => {
       id: 'user-2',
       role: 'user',
       text: '',
-      skills: [{ name: 'composio-cli', path: '/Users/igor/.codex/skills/composio-cli/SKILL.md' }],
+      skills: [{ name: 'sample-skill', path: '/local/skills/sample-skill/SKILL.md' }],
     })
     expect(messages[0].isUnhandled).toBeUndefined()
   })

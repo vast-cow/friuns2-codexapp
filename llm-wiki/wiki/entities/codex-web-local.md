@@ -16,7 +16,7 @@
 - Realtime chat rendering uses cached markdown/highlight output and bridge-side inline media sanitization to keep browser payloads bounded
 - User-visible UI work is expected to include dark-theme verification, not only light-theme checks
 - Worktree dev startup may reuse a shared `node_modules` tree; forcing reinstall is not always the right default
-- Directory Hub is the `#/skills` surface for Plugins, Apps, Composio, MCPs, Skills search, and installed local skills
+- Directory Hub is the `#/skills` surface for Plugins, Apps, MCPs, Skills search, and installed local skills
 - Unauthenticated Docker startup can use OpenCode Zen as a runtime fallback, while an auth-mounted `CODEX_HOME` should switch back to the default Codex provider path without Zen flags
 
 ## Source links
@@ -28,7 +28,7 @@
 - [OpenCode Zen Docker auth/provider models source](../../raw/fixes/opencode-zen-docker-auth-provider-models.md)
 - [Manual test domain folders source](../../raw/features/manual-test-domain-folders.md)
 - [Integrated terminal concept](../concepts/integrated-terminal.md)
-- [Directory Hub, Composio, and Skills Search concept](../concepts/directory-hub-composio-skills.md)
+- [Directory Hub and Skills Search concept](../concepts/directory-hub-composio-skills.md)
 - [Realtime chat rendering concept](../concepts/realtime-chat-rendering.md)
 - [Merge-to-main workflow concept](../concepts/merge-to-main-workflow.md)
 - [Skills route UI concept](../concepts/skills-route-ui.md)

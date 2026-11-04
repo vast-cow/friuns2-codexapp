@@ -1,11 +1,11 @@
-# Directory Hub, Composio, and Skills Search
+# Directory Hub and Skills Search
 
-This page documents the current Directory Hub behavior under `#/skills`, especially the native Skills tab, Composio connector browsing, and registry-backed Skills search.
+This page documents the current Directory Hub behavior under `#/skills`, with Plugins, Apps, the native Skills tab, and registry-backed Skills search.
 
 ## Route Model
 
 - `#/skills` opens the Directory Hub with the `Skills` tab selected by default.
-- The active tab is URL-addressable with `?tab=plugins`, `?tab=apps`, `?tab=composio`, or `?tab=skills`.
+- The active tab is URL-addressable with `?tab=plugins`, `?tab=apps`, or `?tab=skills`.
 - The Directory route name remains `Skills`; the inner surface title remains `Skills & Apps`.
 - The first-launch Plugins card explicitly opens `?tab=plugins`.
 
@@ -42,21 +42,9 @@ Search result identity is intentionally hybrid:
 - Opening an installed result switches to the local installed skill detail and actions.
 - Search result cards hide the local folder browse icon; local browse remains available in installed skill details.
 
-## Composio
+## Integration boundary
 
-The Composio tab is CLI-backed and should feel like a native Directory section.
-
-- Prefer `npx --yes composio`; fall back to the installed CLI only when needed.
-- Login runs `composio login --no-browser -y`.
-- The UI opens a browser tab from the click, then navigates it to the CLI auth URL.
-- The workspace card shows account/org/backend status.
-- Connector cards show real details: tool counts, descriptions, connection status, and auth actions.
-- Connector detail shows overview, connections, useful tools, dashboard link, connect/login action, and `Try it!` when usable.
-
-Search ranking has a specific edge-case rule:
-
-- Exact slug/name matches outrank description-only matches.
-- Example: searching `instagram` should show the `Instagram` connector before `Meta Ads`, even though Meta Ads mentions Instagram and may have more tools.
+The application-specific Composio integration, CLI automation and automatic developer-specific Skill attachment are removed. Old Composio tab URLs fall back to Skills. Existing external credentials and user Skills remain untouched. See the [implementation source](../../raw/features/directory-composio-removal.md).
 
 ## Testing Lessons
 
@@ -70,14 +58,8 @@ Recommended checks:
 - The refresh button only says `Refreshing...` during explicit manual refresh.
 - Installed search results open local detail actions.
 - Failed installs do not create installed UI state.
-- Composio search sends `query`, preserves pagination params, and ranks exact matches first.
 - Light and dark screenshots should include both the Skills page and long installed-skill modal content.
 
-Unit tests now cover:
-
-- Composio exact query ranking over description-only matches.
-- Connected Composio connector ordering without a query.
-- Gateway query/cursor/limit params for Composio connector search.
 
 ## Related Pages
 

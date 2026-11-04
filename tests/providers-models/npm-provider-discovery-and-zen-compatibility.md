@@ -2,8 +2,7 @@
 
 ## Feature / Change
 
-Port npm 0.1.91 custom-endpoint model discovery and Zen defaults, headers, and Responses normalization while preserving local Composio and skills-sync functionality.
-
+Custom-endpoint model discovery and Zen defaults, headers, and Responses normalization preserve independent local Skills synchronization.
 ## Prerequisites / Setup
 
 - Configure a custom endpoint exposing `/models`, with and without a bearer token.

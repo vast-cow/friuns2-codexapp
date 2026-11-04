@@ -1632,3 +1632,21 @@
   color: #fecdd3;
   border-color: #881337;
 }
+
+/* Keep preserved Skills/MCP status surfaces consistent in dark DirectoryHub. */
+:root.dark .skills-hub-toast-success,
+:root.dark .mcp-skill-badge-ok {
+  background-color: #052e16;
+  border-color: #166534;
+  color: #bbf7d0;
+}
+:root.dark .skills-hub-toast-error {
+  background-color: #4c0519;
+  border-color: #9f1239;
+  color: #fecdd3;
+}
+:root.dark .mcp-skill-badge-warning {
+  background-color: #451a03;
+  border-color: #92400e;
+  color: #fde68a;
+}
