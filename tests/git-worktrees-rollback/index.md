@@ -8,9 +8,9 @@ Return to the [manual test index](../../tests.md).
 
 | Section |
 | --- |
-| [Feature: Start new thread header Git branch dropdown](start-new-thread-header-git-branch-dropdown.md) |
+| [Header branch management removed](start-new-thread-header-git-branch-dropdown.md) |
 | [Lazy project Git status checks](lazy-project-git-status-checks.md) |
-| [Header Git branch dropdown with commit reset](header-git-branch-dropdown-with-commit-reset.md) |
+| [Retired branch dropdown checks](header-git-branch-dropdown-with-commit-reset.md) |
 | [Feature: Rollback API/UI no longer requires turn index in rollback payload](rollback-api-ui-no-longer-requires-turn-index-in-rollback-payload.md) |
 | [Feature: Rollback init commit includes `.codex/.gitignore`](rollback-init-commit-includes-codex-gitignore.md) |
 | [Feature: Deterministic rollback commit + exact lookup with debug logs](deterministic-rollback-commit-exact-lookup-with-debug-logs.md) |

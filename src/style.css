@@ -332,10 +332,6 @@
   @apply border-rose-800/80 bg-rose-950 text-rose-100 hover:bg-rose-900 focus:ring-rose-700;
 }
 
-:root.dark .header-git-feedback {
-  @apply border-rose-800/80 bg-rose-950 text-rose-100 hover:bg-rose-900 focus:ring-rose-700;
-}
-
 :root.dark .composer-dropdown-trigger {
   @apply text-zinc-400;
 }
@@ -973,135 +969,12 @@
   @apply border-zinc-700 bg-zinc-800 text-zinc-100;
 }
 
-:root.dark .content-header-branch-dropdown .composer-dropdown-trigger {
-  @apply border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800;
-}
-
 :root.dark .content-header-terminal-command .composer-dropdown-trigger {
   @apply border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 focus:border-zinc-600;
 }
 
 :root.dark .content-header-terminal-command.is-open .composer-dropdown-trigger {
   @apply border-zinc-600 bg-zinc-800 text-zinc-100;
-}
-
-:root.dark .content-header-branch-dropdown.is-review-open .composer-dropdown-trigger {
-  @apply border-zinc-200 bg-zinc-200 text-zinc-900 hover:bg-white;
-}
-
-:root.dark .content-header-branch-dropdown.is-review-open .composer-dropdown-chevron {
-  @apply text-zinc-900;
-}
-
-:root.dark .header-git-trigger {
-  @apply border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800;
-}
-
-:root.dark .header-git-dropdown.is-review-open .header-git-trigger {
-  @apply border-zinc-200 bg-zinc-200 text-zinc-900 hover:bg-white;
-}
-
-:root.dark .header-git-menu {
-  @apply border-zinc-700 bg-zinc-900;
-}
-
-:root.dark .header-git-review-row {
-  @apply border-zinc-700 bg-zinc-800 shadow-none;
-}
-
-:root.dark .header-git-review-row,
-:root.dark .header-git-branch-button,
-:root.dark .header-git-branch-checkout,
-:root.dark .header-git-commit,
-:root.dark .header-git-file {
-  @apply text-zinc-200;
-}
-
-:root.dark .header-git-review-row:hover,
-:root.dark .header-git-branch-button:hover,
-:root.dark .header-git-branch-checkout:hover,
-:root.dark .header-git-commit:hover,
-:root.dark .header-git-file:hover,
-:root.dark .header-git-commit.is-current,
-:root.dark .header-git-commit.is-selected,
-:root.dark .header-git-branch-button.is-selected,
-:root.dark .header-git-branch-button.is-current {
-  @apply bg-zinc-800;
-}
-
-:root.dark .header-git-branch-button.is-selected,
-:root.dark .header-git-commit.is-selected {
-  @apply ring-zinc-600;
-}
-
-:root.dark .header-git-commit.is-current {
-  @apply ring-zinc-600;
-}
-
-:root.dark .header-git-state,
-:root.dark .header-git-commit-panel,
-:root.dark .header-git-branch-panel,
-:root.dark .header-git-commit-detail-panel,
-:root.dark .header-git-commits {
-  @apply border-zinc-700 bg-zinc-800;
-}
-
-:root.dark .header-git-state-value,
-:root.dark .header-git-commit-detail-subject {
-  @apply text-zinc-100;
-}
-
-:root.dark .header-git-state-label,
-:root.dark .header-git-state-meta,
-:root.dark .header-git-toggle-row,
-:root.dark .header-git-branch-meta,
-:root.dark .header-git-commit-top,
-:root.dark .header-git-empty,
-:root.dark .header-git-commits-empty,
-:root.dark .header-git-commit-detail-title,
-:root.dark .header-git-files-empty,
-:root.dark .header-git-file-previous-path {
-  @apply text-zinc-400;
-}
-
-:root.dark .header-git-file-added {
-  @apply text-emerald-400;
-}
-
-:root.dark .header-git-file-removed {
-  @apply text-red-400;
-}
-
-:root.dark .header-git-search {
-  @apply border-zinc-700 bg-zinc-800 text-zinc-100 focus:border-zinc-600;
-}
-
-:root.dark .header-git-ref,
-:root.dark .header-git-file-status,
-:root.dark .header-git-branch-meta {
-  @apply bg-zinc-700 text-zinc-200;
-}
-
-:root.dark .header-git-ref:hover {
-  @apply bg-zinc-600;
-}
-
-:root.dark .header-git-commit-detail-head {
-  @apply bg-zinc-900;
-}
-
-:root.dark .header-git-reset-commit {
-  @apply border-zinc-600 bg-zinc-100 text-zinc-900 hover:bg-white disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500;
-}
-
-:root.dark .header-git-status {
-  @apply bg-amber-950/40 text-amber-300;
-}
-
-:root.dark .header-git-status.is-error,
-:root.dark .header-git-commits-empty.is-error,
-:root.dark .header-git-files-empty.is-error {
-  @apply bg-red-950/40 text-red-300;
 }
 
 :root.dark .review-pane {
@@ -1995,3 +1868,19 @@
 
 .message-timestamp { margin: 6px 0; font-size: 11px; line-height: 1.5; color: var(--text-muted, #64748b); overflow-wrap: anywhere; }
 :root.dark .message-timestamp { color: #94a3b8; }
+
+.content-header-review-button {
+  @apply rounded-full border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 transition hover:bg-zinc-50;
+}
+
+.content-header-review-button[aria-pressed="true"] {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+:root.dark .content-header-review-button {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800;
+}
+
+:root.dark .content-header-review-button[aria-pressed="true"] {
+  @apply border-zinc-200 bg-zinc-200 text-zinc-900 hover:bg-white;
+}

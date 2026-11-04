@@ -1,23 +1,28 @@
-### Feature: Start new thread header Git branch dropdown
+### Feature: Header branch management removed
 
 #### Prerequisites
-- App server is running from this repository.
-- At least one Git-backed workspace folder is available in the Start new thread folder dropdown.
-- Light and dark themes are both available from Settings.
+- Run the app with a Git workspace, an existing thread, and terminal support.
+- Have a disposable workspace available for worktree creation.
 
 #### Steps
-1. Open the app in light theme.
-2. Click the sidebar or header new thread icon to open Start new thread.
-3. Select a Git-backed folder.
-4. Confirm the header actions next to the terminal control show the Git checkout branch dropdown.
-5. Open the branch dropdown and confirm branch search/options are available.
-6. Switch to dark theme and repeat steps 2-5.
+1. Open Start new thread and select a Git workspace, then a non-Git folder.
+2. Confirm neither shows a header branch dropdown.
+3. Open an existing thread. Confirm the header has no branch, checkout, commit browsing, or reset controls.
+4. Click Review Worktree Changes. Inspect changed files and diffs, close the pane, and reopen it.
+5. Open Terminal, run `pwd`, and confirm the thread workspace. Close and reopen it and exercise existing quick commands.
+6. Create a new thread using Worktree and its searchable base branch selector. Confirm its workspace and review changes.
+7. Repeat header and review checks in light and dark themes.
 
 #### Expected Results
-- Start new thread shows the same header Git checkout dropdown used by existing thread pages when the selected folder is a Git repository.
-- Switching the selected folder updates the dropdown branch state for that folder.
-- Non-Git folders do not show the Git checkout dropdown.
-- Light and dark theme header controls remain readable and aligned.
+- Branch management controls are absent from the DOM on home and thread routes.
+- Review Worktree Changes directly toggles the existing review pane.
+- Terminal commands, worktree creation, review, and other Git actions keep their behavior.
+- Header controls and review surfaces remain readable in both themes.
 
-#### Rollback/Cleanup
-- If a branch was switched during testing, switch back to the original branch before continuing.
+#### Cleanup
+- Remove the disposable thread/worktree and any test files using existing controls.
+
+#### Performance Audit
+- Removed the header watcher that requested branch state, default branch commits, and unstaged summary on workspace/route changes.
+- No replacement requests, polling, caches, blocking filesystem work, or fanout were added. Review requests remain owned by the existing review pane.
+- Live performance timings have not been measured.
