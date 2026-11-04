@@ -58,3 +58,25 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 #### Rollback/Cleanup
 - Delete remaining test queue entries, stop disposable test turns, and restore the original composer model, reasoning effort, collaboration mode, and appearance.
 - Restore any manually edited queue state from the disposable profile's backup.
+
+### Lazy queue controls
+
+#### Prerequisites/Setup
+- Build with `pnpm run build` and serve the production app with a working backend and authenticated provider.
+- Open browser Network inspection, disable cache, and start on Home with an empty queue.
+
+#### Steps
+1. Reload Home and open an empty-queue thread. Filter requests for `QueuedMessages`; expect no queue component JS or CSS requests.
+2. Start a turn and queue two messages. Confirm queue controls appear after their first asset load, while the composer remains usable.
+3. Edit, reorder, Steer, and delete entries; confirm each action affects the correct message. Drain the queue, then queue another message; confirm controls return without another JS download in the same page session.
+4. Refresh a thread with persisted queued messages. Confirm controls load and display the saved order.
+5. Repeat in light and dark themes. Confirm queue row styling, drag indicators, and action buttons remain readable.
+6. Navigate Home/projects/threads, open terminal and review, then skills/directory, automations, and settings. Confirm their existing behavior remains available.
+
+#### Expected Results
+- Queue assets load only when a nonempty queue is rendered; existing async panels retain their loading behavior.
+- No queue-specific API request is added by loading the component. A cold queue display requires one JS request plus its component CSS; later mounts reuse the loaded assets.
+- Production build emits no default 500 kB large-chunk warning.
+
+#### Rollback/Cleanup
+- Delete disposable queued messages, stop test turns, restore appearance, and re-enable browser cache.

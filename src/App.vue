@@ -1004,6 +1004,7 @@
                     <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
                   </div>
                   <QueuedMessages
+                    v-if="selectedThreadQueuedMessages.length > 0"
                     :messages="selectedThreadQueuedMessages"
                     @edit="onEditQueuedMessage"
                     @steer="steerQueuedMessage"
@@ -1188,7 +1189,6 @@ import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadGoalPanel from './components/content/ThreadGoalPanel.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
-import QueuedMessages from './components/content/QueuedMessages.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
@@ -1244,6 +1244,8 @@ import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathFor
 import { copyTextToClipboard } from './utils/clipboard'
 
 // Load conditional panels only when their existing v-if guards render them.
+// Queue controls are only needed once a thread has queued messages.
+const QueuedMessages = defineAsyncComponent(() => import('./components/content/QueuedMessages.vue'))
 const RateLimitStatus = defineAsyncComponent(() => import('./components/content/RateLimitStatus.vue'))
 const ThreadPendingRequestPanel = defineAsyncComponent(() => import('./components/content/ThreadPendingRequestPanel.vue'))
 const HeaderGitBranchDropdown = defineAsyncComponent(() => import('./components/content/HeaderGitBranchDropdown.vue'))
