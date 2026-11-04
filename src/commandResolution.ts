@@ -3,11 +3,6 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
-export type CommandInvocation = {
-  command: string
-  args: string[]
-}
-
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   const unique: string[] = []
   for (const value of values) {
@@ -146,49 +141,6 @@ export function resolveRipgrepCommand(): string | null {
 
   for (const candidate of uniqueStrings([explicit, ...fallbackCandidates])) {
     if (isRunnableCommand(candidate, ['--version'])) {
-      return candidate
-    }
-  }
-
-  return null
-}
-
-export function resolvePythonCommand(): CommandInvocation | null {
-  const candidates: CommandInvocation[] = process.platform === 'win32'
-    ? [
-        { command: 'python', args: [] },
-        { command: 'py', args: ['-3'] },
-        { command: 'python3', args: [] },
-      ]
-    : [
-        { command: 'python3', args: [] },
-        { command: 'python', args: [] },
-      ]
-
-  for (const candidate of candidates) {
-    if (isRunnableCommand(candidate.command, [...candidate.args, '--version'])) {
-      return candidate
-    }
-  }
-
-  return null
-}
-
-export function resolveSkillInstallerScriptPath(codexHome?: string): string | null {
-  const normalizedCodexHome = codexHome?.trim()
-  const candidates = uniqueStrings([
-    normalizedCodexHome
-      ? join(normalizedCodexHome, 'skills', '.system', 'skill-installer', 'scripts', 'install-skill-from-github.py')
-      : null,
-    process.env.CODEX_HOME?.trim()
-      ? join(process.env.CODEX_HOME.trim(), 'skills', '.system', 'skill-installer', 'scripts', 'install-skill-from-github.py')
-      : null,
-    join(homedir(), '.codex', 'skills', '.system', 'skill-installer', 'scripts', 'install-skill-from-github.py'),
-    join(homedir(), '.cursor', 'skills', '.system', 'skill-installer', 'scripts', 'install-skill-from-github.py'),
-  ])
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
       return candidate
     }
   }

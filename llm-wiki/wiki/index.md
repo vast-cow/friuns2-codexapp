@@ -18,6 +18,7 @@
 - [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): project ZIP export/import, chat JSONL portability, and local-only security posture.
 
 ## Sources
+- [../raw/features/local-skills-without-github-sync.md](../raw/features/local-skills-without-github-sync.md): local Skills without manual GitHub synchronization or Firebase authentication.
 - [../raw/features/directory-composio-removal.md](../raw/features/directory-composio-removal.md): current DirectoryHub integration boundary and preserved local Skills, Apps, Plugins, and MCP behavior.
 - [../raw/features/integrated-terminal.md](../raw/features/integrated-terminal.md): source facts for the integrated terminal implementation and follow-up tests.
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.

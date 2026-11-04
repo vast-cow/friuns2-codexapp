@@ -477,7 +477,7 @@ const router = useRouter()
 const tabs: Array<{ id: DirectoryTab; label: string; subtitle: string }> = [
   { id: 'plugins', label: 'Plugins', subtitle: 'Plugins make Codex work your way.' },
   { id: 'apps', label: 'Apps', subtitle: 'Connect Codex to external apps and services.' },
-  { id: 'skills', label: 'Skills', subtitle: 'MCPs first, then installed skills and GitHub sync state.' },
+  { id: 'skills', label: 'Skills', subtitle: 'Manage MCP servers and installed local skills.' },
 ]
 
 function isDirectoryTab(value: unknown): value is DirectoryTab {

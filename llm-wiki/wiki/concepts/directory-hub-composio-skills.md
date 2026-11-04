@@ -13,10 +13,9 @@ This page documents the current Directory Hub behavior under `#/skills`, with Pl
 
 The Skills tab is ordered for local use:
 
-1. GitHub Skills Sync controls.
-2. Find skills registry search.
-3. MCP section.
-4. Installed skills section.
+1. Find skills registry search.
+2. MCP section.
+3. Installed skills section.
 
 Important behavior:
 
@@ -25,6 +24,8 @@ Important behavior:
 - Installed skill cards are local-first: no repeated `local`, `Installed`, or `Disabled` labels on the card grid.
 - Installed card descriptions are parsed from local `SKILL.md` files.
 - Installed entries are built concurrently so description reads do not add one round trip per skill.
+
+Local Skills management does not require GitHub authentication. Manual Skills synchronization and Firebase authentication are removed; existing Skills, AGENTS and credential files remain untouched. See the [local Skills source](../../raw/features/local-skills-without-github-sync.md).
 
 ## Skills Registry Search
 

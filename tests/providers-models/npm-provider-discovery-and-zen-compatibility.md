@@ -2,7 +2,7 @@
 
 ## Feature / Change
 
-Custom-endpoint model discovery and Zen defaults, headers, and Responses normalization preserve independent local Skills synchronization.
+Custom-endpoint model discovery and Zen defaults, headers, and Responses normalization preserve independent local Skills management.
 ## Prerequisites / Setup
 
 - Configure a custom endpoint exposing `/models`, with and without a bearer token.

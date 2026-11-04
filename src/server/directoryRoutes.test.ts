@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -39,4 +39,18 @@ it('still discovers a local installed skill without any Composio dependency', as
   expect(res.statusCode).toBe(200)
   expect(next).not.toHaveBeenCalled()
   expect(JSON.parse(body).installed).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'sample', installed: true })]))
+})
+
+it.each([
+  ['GET', 'status'], ['POST', 'github/start-login'], ['POST', 'github/token-login'],
+  ['POST', 'github/complete-login'], ['POST', 'github/logout'], ['POST', 'pull'],
+  ['POST', 'push'], ['POST', 'startup-sync'],
+])('does not handle removed Skills sync %s %s route', async (method, suffix) => {
+  const legacyCredentials = JSON.stringify({ githubToken: 'test-only', installedOwners: { sample: 'local' } })
+  await writeFile(join(home, 'skills-sync.json'), legacyCredentials)
+  const { next, body } = await request(`/codex-api/skills-sync/${suffix}`, method)
+  expect(await readFile(join(home, 'skills-sync.json'), 'utf8')).toBe(legacyCredentials)
+  expect(next).toHaveBeenCalledOnce()
+  expect(body).toBe('')
+  expect(rpc).not.toHaveBeenCalled()
 })

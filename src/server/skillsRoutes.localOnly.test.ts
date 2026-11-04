@@ -62,7 +62,8 @@ it('uninstalls locally and reloads discovery without starting a GitHub push', as
   const path = join(home, 'skills', 'sample')
   await mkdir(path, { recursive: true })
   await writeFile(join(path, 'SKILL.md'), 'sample')
-  await writeFile(join(home, 'skills-sync.json'), JSON.stringify({ githubToken: 'test-only', repoOwner: 'test', repoName: 'skills', installedOwners: { sample: 'test' } }))
+  const savedCredentials = JSON.stringify({ githubToken: 'test-only', repoOwner: 'test', repoName: 'skills', installedOwners: { sample: 'test' } })
+  await writeFile(join(home, 'skills-sync.json'), savedCredentials)
   const rpc = vi.fn(async () => ({ data: [] }))
   const end = vi.fn()
   const res = { setHeader: vi.fn(), end } as unknown as ServerResponse
@@ -71,17 +72,18 @@ it('uninstalls locally and reloads discovery without starting a GitHub push', as
     { appServer: { rpc }, readJsonBody: async () => ({ name: 'sample', path }) })).toBe(true)
   expect(res.statusCode).toBe(200)
   await expect(lstat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readFile(join(home, 'skills-sync.json'), 'utf8')).toBe(savedCredentials)
   expect(rpc).toHaveBeenCalledExactlyOnceWith('skills/list', { forceReload: true })
   await new Promise((resolve) => setTimeout(resolve, 10))
   expect(spawn).not.toHaveBeenCalled()
   expect(fetch).not.toHaveBeenCalled()
 })
 
-it('installs locally using the explicit installer without a background GitHub push', async () => {
+it.each([false, true])('installs locally without GitHub authentication or sync (legacy credentials=%s)', async (configured) => {
   const skillPath = join(home, 'skills', 'sample', 'SKILL.md')
   await mkdir(join(home, 'skills', 'sample'), { recursive: true })
   await writeFile(skillPath, '---\nname: sample\ndescription: Local sample\n---\nSample')
-  await writeFile(join(home, 'skills-sync.json'), JSON.stringify({ githubToken: 'test-only', repoOwner: 'test', repoName: 'skills' }))
+  if (configured) await writeFile(join(home, 'skills-sync.json'), JSON.stringify({ githubToken: 'test-only', repoOwner: 'test', repoName: 'skills' }))
   spawn.mockImplementation(() => {
     const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: vi.fn() })
     queueMicrotask(() => child.emit('close', 0))
@@ -96,5 +98,6 @@ it('installs locally using the explicit installer without a background GitHub pu
   await new Promise((resolve) => setTimeout(resolve, 10))
   expect(spawn).toHaveBeenCalledOnce()
   expect(spawn.mock.calls[0]?.[0]).toBe('npx')
+  if (!configured) await expect(lstat(join(home, 'skills-sync.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect(fetch).not.toHaveBeenCalled()
 })
