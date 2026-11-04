@@ -37,22 +37,21 @@ You run one command. It starts a local web server. You open it from your machine
 # 🔓 Build and run locally (recommended)
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 
 # 🌐 Then open in browser
 # http://localhost:18923
 ```
 
-The following commands start `codexapp` without a tunnel:
+Start the local server with:
 
 ```bash
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
-To enable a cloudflared tunnel, replace `--no-tunnel` with `--tunnel`.
-When enabled, it prints the tunnel URL and terminal QR code without exposing the password.
+For remote access, configure an external reverse proxy or private network connection.
 
 Password protection is disabled by default (`--no-password`). To enable it, pass
 `--password <pass>`. When enabled, all connections require login, including localhost
@@ -63,7 +62,7 @@ To start the web UI before signing in to Codex, use:
 ```bash
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel --no-login
+node dist-cli/index.js --no-login
 ```
 
 By default, `codexapp` leaves the sandbox mode to Codex's configuration.
@@ -72,7 +71,7 @@ Use `--sandbox-mode` to override it explicitly:
 ```bash
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel --sandbox-mode workspace-write
+node dist-cli/index.js --sandbox-mode workspace-write
 ```
 
 Supported modes are `read-only`, `workspace-write`, and `danger-full-access`.
@@ -83,7 +82,7 @@ You can also set `CODEXUI_SANDBOX_MODE`; the CLI option takes precedence.
 node -v   # should be 18+
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
 ### Windows 🪟 (PowerShell)
@@ -91,7 +90,7 @@ node dist-cli/index.js --no-tunnel
 node -v   # 18+
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
 ### Termux (Android) 🤖
@@ -100,7 +99,7 @@ pkg update && pkg upgrade -y
 pkg install nodejs -y
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
 Android background requirements:
@@ -117,7 +116,7 @@ termux-wake-lock
 ```bash
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
 ---
@@ -131,7 +130,7 @@ A practical private setup is to run codexUI locally and publish it inside your t
 ```powershell
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel --port 5900
+node dist-cli/index.js --port 5900
 tailscale serve --bg 5900
 ```
 
@@ -166,7 +165,7 @@ Notes:
   ```bash
   pnpm install
   pnpm run build
-  node dist-cli/index.js --no-tunnel
+  node dist-cli/index.js
   ```
 
 - 🌍 Cross-platform support for Linux, Windows, and Termux on Android
@@ -230,7 +229,7 @@ export TELEGRAM_ALLOWED_USER_IDS="<your-telegram-user-id>,<optional-second-id>"
 export TELEGRAM_DEFAULT_CWD="$PWD" # optional, defaults to current working directory
 pnpm install
 pnpm run build
-node dist-cli/index.js --no-tunnel
+node dist-cli/index.js
 ```
 
 `TELEGRAM_ALLOWED_USER_IDS` is required for safe access. Only allowlisted Telegram user IDs can use the bridge. If no allowed user IDs are configured, incoming Telegram messages are rejected.

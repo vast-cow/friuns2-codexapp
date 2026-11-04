@@ -30,7 +30,7 @@ async function run(label, flags, protectedMode) {
   const port = String(probe.address().port)
   await new Promise(resolve => probe.close(resolve))
   const home = mkdtempSync(join(tmpdir(), 'codex-password-smoke-'))
-  const child = spawn(process.execPath, ['dist-cli/index.js', '--port', port, '--no-open', '--no-tunnel', '--no-login', ...flags], {
+  const child = spawn(process.execPath, ['dist-cli/index.js', '--port', port, '--no-open', '--no-login', ...flags], {
     env: { ...process.env, CODEX_HOME: home, CODEXUI_CODEX_COMMAND: '/bin/true' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -49,6 +49,8 @@ async function run(label, flags, protectedMode) {
     const page = await (await fetch(url)).text()
     assert.equal(page.includes('<form id="f">'), protectedMode)
     assert.equal(existsSync(join(home, 'codexui-password')), false)
+    assert.equal(existsSync(join(home, '.cloudflared-install-prompted')), false)
+    assert.doesNotMatch(log, /cloudflared|trycloudflare|Tunnel:|QR code/i)
     assert.equal(log.includes('Generated password file:'), false)
     assert.equal(log.includes('SMOKE_SECRET'), false)
     await websocket(url, null, protectedMode ? 401 : 101)
