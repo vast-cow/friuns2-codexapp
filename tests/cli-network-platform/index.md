@@ -9,7 +9,6 @@ Return to the [manual test index](../../tests.md).
 | Section |
 | --- |
 | [Missing Codex CLI chat error](missing-codex-cli-chat-error.md) |
-| [Production bundle defers conditional panels](production-bundle-conditional-panels.md) |
 | [Startup avoids duplicate setup probes](startup-avoids-duplicate-setup-probes.md) |
 | [CLI password output redaction](cli-password-output-redaction.md) |
 | [npx run dev compatibility shim](npx-run-dev-compatibility-shim.md) |
