@@ -328,3 +328,163 @@ describe('message visibility during sends and history synchronization', () => {
     await vi.advanceTimersByTimeAsync(0)
   })
 })
+
+const pastedFile = {
+  label: 'pasted-text-2026-11-04-12-00-00.txt',
+  path: '/api/uploads/pasted-text-2026-11-04-12-00-00.txt',
+  fsPath: '/tmp/codex-web-uploads/pasted-text-2026-11-04-12-00-00.txt',
+}
+const secondFile = {
+  label: 'notes.txt', path: '/api/uploads/notes.txt', fsPath: '/tmp/codex-web-uploads/notes.txt',
+}
+
+function attachmentUser(files = [pastedFile], text = `Attached file: ${pastedFile.label}`): UiMessage {
+  return { ...nextUser, text, fileAttachments: files.map(({ label, path }) => ({ label, path })) }
+}
+
+function attachmentDetail(user: UiMessage, previous: UiMessage[] = [oldUser]): ResumedThread {
+  return {
+    ...activeDetail,
+    messages: [...previous, user],
+    turnIndexByTurnId: { ...oldDetail.turnIndexByTurnId, [user.turnId!]: user.turnIndex! },
+    activeTurnId: user.turnId!,
+  }
+}
+
+function expectConfirmedAttachment(state: ReturnType<typeof useDesktopState>, expected: UiMessage[]) {
+  expect(state.messages.value.filter((message) => message.role === 'user')).toEqual(expected)
+  expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')).toEqual([])
+}
+
+describe('optimistic attachment reconciliation', () => {
+  it.each([
+    { context: 'new', prompt: '', files: [pastedFile] },
+    { context: 'new', prompt: 'Read these notes', files: [pastedFile] },
+    { context: 'existing', prompt: '', files: [pastedFile] },
+    { context: 'existing', prompt: 'Read these notes', files: [pastedFile] },
+    { context: 'new', prompt: '', files: [pastedFile, secondFile] },
+    { context: 'existing', prompt: '', files: [pastedFile, secondFile] },
+  ])('replaces $context-thread optimistic attachments (prompt: "$prompt", files: $files.length)', async ({ context, prompt, files }) => {
+    const isNew = context === 'new'
+    const state = isNew ? createState() : await loadState()
+    if (isNew) state.startPolling()
+    const started = deferred<string>()
+    gateway.startThreadTurn.mockReturnValue(started.promise)
+    const persisted = {
+      ...attachmentUser(files, prompt || `Attached file${files.length > 1 ? 's' : ''}: ${files.map((file) => file.label).join(', ')}`),
+      turnIndex: isNew ? 0 : 1,
+    }
+    gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted, isNew ? [] : [oldUser]))
+    const sending = isNew
+      ? state.sendMessageToNewThread(prompt, '/tmp/project', [], [], files)
+      : state.sendMessageToSelectedThread(prompt, [], [], 'steer', files)
+    await vi.advanceTimersByTimeAsync(0)
+    const optimistic = state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')
+    expect(optimistic).toHaveLength(1)
+    expect(optimistic[0]).toMatchObject({ text: prompt, fileAttachments: files })
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+    expect(gateway.startThreadTurn.mock.calls[0]?.[6]).toEqual(files)
+    started.resolve('turn-2')
+    await sending
+    await vi.advanceTimersByTimeAsync(0)
+    expectConfirmedAttachment(state, isNew ? [persisted] : [oldUser, persisted])
+    expect(state.messages.value.find((message) => message.id === persisted.id)?.fileAttachments)
+      .toEqual(files.map(({ label, path }) => ({ label, path })))
+    // A repeated notification/history snapshot must remain idempotent.
+    await state.loadMessages(thread.id, { force: true, silent: true })
+    expectConfirmedAttachment(state, isNew ? [persisted] : [oldUser, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('keeps separate submissions with the same filename (different path: %s)', async (differentPath) => {
+    const first = { ...attachmentUser(), id: 'user-1', turnId: 'turn-1', turnIndex: 0 }
+    const previous = { ...oldDetail, messages: [first] }
+    gateway.resumeThread.mockResolvedValue(previous)
+    gateway.getThreadDetail.mockResolvedValue(previous)
+    const state = await loadState()
+    const files = [{ ...pastedFile, ...(differentPath ? {
+      path: '/api/uploads/second/pasted-text-2026-11-04-12-00-00.txt',
+      fsPath: '/tmp/codex-web-uploads/second/pasted-text-2026-11-04-12-00-00.txt',
+    } : {}) }]
+    await state.sendMessageToSelectedThread('', [], [], 'steer', files)
+    expect(state.messages.value.filter((message) => message.role === 'user')).toHaveLength(2)
+    expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
+      .toMatchObject([{ turnId: 'turn-2', fileAttachments: files }])
+    const persisted = attachmentUser(files)
+    gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted, [first]))
+    await state.loadMessages(thread.id, { force: true, silent: true })
+    expectConfirmedAttachment(state, [first, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains an accepted attachment through stale reads until completion provides its persisted row', async () => {
+    const state = await loadState()
+    gateway.getThreadDetail.mockResolvedValue(oldDetail)
+    await state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
+      .toMatchObject([{ text: '', turnId: 'turn-2', fileAttachments: [pastedFile] }])
+    const persisted = attachmentUser()
+    gateway.getThreadDetail.mockResolvedValue({ ...attachmentDetail(persisted), inProgress: false, activeTurnId: '' })
+    turnCompleted()
+    await vi.advanceTimersByTimeAsync(220)
+    expectConfirmedAttachment(state, [oldUser, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconciles history delivered before the turn-start response once its identity is known', async () => {
+    const state = await loadState()
+    const started = deferred<string>()
+    gateway.startThreadTurn.mockReturnValue(started.promise)
+    const sending = state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    await vi.advanceTimersByTimeAsync(0)
+    const persisted = attachmentUser()
+    gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted))
+    turnStarted()
+    await vi.advanceTimersByTimeAsync(220)
+    expect(state.messages.value.some((message) => message.id === persisted.id)).toBe(true)
+    started.resolve('turn-2')
+    await sending
+    expectConfirmedAttachment(state, [oldUser, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers from a disconnected history read without submitting the attachment again', async () => {
+    const state = await loadState()
+    gateway.getThreadDetail.mockResolvedValue(oldDetail)
+    await state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    gateway.getThreadDetail.mockRejectedValueOnce(new Error('connection interrupted'))
+    await expect(state.loadMessages(thread.id, { force: true })).rejects.toThrow('connection interrupted')
+    expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')).toHaveLength(1)
+    const persisted = attachmentUser()
+    gateway.getThreadDetail.mockResolvedValue({ ...attachmentDetail(persisted), inProgress: false, activeTurnId: '' })
+    turnCompleted()
+    await vi.advanceTimersByTimeAsync(220)
+    expectConfirmedAttachment(state, [oldUser, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains a failed attachment submission and its error without automatically retrying', async () => {
+    const state = await loadState()
+    gateway.startThreadTurn.mockRejectedValue(new Error('connection interrupted'))
+    await expect(state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile]))
+      .rejects.toThrow('connection interrupted')
+    expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
+      .toMatchObject([{ text: '', fileAttachments: [pastedFile] }])
+    expect(state.selectedLiveOverlay.value?.errorText).toBe('connection interrupted')
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores exactly the same persisted attachments in a fresh state after successful submission', async () => {
+    const state = await loadState()
+    const persisted = attachmentUser([pastedFile, secondFile], 'Read both files')
+    const detail = { ...attachmentDetail(persisted), inProgress: false, activeTurnId: '' }
+    gateway.getThreadDetail.mockResolvedValue(detail)
+    await state.sendMessageToSelectedThread('Read both files', [], [], 'steer', [pastedFile, secondFile])
+    expectConfirmedAttachment(state, [oldUser, persisted])
+    gateway.resumeThread.mockResolvedValue(detail)
+    const reloaded = createState()
+    await reloaded.loadMessages(thread.id)
+    expectConfirmedAttachment(reloaded, [oldUser, persisted])
+    expect(gateway.startThreadTurn).toHaveBeenCalledTimes(1)
+  })
+})
