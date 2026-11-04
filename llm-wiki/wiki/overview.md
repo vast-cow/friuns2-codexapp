@@ -10,7 +10,7 @@ This wiki tracks knowledge about the `codex-web-local` project and related workf
 - Realtime chat rendering performance and inline media sanitization
 - Skills route UI, first-launch Plugins card behavior, and dark-theme verification lessons
 - Directory Hub tab routing, the integration removal boundary, and Skills registry search/install semantics
-- OpenCode Zen fallback, Docker auth switching, and provider-backed model loading
+- Official Codex authentication and app-server model loading
 
 ## Primary source
 - [codex-web-local project snapshot](../raw/projects/codex-web-local.md)

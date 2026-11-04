@@ -87,7 +87,7 @@ export async function readChatgptFeatureAuth(appServer: CredentialRpc): Promise<
       throw new CodexCredentialError(503, 'codex_account_unavailable', 'Codex account status could not be read. Reconnect Codex and try again.')
     }
     if (account.type !== 'chatgpt') {
-      throw new CodexCredentialError(422, 'chatgpt_account_required', 'This feature requires a ChatGPT account. The current API provider remains available for chat.')
+      throw new CodexCredentialError(422, 'chatgpt_account_required', 'This feature requires a ChatGPT account. Use Codex authentication for chat.')
     }
 
     let status: Record<string, unknown> | null

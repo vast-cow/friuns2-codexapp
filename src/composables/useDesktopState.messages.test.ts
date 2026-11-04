@@ -113,7 +113,7 @@ beforeEach(() => {
   gateway.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gateway.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots'))
   gateway.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5'], models: [] })
-  gateway.getCurrentModelConfig.mockResolvedValue({ model: 'gpt-5.5', providerId: 'codex', reasoningEffort: '', speedMode: 'standard' })
+  gateway.getCurrentModelConfig.mockResolvedValue({ model: 'gpt-5.5', reasoningEffort: '', speedMode: 'standard' })
   gateway.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
   gateway.getSkillsList.mockResolvedValue([])
   gateway.getAccountRateLimits.mockResolvedValue(null)
@@ -318,9 +318,9 @@ describe('message visibility during sends and history synchronization', () => {
   it.each(['gpt-5.5', 'other-model'])('captures independent queue settings before awaits, retains them through reorder and reload (%s)', async (secondModel) => {
     const state = await loadState()
     turnStarted()
-    reasoningCatalog.value = { providerId: 'codex', models: ['gpt-5.5', 'other-model'].map((id) => ({
+    reasoningCatalog.value = ['gpt-5.5', 'other-model'].map((id) => ({
       id, supportedReasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'low',
-    })) }
+    }))
     state.setSelectedReasoningEffort('low')
     // Change the composer immediately, before the first submission resumes after its await.
     const first = state.sendMessageToSelectedThread('A', [], [], 'queue')
@@ -330,8 +330,8 @@ describe('message visibility during sends and history synchronization', () => {
     state.setSelectedReasoningEffort('high')
     await Promise.all([first, second])
     const [a, b] = state.selectedThreadQueuedMessages.value
-    expect(a?.generationSettings).toEqual({ model: 'gpt-5.5', effort: 'low', providerId: 'openai' })
-    expect(b?.generationSettings).toEqual({ model: secondModel, effort: 'medium', providerId: 'openai' })
+    expect(a?.generationSettings).toEqual({ model: 'gpt-5.5', effort: 'low' })
+    expect(b?.generationSettings).toEqual({ model: secondModel, effort: 'medium' })
     state.reorderQueuedMessage(b!.id, a!.id)
     const saved = gateway.setThreadQueueState.mock.calls.at(-1)![0]
     expect(saved[thread.id].map((item: { text: string }) => item.text)).toEqual(['B', 'A'])
@@ -343,9 +343,9 @@ describe('message visibility during sends and history synchronization', () => {
   it('retains submission settings if the active turn completes during the enqueue await', async () => {
     const state = await loadState()
     turnStarted()
-    reasoningCatalog.value = { providerId: 'codex', models: [{
+    reasoningCatalog.value = [{
       id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
-    }] }
+    }]
     state.setSelectedReasoningEffort('low')
     const submitted = state.sendMessageToSelectedThread('queued as the turn finishes', [], [], 'queue')
     state.setSelectedReasoningEffort('medium')
@@ -357,9 +357,9 @@ describe('message visibility during sends and history synchronization', () => {
   it('keeps saved settings when editing and steering without altering composer preferences', async () => {
     const state = await loadState()
     turnStarted()
-    reasoningCatalog.value = { providerId: 'codex', models: [{
+    reasoningCatalog.value = [{
       id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
-    }] }
+    }]
     state.setSelectedReasoningEffort('low')
     await state.sendMessageToSelectedThread('original', [], [], 'queue')
     const original = state.selectedThreadQueuedMessages.value[0]!

@@ -13,7 +13,7 @@ Startup loads Git repository status only for the active thread/new-thread cwd or
 2. Inspect the generated `output/playwright/browser-runtime-profile-*.json`.
 3. Confirm startup does not call `/codex-api/git/repository-status` once per visible project.
 4. Confirm startup performs at most one `/codex-api/workspace-roots-state` GET before user actions.
-5. Confirm `/codex-api/free-mode/status` completes without waiting for a live `https://openrouter.ai/api/v1/models` request.
+5. Confirm authentication uses Codex `account/read`, model discovery uses `model/list`, and no retired provider status/model/proxy requests occur.
 6. Open a thread and confirm at most the selected thread cwd is checked with `/codex-api/git/repository-status`.
 7. Open the project action menu for several projects and confirm Git-backed actions still appear only for Git repositories after each menu-specific status check.
 8. Switch to dark theme and repeat steps 1-7.

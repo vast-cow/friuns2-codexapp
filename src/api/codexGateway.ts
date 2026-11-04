@@ -56,7 +56,6 @@ import { normalizePathForUi } from '../pathUtils.js'
 
 type CurrentModelConfig = {
   model: string
-  providerId: string
   reasoningEffort: ReasoningEffort | ''
   speedMode: SpeedMode
 }
@@ -161,12 +160,6 @@ export type ComposerPromptInfo = {
   description: string
 }
 
-type ProviderModelsResponse = {
-  data?: unknown
-  exclusive?: unknown
-}
-
-const PROVIDER_MODELS_FETCH_TIMEOUT_MS = 5_000
 
 export type WorkspaceRootsState = {
   order: string[]
@@ -1305,7 +1298,6 @@ export async function startThreadTurn(
   skills?: Array<{ name: string; path: string }>,
   fileAttachments: FileAttachmentParam[] = [],
   collaborationMode?: CollaborationModeKind,
-  providerId?: string,
   preserveExplicitSettings = false,
 ): Promise<string> {
   try {
@@ -1354,7 +1346,7 @@ export async function startThreadTurn(
     }
     if (attachments.length > 0) params.attachments = attachments
     const resolvedModel = collaborationMode ? await resolveCollaborationModeModel(collaborationMode, normalizedModel) : normalizedModel
-    const reasoningModel = findReasoningModel(resolvedModel, providerId)
+    const reasoningModel = findReasoningModel(resolvedModel)
     const resolvedEffort = preserveExplicitSettings && (!Array.isArray(reasoningModel?.supportedReasoningEfforts) || !effort)
       ? effort ?? ''
       : resolveReasoningEffort(reasoningModel, effort)
@@ -1416,103 +1408,6 @@ export async function setCodexSpeedMode(mode: SpeedMode): Promise<void> {
   })
 }
 
-export interface FreeModeStatus {
-  enabled: boolean
-  hasCodexAuth?: boolean | null
-  authenticationError?: string | null
-  models: string[]
-  currentModel: string | null
-  customKey: boolean
-  maskedKey: string | null
-  provider?: 'openrouter' | 'custom' | 'opencode-zen' | null
-  customBaseUrl?: string
-  wireApi?: 'responses' | 'chat' | null
-}
-
-export async function getFreeModeStatus(): Promise<FreeModeStatus> {
-  const response = await fetch('/codex-api/free-mode/status')
-  return await response.json() as FreeModeStatus
-}
-
-export async function setFreeMode(enable: boolean): Promise<{ ok: boolean; enabled: boolean; model?: string; models?: string[] }> {
-  const response = await fetch('/codex-api/free-mode', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enable }),
-  })
-  if (!response.ok) {
-    const payload = await response.json() as { error?: string }
-    throw new Error(payload.error || 'Failed to configure provider')
-  }
-  return await response.json() as { ok: boolean; enabled: boolean; model?: string; models?: string[] }
-}
-
-export async function setFreeModeCustomKey(key: string): Promise<{ ok: boolean; customKey: boolean }> {
-  const response = await fetch('/codex-api/free-mode/custom-key', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key }),
-  })
-  if (!response.ok) {
-    const payload = await response.json() as { error?: string }
-    throw new Error(payload.error || 'Failed to configure provider')
-  }
-  return await response.json() as { ok: boolean; customKey: boolean }
-}
-
-export async function setCustomProvider(
-  baseUrl: string,
-  apiKey: string,
-  options?: { wireApi?: 'responses' | 'chat'; provider?: 'custom' | 'opencode-zen' | 'openrouter' },
-): Promise<{ ok: boolean }> {
-  const response = await fetch('/codex-api/free-mode/custom-provider', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      baseUrl,
-      apiKey,
-      wireApi: options?.wireApi,
-      provider: options?.provider,
-    }),
-  })
-  if (!response.ok) {
-    const payload = await response.json() as { error?: string }
-    throw new Error(payload.error || 'Failed to configure provider')
-  }
-  return await response.json() as { ok: boolean }
-}
-
-async function fetchProviderModelIds(providerId?: string): Promise<{ ids: string[], exclusive: boolean } | null> {
-  try {
-    const normalizedProviderId = providerId?.trim() ?? ''
-    const url = normalizedProviderId
-      ? `/codex-api/provider-models?provider=${encodeURIComponent(normalizedProviderId)}`
-      : '/codex-api/provider-models'
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
-    })
-    let providerPayload: ProviderModelsResponse | null = null
-    try {
-      providerPayload = await response.json() as ProviderModelsResponse
-    } catch {
-      providerPayload = null
-    }
-
-    if (response.ok && Array.isArray(providerPayload?.data)) {
-      return {
-        ids: providerPayload.data
-          .map((candidate) => typeof candidate === 'string' ? candidate.trim() : '')
-          .filter((candidate, index, candidates): candidate is string =>
-            candidate.length > 0 && candidates.indexOf(candidate) === index),
-        exclusive: providerPayload.exclusive === true,
-      }
-    }
-  } catch {
-    // Keep Codex usable when the provider-models endpoint is unavailable.
-  }
-  return null
-}
-
 export type ReasoningModel = {
   id?: string
   model?: string
@@ -1520,13 +1415,8 @@ export type ReasoningModel = {
   defaultReasoningEffort?: string
 }
 
-// Capability catalogs belong to providers, even when model IDs are identical.
-export const reasoningCatalog = ref<{ providerId: string; models: ReasoningModel[] }>({ providerId: '', models: [] })
-
-function normalizeReasoningProvider(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/_/g, '-')
-  return !normalized || normalized === 'openai' ? 'codex' : normalized
-}
+// Model capabilities come exclusively from the running Codex app-server.
+export const reasoningCatalog = ref<ReasoningModel[]>([])
 
 export function reasoningOptions(model: ReasoningModel | null): Array<{ value: ReasoningEffort; label: string; description: string }> {
   const options: Array<{ value: ReasoningEffort; label: string; description: string }> = []
@@ -1547,55 +1437,42 @@ export function resolveReasoningEffort(model: ReasoningModel | null, requested?:
   return options.find((option) => option.value === model?.defaultReasoningEffort)?.value ?? options[0]?.value ?? ''
 }
 
-export function findReasoningModel(model: string, providerId?: string): ReasoningModel | null {
-  const catalog = reasoningCatalog.value
-  if (typeof providerId !== 'string' || catalog.providerId !== normalizeReasoningProvider(providerId)) return null
-  return catalog.models.find((entry) => entry.id === model || entry.model === model) ?? null
+export function findReasoningModel(model: string): ReasoningModel | null {
+  return reasoningCatalog.value.find((entry) => entry.id === model || entry.model === model) ?? null
 }
 
-export async function getAvailableModelIds(options: { includeProviderModels?: boolean; requireProviderModels?: boolean; providerId?: string; configuredProviderId?: string } = {}): Promise<{ ids: string[]; models: ReasoningModel[] }> {
-  const provider = options.includeProviderModels !== false
-    ? await fetchProviderModelIds(options.providerId === 'codex' ? undefined : options.providerId) : null
-  const exclusive = provider?.exclusive || options.requireProviderModels
+export async function getAvailableModelIds(): Promise<{ ids: string[]; models: ReasoningModel[] }> {
   const models: ReasoningModel[] = []
-  const providerMatches = options.configuredProviderId === undefined
-    || normalizeReasoningProvider(options.providerId ?? options.configuredProviderId) === normalizeReasoningProvider(options.configuredProviderId)
-  if (providerMatches) {
-    try {
-      let cursor: string | undefined
-      const seen = new Set<string>()
-      do {
-        const page = await callRpc<ModelListResponse>('model/list', cursor ? { cursor } : {})
-        if (Array.isArray(page?.data)) {
-          for (const model of page.data) {
-            if (model && typeof model === 'object' && (
-              (typeof model.id === 'string' && model.id.trim())
-              || (typeof model.model === 'string' && model.model.trim())
-            )) models.push(model)
-          }
+  try {
+    let cursor: string | undefined
+    const seen = new Set<string>()
+    do {
+      const page = await callRpc<ModelListResponse>('model/list', cursor ? { cursor } : {})
+      if (Array.isArray(page?.data)) {
+        for (const model of page.data) {
+          if (model && typeof model === 'object' && (
+            (typeof model.id === 'string' && model.id.trim())
+            || (typeof model.model === 'string' && model.model.trim())
+          )) models.push(model)
         }
-        cursor = page?.nextCursor?.trim() || undefined
-        if (!cursor || seen.has(cursor)) break
-        seen.add(cursor)
-      } while (cursor)
-    } catch {
-      models.length = 0
-    }
+      }
+      cursor = page?.nextCursor?.trim() || undefined
+      if (!cursor || seen.has(cursor)) break
+      seen.add(cursor)
+    } while (cursor)
+  } catch {
+    models.length = 0
   }
-  const ids = exclusive ? [...(provider?.ids ?? [])] : [...new Set(models.map((model) => model.id?.trim() || model.model?.trim() || ''))]
-  if (!exclusive && provider) {
-    for (const id of provider.ids) if (!ids.includes(id)) ids.push(id)
-  }
-  return { ids, models }
+
+  return { ids: [...new Set(models.map((model) => model.id?.trim() || model.model?.trim() || '').filter(Boolean))], models }
 }
 
 export async function getCurrentModelConfig(): Promise<CurrentModelConfig> {
   const payload = await callRpc<ConfigReadResponse>('config/read', {})
   const model = payload.config.model ?? ''
-  const providerId = typeof payload.config.model_provider === 'string' ? payload.config.model_provider : ''
   const reasoningEffort = normalizeReasoningEffort(payload.config.model_reasoning_effort)
   const speedMode = normalizeSpeedMode(payload.config.service_tier)
-  return { model, providerId, reasoningEffort, speedMode }
+  return { model, reasoningEffort, speedMode }
 }
 
 function normalizeDirectoryPluginApp(value: unknown): DirectoryPluginAppSummary | null {
@@ -2988,4 +2865,9 @@ export async function clearThreadGoal(threadId: string): Promise<boolean> {
 
 export async function logoutCodex(): Promise<void> {
   await callRpc('account/logout', {})
+}
+
+export async function getCodexAuthenticationStatus(): Promise<boolean | null> {
+  const result = await callRpc<{ account?: unknown }>('account/read', { refreshToken: false })
+  return result && typeof result === 'object' && 'account' in result ? result.account != null : null
 }

@@ -1,5 +1,4 @@
-import { recordCodexAuthStatus } from './codexAuthStatus'
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,12 +7,10 @@ import {
   callRpcWithArchiveRecovery,
   canonicalizeThreadListResponseForRead,
   canonicalizeWorkspaceRootsStateForRead,
-  readConfiguredProviderStateSync,
   isEmptyThreadReadError,
   isThreadMaterializationPendingError,
   isThreadNotFoundError,
   isUnauthenticatedRateLimitError,
-  writeFreeModeStateFile,
   writeWorkspaceRootsState,
 } from './codexAppServerBridge'
 
@@ -346,42 +343,5 @@ describe('isThreadNotFoundError', () => {
   it('does not match unrelated errors', () => {
     expect(isThreadNotFoundError(new Error('network failed'))).toBe(false)
     expect(isThreadNotFoundError(new Error('thread read failed: permission denied'))).toBe(false)
-  })
-})
-
-describe('readConfiguredProviderStateSync', () => {
-  it.each([true, false, null])('does not synthesize a provider for Codex auth status %s', async (status) => {
-    const home = await mkdtemp(join(tmpdir(), 'explicit-provider-'))
-    process.env.CODEX_HOME = home
-    recordCodexAuthStatus(status)
-    try {
-      const path = join(home, 'webui-custom-providers.json')
-      expect(readConfiguredProviderStateSync(path)).toBeNull()
-      await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
-    } finally { await rm(home, { recursive: true, force: true }) }
-  })
-  it('ignores old shared keys without rewriting the stored file', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'legacy-provider-'))
-    try {
-      const path = join(home, 'webui-custom-providers.json')
-      const contents = JSON.stringify({ enabled: true, provider: 'openrouter', customKey: false, apiKey: 'old-shared' })
-      await writeFile(path, contents)
-      expect(readConfiguredProviderStateSync(path)).toBeNull()
-      expect(await readFile(path, 'utf8')).toBe(contents)
-    } finally { await rm(home, { recursive: true, force: true }) }
-  })
-  it.each([
-    { enabled: true, provider: 'openrouter', customKey: true, apiKey: 'personal-test' },
-    { enabled: true, provider: 'opencode-zen', apiKey: null },
-    { enabled: true, provider: 'custom', apiKey: 'personal-test', customBaseUrl: 'http://localhost:8000/v1' },
-  ])('preserves explicit $provider state even when Codex auth is available', async (state) => {
-    const home = await mkdtemp(join(tmpdir(), 'personal-provider-'))
-    recordCodexAuthStatus(true)
-    try {
-      const path = join(home, 'webui-custom-providers.json')
-      await writeFreeModeStateFile(path, { ...state, model: 'test-model' } as Parameters<typeof writeFreeModeStateFile>[1])
-      expect(readConfiguredProviderStateSync(path)).toEqual({ ...state, model: 'test-model' })
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
-    } finally { await rm(home, { recursive: true, force: true }) }
   })
 })

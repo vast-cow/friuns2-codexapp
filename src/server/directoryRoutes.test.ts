@@ -15,7 +15,7 @@ beforeEach(async () => {
   vi.stubEnv('CODEX_HOME', home)
   previous = scope.__codexRemoteSharedBridge__
   rpc.mockReset().mockResolvedValue({ data: [] })
-  scope.__codexRemoteSharedBridge__ = { version: 'experimental-api-v3', appServer: { rpc }, telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {} }
+  scope.__codexRemoteSharedBridge__ = { version: 'codex-only-api-v1', appServer: { rpc }, telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {} }
 })
 afterEach(async () => { scope.__codexRemoteSharedBridge__ = previous; vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }) })
 async function request(path: string, method = 'GET') {
@@ -53,4 +53,19 @@ it.each([
   expect(next).toHaveBeenCalledOnce()
   expect(body).toBe('')
   expect(rpc).not.toHaveBeenCalled()
+})
+
+it.each([
+  ['GET', '/codex-api/free-mode/status'], ['POST', '/codex-api/free-mode'],
+  ['POST', '/codex-api/free-mode/custom-key'], ['POST', '/codex-api/free-mode/custom-provider'],
+  ['GET', '/codex-api/provider-models'], ['POST', '/codex-api/openrouter-proxy/v1/responses'],
+  ['POST', '/codex-api/zen-proxy/v1/responses'], ['POST', '/codex-api/custom-proxy/v1/responses'],
+])('does not handle retired provider route %s %s or mutate legacy configuration', async (method, path) => {
+  const contents = JSON.stringify({ enabled: true, apiKey: 'test-only', provider: 'custom', customBaseUrl: 'https://unused.example' })
+  await writeFile(join(home, 'webui-custom-providers.json'), contents)
+  const { next, body } = await request(path, method)
+  expect(next).toHaveBeenCalledOnce()
+  expect(body).toBe('')
+  expect(rpc).not.toHaveBeenCalled()
+  expect(await readFile(join(home, 'webui-custom-providers.json'), 'utf8')).toBe(contents)
 })

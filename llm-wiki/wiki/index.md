@@ -10,7 +10,7 @@
 - [concepts/integrated-terminal.md](./concepts/integrated-terminal.md): Codex.app-style integrated xterm/PTY terminal architecture, edge cases, and verification.
 - [concepts/directory-hub-composio-skills.md](./concepts/directory-hub-composio-skills.md): Directory Hub tab routing, the integration removal boundary, Skills search/install semantics, and edge-case testing.
 - [concepts/merge-to-main-workflow.md](./concepts/merge-to-main-workflow.md): branch integration and conflict-resolution workflow.
-- [concepts/opencode-zen-big-pickle.md](./concepts/opencode-zen-big-pickle.md): OpenCode Zen Big Pickle model configuration, local proxy behavior, Docker auth switching, and provider model loading.
+- [concepts/opencode-zen-big-pickle.md](./concepts/opencode-zen-big-pickle.md): retired alternative-provider integration and the current Codex-only boundary.
 - [concepts/realtime-chat-rendering.md](./concepts/realtime-chat-rendering.md): realtime chat rendering, sync-churn reduction, and inline media sanitization.
 - [concepts/skills-route-ui.md](./concepts/skills-route-ui.md): Skills route naming, first-launch Plugins card persistence, dark-theme fixes, and verification lessons.
 - [concepts/thread-heartbeat-automations.md](./concepts/thread-heartbeat-automations.md): thread-scoped heartbeat automation storage, multi-automation management, and manual run behavior.
@@ -18,6 +18,7 @@
 - [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): project ZIP export/import, chat JSONL portability, and local-only security posture.
 
 ## Sources
+- [../raw/features/codex-only-client.md](../raw/features/codex-only-client.md): current official-only authentication, model catalog, runtime and legacy-data boundaries.
 - [../raw/features/single-active-codex-account.md](../raw/features/single-active-codex-account.md): current single-account authentication boundary and preservation of active credentials/Keyring.
 - [../raw/features/local-skills-without-github-sync.md](../raw/features/local-skills-without-github-sync.md): local Skills without manual GitHub synchronization or Firebase authentication.
 - [../raw/features/directory-composio-removal.md](../raw/features/directory-composio-removal.md): current DirectoryHub integration boundary and preserved local Skills, Apps, Plugins, and MCP behavior.

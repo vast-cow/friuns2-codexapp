@@ -70,6 +70,8 @@ export function buildAppServerArgs(): string[] {
   return [
     'app-server',
     '-c',
+    'model_provider="openai"',
+    '-c',
     `approval_policy="${config.approvalPolicy}"`,
     ...(config.sandboxMode
       ? ['-c', `sandbox_mode="${config.sandboxMode}"`] : []),
@@ -86,4 +88,11 @@ export function parseSandboxMode(value: string): CodexSandboxMode | null {
 export function parseApprovalPolicy(value: string): CodexApprovalPolicy | null {
   const candidate = value.trim().toLowerCase()
   return APPROVAL_POLICIES.has(candidate as CodexApprovalPolicy) ? candidate as CodexApprovalPolicy : null
+}
+
+/** Runtime override only: preserve on-disk history/configuration while using Codex. */
+export function applyCodexThreadConfig(method: string, params: unknown): unknown {
+  if (!['thread/start', 'thread/resume', 'thread/fork'].includes(method)) return params
+  const record = params && typeof params === 'object' && !Array.isArray(params) ? params : {}
+  return { ...record, modelProvider: 'openai' }
 }

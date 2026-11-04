@@ -1,13 +1,14 @@
+import { computed } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { reasoningCatalog } from '../api/codexGateway'
 import { useDesktopState } from './useDesktopState'
 
 vi.mock('../api/codexGateway', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api/codexGateway')>(),
-  getCurrentModelConfig: vi.fn(async () => ({ model: 'A', providerId: 'codex', speedMode: 'standard', reasoningEffort: 'medium' })),
-  getAvailableModelIds: vi.fn(async () => ({ ids: ['A', 'B'], models: reasoningCatalog.value.models })),
+  getCurrentModelConfig: vi.fn(async () => ({ model: 'A', speedMode: 'standard', reasoningEffort: 'medium' })),
+  getAvailableModelIds: vi.fn(async () => ({ ids: ['A', 'B'], models: reasoningCatalog.value })),
   getThreadGroupsPage: vi.fn(async () => ({ groups: [], nextCursor: null })),
-  getWorkspaceRootsState: vi.fn(async () => ({ roots: [], order: [], hiddenProjectPaths: [], removedProjectPaths: [] })),
+  getWorkspaceRootsState: vi.fn(async () => ({ order: [], labels: {}, active: [], projectOrder: [] })),
   getThreadQueueState: vi.fn(async () => ({})),
   getThreadTitleCache: vi.fn(async () => ({ titles: {} })),
   getAvailableCollaborationModes: vi.fn(async () => [{ value: 'default', label: 'Default' }]),
@@ -29,13 +30,13 @@ beforeEach(() => {
     setTimeout: vi.fn(),
     clearTimeout: vi.fn(),
   })
-  reasoningCatalog.value = { providerId: 'codex', models: [
+  reasoningCatalog.value = [
     { id: 'A', supportedReasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'low' },
     { id: 'B', supportedReasoningEfforts: ['medium', 'high'], defaultReasoningEffort: 'medium' },
-  ] }
+  ]
 })
 afterEach(() => {
-  reasoningCatalog.value = { providerId: '', models: [] }
+  reasoningCatalog.value = []
   vi.unstubAllGlobals()
 })
 
@@ -79,21 +80,6 @@ describe('persistent composer model preferences', () => {
     expect(state.readReasoningEffortForThread('existing-thread')).toBe('high')
   })
 
-  it('isolates identical model IDs across providers', async () => {
-    store.set(effortKey, JSON.stringify({ '["codex","A"]': 'high', '["other","A"]': 'low' }))
-    const state = useDesktopState()
-    const { getCurrentModelConfig } = await import('../api/codexGateway')
-    vi.mocked(getCurrentModelConfig).mockResolvedValue({ model: 'A', providerId: 'other', speedMode: 'standard', reasoningEffort: '' })
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-    state.setSelectedModelIdForThread('', 'A')
-    expect(state.readReasoningEffortForThread('')).toBe('low')
-    vi.mocked(getCurrentModelConfig).mockResolvedValue({ model: 'A', providerId: 'codex', speedMode: 'standard', reasoningEffort: '' })
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-    reasoningCatalog.value = { providerId: 'codex', models: reasoningCatalog.value.models }
-    state.setSelectedModelIdForThread('', 'A')
-    expect(state.readReasoningEffortForThread('')).toBe('high')
-  })
-
   it('keeps saved choices during catalog fallback and restores them when available again', async () => {
     store.set(modelKey, JSON.stringify({ '__new-thread-provider__::codex': 'unavailable' }))
     store.set(effortKey, JSON.stringify({ '["codex","unavailable"]': 'high' }))
@@ -110,4 +96,12 @@ describe('persistent composer model preferences', () => {
     expect(state.readModelIdForThread('')).toBe('unavailable')
     expect(state.readReasoningEffortForThread('')).toBe('high')
   })
+})
+
+it('updates the displayed model when the Codex catalog arrives after the composer mounts', async () => {
+  const state = useDesktopState()
+  const displayed = computed(() => state.readModelIdForThread(''))
+  expect(displayed.value).toBe('')
+  await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+  expect(displayed.value).toBe('A')
 })

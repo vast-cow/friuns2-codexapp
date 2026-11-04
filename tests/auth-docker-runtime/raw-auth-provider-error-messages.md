@@ -1,4 +1,4 @@
-### Raw auth/provider error messages
+### Raw Codex authentication error messages
 
 #### Feature/Change Name
 Surface upstream auth/provider errors without rewriting them in the client normalizer.
@@ -8,7 +8,7 @@ Surface upstream auth/provider errors without rewriting them in the client norma
 2. A provider/backend request that can return an error
 
 #### Steps
-1. Trigger a provider/backend error, such as an auth refresh failure or invalid custom-provider response
+1. Trigger a Codex backend error, such as an authentication refresh failure
 2. Observe the surfaced error text in the UI/failed RPC path
 
 #### Expected Results

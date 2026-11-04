@@ -15,9 +15,9 @@ type QueueExecution = {
   restoreQueuedTurn(turn: Turn): Promise<void>
 }
 const threadId = 'queue-settings-thread'
-const message = (id: string, model = 'M', effort: QueuedGenerationSettings['effort'] = 'low', providerId = 'openai'): StoredQueuedMessage => ({
+const message = (id: string, model = 'M', effort: QueuedGenerationSettings['effort'] = 'low'): StoredQueuedMessage => ({
   id, text: id, imageUrls: [], skills: [], fileAttachments: [], collaborationMode: 'default',
-  generationSettings: { model, effort, providerId },
+  generationSettings: { model, effort },
 })
 let home: string
 beforeEach(async () => {
@@ -107,21 +107,17 @@ describe('queued generation settings at turn/start', () => {
     expect(starts[0]?.collaborationMode).toMatchObject({ settings: { reasoning_effort: expected ?? null } })
   })
 
-  it('does not apply another provider catalog for an identical model ID', async () => {
-    const { processor, starts } = execution({ threadProvider: 'other', configProvider: 'openai', models: [{ id: 'M', supportedReasoningEfforts: ['low'] }] })
-    await processor.startQueuedTurn({ threadId, message: message('A', 'M', 'medium', 'other') })
-    expect(starts[0]?.effort).toBe('medium')
-  })
-
-  it('rejects cross-provider execution before turn/start rather than changing settings', async () => {
-    const { processor, starts } = execution({ threadProvider: 'other' })
-    await expect(processor.startQueuedTurn({ threadId, message: message('A') })).rejects.toThrow('provider')
-    expect(starts).toEqual([])
-  })
-
   it('preserves explicit settings when capability lookup is unavailable', async () => {
     const { processor, starts } = execution({ unavailableCatalog: true, threadProvider: 'codex' })
     await processor.startQueuedTurn({ threadId, message: message('A', 'M', 'medium') })
     expect(starts[0]).toMatchObject({ model: 'M', effort: 'medium' })
   })
+})
+
+it('blocks legacy alternative-provider queue settings before starting a turn', async () => {
+  const { processor, starts } = execution()
+  const legacy = message('legacy')
+  legacy.generationSettings = { model: 'old-model', effort: 'low', unsupportedProvider: 'old-provider' }
+  await expect(processor.startQueuedTurn({ threadId, message: legacy })).rejects.toThrow('removed provider')
+  expect(starts).toEqual([])
 })

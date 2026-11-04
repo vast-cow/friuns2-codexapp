@@ -1,35 +1,13 @@
-### Docker provider checklist and live error overlay regression
+### Docker Codex authentication and error overlays
 
-#### Feature/Change Name
-Docker provider/auth checklist execution and live error overlay de-duplication.
+#### Setup
+Build/package and install the tarball plus `@openai/codex` in isolated containers with unique localhost ports and disposable homes. Preserve any real credentials outside fixtures.
 
-#### Prerequisites/Setup
-1. Run `pnpm run build`.
-2. Run `pnpm pack --pack-destination /tmp`.
-3. Build a Docker image from the packed `codexapp` tarball with `@openai/codex` installed.
-4. Start three isolated containers:
-   - no auth file
-   - invalid or expired `auth.json`
-   - malformed `auth.json`
+#### Actions
+1. With no auth, confirm UI startup is allowed but chat reports an actionable Codex login error. No alternative provider is selected.
+2. With invalid/expired Codex auth, send a turn, confirm a single visible persisted error after reload, and verify no duplicate live overlay. Repeat in light/dark themes.
+3. With valid file or Keyring Codex authentication, verify model/reasoning selection, tool approval and streaming through app-server.
+4. Seed an old alternative config file and confirm its bytes remain unchanged, Settings has no alternative controls, and no provider proxy/model-catalog requests occur.
 
-#### Steps
-1. In light theme, open the no-auth container, confirm the composer starts on `big-pickle`, send `hi`, and wait for an assistant reply.
-2. Switch the Settings provider selector to OpenRouter, send `hi` again, and wait for a reply or provider-scoped response.
-3. Open the invalid-auth container, send `hi`, wait for the final 401/auth error, and confirm the error text is visible without a feedback action.
-4. Reload the invalid-auth thread and confirm the persisted error remains without a duplicate live `Thinking` error overlay.
-5. Switch the invalid-auth thread to dark theme and confirm the persisted error remains readable without a feedback button.
-6. Open the malformed-auth container, confirm it falls back to `big-pickle`, send `hi`, and wait for an assistant reply.
-
-#### Expected Results
-- No-auth startup uses the OpenCode Zen runtime fallback and sends successfully.
-- Runtime `-c` provider config uses underscore-safe provider ids, so Zen/OpenRouter/custom providers are actually registered with Codex app-server.
-- Provider switching is scoped to the selected provider and does not require changing the model dropdown directly.
-- Invalid/expired auth stays on the Codex provider path and renders the final auth failure as a persisted chat error.
-- A new live error is still visible when an older persisted turn error exists, but the same live error is suppressed after that exact error has persisted.
-- Authentication errors remain visible without feedback mailto links or diagnostic collection.
-- Malformed auth is treated as unusable auth and falls back to Zen.
-
-#### Rollback/Cleanup
-- Stop temporary containers with `docker rm -f codexui-what-noauth codexui-what-invalid-auth codexui-what-malformed-auth`.
-
----
+#### Cleanup
+Stop/remove only test containers and volumes. Never remove real credential files.

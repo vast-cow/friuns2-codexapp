@@ -287,25 +287,25 @@
   @apply text-zinc-400;
 }
 
-:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger,
+:root.dark .sidebar-settings-picker-dropdown .composer-dropdown-trigger,
 :root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger,
 :root.dark .sidebar-settings-telegram-save {
   @apply border-zinc-600 bg-zinc-700 text-zinc-200;
 }
 
-:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:hover:not(:disabled),
+:root.dark .sidebar-settings-picker-dropdown .composer-dropdown-trigger:hover:not(:disabled),
 :root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:hover:not(:disabled),
 :root.dark .sidebar-settings-telegram-save:hover:not(:disabled) {
   @apply bg-zinc-600;
 }
 
-:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:focus-visible,
+:root.dark .sidebar-settings-picker-dropdown .composer-dropdown-trigger:focus-visible,
 :root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:focus-visible,
 :root.dark .sidebar-settings-telegram-save:focus-visible {
   @apply outline-none ring-2 ring-zinc-400 ring-offset-2 ring-offset-zinc-900;
 }
 
-:root.dark .sidebar-settings-provider-dropdown .composer-dropdown-trigger:disabled,
+:root.dark .sidebar-settings-picker-dropdown .composer-dropdown-trigger:disabled,
 :root.dark .sidebar-settings-language-dropdown .composer-dropdown-trigger:disabled {
   @apply text-zinc-400 opacity-60;
 }
@@ -1557,7 +1557,7 @@
 .message-timestamp { margin: 6px 0; font-size: 11px; line-height: 1.5; color: var(--text-muted, #64748b); overflow-wrap: anywhere; }
 :root.dark .message-timestamp { color: #94a3b8; }
 
-/* Provider authentication errors must remain readable within dark Settings. */
+/* Keep Settings error messages readable in dark mode. */
 :root.dark .sidebar-settings-panel .sidebar-settings-error {
   background: #3f1723;
   color: #fecdd3;

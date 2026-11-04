@@ -41,7 +41,8 @@ const gatewayMocks = vi.hoisted(() => ({
   subscribeCodexNotifications: vi.fn(),
 }))
 
-vi.mock('../api/codexGateway', () => ({
+vi.mock('../api/codexGateway', async (original) => ({
+  ...await original<typeof import('../api/codexGateway')>(),
   ...gatewayMocks,
   getBackgroundThreadListLimit: vi.fn(() => 100),
   pickCodexRateLimitSnapshot: vi.fn(() => null),
@@ -81,6 +82,7 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  gatewayMocks.setThreadQueueState.mockResolvedValue(undefined)
   gatewayMocks.getThreadQueueState.mockResolvedValue({})
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gatewayMocks.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots state'))
@@ -526,11 +528,10 @@ describe('startup request deduplication', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.5',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5'], models: [] })
 
     try {
       const state = useDesktopState()
@@ -557,11 +558,10 @@ describe('startup request deduplication', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.5',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5'], models: [] })
 
     try {
       const state = useDesktopState()
@@ -740,89 +740,9 @@ describe('live error overlay', () => {
   })
 })
 
-describe('provider model selection', () => {
-  it('ignores global selected-model localStorage when OpenCode Zen is the active provider', async () => {
-    installTestWindow({
-      'codex-web-local.selected-model-by-context.v1': JSON.stringify({
-        '__new-thread__': 'gpt-5.5',
-      }),
-      'codex-web-local.selected-model-id.v1': 'gpt-5.5',
-    })
-    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
-    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
-    gatewayMocks.getSkillsList.mockResolvedValue([])
-    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
-    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
-      model: 'big-pickle',
-      providerId: 'opencode-zen',
-      reasoningEffort: 'medium',
-      speedMode: 'standard',
-    })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue([
-      'big-pickle',
-      'deepseek-v4-flash-free',
-      'ring-2.6-1t-free',
-    ])
+describe('Codex model selection', () => {
 
-    const state = useDesktopState()
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-
-    expect(gatewayMocks.getAvailableModelIds).toHaveBeenCalledWith({
-      includeProviderModels: true,
-      requireProviderModels: true,
-      providerId: 'opencode-zen',
-    })
-    expect(state.availableModelIds.value).toEqual([
-      'big-pickle',
-      'deepseek-v4-flash-free',
-      'ring-2.6-1t-free',
-    ])
-    expect(state.selectedModelId.value).toBe('big-pickle')
-    expect(state.readModelIdForThread('').trim()).toBe('big-pickle')
-    expect(JSON.parse(window.localStorage.getItem('codex-web-local.selected-model-by-context.v1') ?? '{}')).toEqual({
-      '__new-thread-provider__::opencode-zen': 'big-pickle',
-    })
-    expect(window.localStorage.getItem('codex-web-local.selected-model-id.v1')).toBe(null)
-  })
-
-  it('restores a valid provider-scoped OpenCode Zen selected model from localStorage', async () => {
-    installTestWindow({
-      'codex-web-local.selected-model-by-context.v1': JSON.stringify({
-        '__new-thread-provider__::opencode-zen': 'ring-2.6-1t-free',
-      }),
-    })
-    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
-    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
-    gatewayMocks.getSkillsList.mockResolvedValue([])
-    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
-    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
-      model: 'big-pickle',
-      providerId: 'opencode-zen',
-      reasoningEffort: 'medium',
-      speedMode: 'standard',
-    })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue([
-      'big-pickle',
-      'deepseek-v4-flash-free',
-      'ring-2.6-1t-free',
-    ])
-
-    const state = useDesktopState()
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-
-    expect(state.availableModelIds.value).toEqual([
-      'big-pickle',
-      'deepseek-v4-flash-free',
-      'ring-2.6-1t-free',
-    ])
-    expect(state.selectedModelId.value).toBe('ring-2.6-1t-free')
-    expect(state.readModelIdForThread('').trim()).toBe('ring-2.6-1t-free')
-    expect(JSON.parse(window.localStorage.getItem('codex-web-local.selected-model-by-context.v1') ?? '{}')).toEqual({
-      '__new-thread-provider__::opencode-zen': 'ring-2.6-1t-free',
-    })
-  })
-
-  it('stores the new-thread Codex model in a provider-scoped slot', async () => {
+  it('uses only the Codex catalog without rewriting inert legacy choices', async () => {
     installTestWindow({
       'codex-web-local.selected-model-by-context.v1': JSON.stringify({
         '__new-thread-provider__::openrouter-free': 'openrouter/free',
@@ -834,14 +754,13 @@ describe('provider model selection', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.5',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue([
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: [
       'gpt-5.5',
       'gpt-5.4-mini',
-    ])
+    ], models: [] })
 
     const state = useDesktopState()
     await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
@@ -850,7 +769,6 @@ describe('provider model selection', () => {
     expect(state.readModelIdForThread('').trim()).toBe('gpt-5.5')
     expect(JSON.parse(window.localStorage.getItem('codex-web-local.selected-model-by-context.v1') ?? '{}')).toEqual({
       '__new-thread-provider__::openrouter-free': 'openrouter/free',
-      '__new-thread-provider__::codex': 'gpt-5.5',
     })
   })
 
@@ -866,14 +784,13 @@ describe('provider model selection', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.5',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue([
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: [
       'gpt-5.5',
       'gpt-5.4-mini',
-    ])
+    ], models: [] })
 
     const state = useDesktopState()
     await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
@@ -886,179 +803,8 @@ describe('provider model selection', () => {
     expect(state.selectedModelId.value).toBe('gpt-5.5')
     expect(state.readModelIdForThread('').trim()).toBe('gpt-5.5')
     expect(JSON.parse(window.localStorage.getItem('codex-web-local.selected-model-by-context.v1') ?? '{}')).toEqual({
-      '__new-thread-provider__::codex': 'gpt-5.5',
+      '__new-thread-provider__::codex': 'big-pickle',
     })
-  })
-
-  it('keeps an existing OpenCode Zen thread locked to Zen models after Codex auth becomes active', async () => {
-    installTestWindow()
-    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
-      groups: [{ projectName: 'Project', threads: [thread('legacy-zen-thread', '/tmp/project')] }],
-      nextCursor: null,
-    })
-    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
-    gatewayMocks.getSkillsList.mockResolvedValue([])
-    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
-    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
-      model: 'gpt-5.4-mini',
-      providerId: '',
-      reasoningEffort: 'medium',
-      speedMode: 'standard',
-    })
-    gatewayMocks.getAvailableModelIds.mockImplementation(async (options?: { providerId?: string }) => {
-      if (options?.providerId === 'opencode-zen') {
-        return ['big-pickle', 'ring-2.6-1t-free']
-      }
-      return ['gpt-5.5', 'gpt-5.4-mini']
-    })
-    gatewayMocks.resumeThread.mockResolvedValue({
-      model: 'gpt-5.4-mini',
-      modelProvider: 'opencode_zen',
-      messages: [],
-      inProgress: false,
-      activeTurnId: '',
-      hasMoreOlder: false,
-      turnIndexByTurnId: {},
-    })
-
-    const state = useDesktopState()
-    state.primeSelectedThread('legacy-zen-thread')
-    await state.loadMessages('legacy-zen-thread')
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-
-    expect(gatewayMocks.getAvailableModelIds).toHaveBeenLastCalledWith({
-      includeProviderModels: true,
-      requireProviderModels: true,
-      providerId: 'opencode-zen',
-    })
-    expect(state.availableModelIds.value).toEqual([
-      'big-pickle',
-      'ring-2.6-1t-free',
-    ])
-    expect(state.selectedModelId.value).toBe('big-pickle')
-    expect(state.readModelIdForThread('legacy-zen-thread')).toBe('big-pickle')
-    expect(state.readModelIdForThread('')).toBe('gpt-5.4-mini')
-  })
-
-  it('loads provider models for a selected provider-backed thread during scheduled refreshes', async () => {
-    installTestWindow()
-    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {
-      if (typeof callback === 'function') {
-        void Promise.resolve().then(() => callback())
-      }
-      return 1
-    }) as typeof window.setTimeout)
-    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
-      groups: [{ projectName: 'Project', threads: [thread('legacy-zen-thread', '/tmp/project')] }],
-      nextCursor: null,
-    })
-    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
-    gatewayMocks.getSkillsList.mockResolvedValue([])
-    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
-    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
-      model: 'gpt-5.4-mini',
-      providerId: '',
-      reasoningEffort: 'medium',
-      speedMode: 'standard',
-    })
-    gatewayMocks.getAvailableModelIds.mockImplementation(async (options?: { providerId?: string }) => {
-      if (options?.providerId === 'opencode-zen') {
-        return ['big-pickle', 'ring-2.6-1t-free']
-      }
-      return ['gpt-5.5', 'gpt-5.4-mini']
-    })
-    gatewayMocks.resumeThread.mockResolvedValue({
-      model: 'gpt-5.4-mini',
-      modelProvider: 'opencode_zen',
-      messages: [],
-      inProgress: false,
-      activeTurnId: '',
-      hasMoreOlder: false,
-      turnIndexByTurnId: {},
-    })
-
-    const state = useDesktopState()
-    state.primeSelectedThread('legacy-zen-thread')
-    await state.loadMessages('legacy-zen-thread')
-    await state.refreshAll({ includeSelectedThreadMessages: false })
-    await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0))
-
-    expect(gatewayMocks.getAvailableModelIds).toHaveBeenLastCalledWith({
-      includeProviderModels: true,
-      requireProviderModels: true,
-      providerId: 'opencode-zen',
-    })
-    expect(state.availableModelIds.value).toEqual(['big-pickle', 'ring-2.6-1t-free'])
-    expect(state.selectedModelId.value).toBe('big-pickle')
-  })
-
-  it('captures the active provider when creating a new thread', async () => {
-    installTestWindow()
-    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
-    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
-    gatewayMocks.getSkillsList.mockResolvedValue([])
-    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
-    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
-      model: 'gpt-5.5',
-      providerId: '',
-      reasoningEffort: 'medium',
-      speedMode: 'standard',
-    })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5', 'gpt-5.4-mini'])
-    gatewayMocks.startThread.mockResolvedValue({
-      threadId: 'codex-thread',
-      model: 'gpt-5.5',
-      modelProvider: 'openai',
-    })
-    gatewayMocks.startThreadTurn.mockResolvedValue('turn-1')
-    gatewayMocks.getThreadDetail.mockResolvedValue({
-      model: 'gpt-5.5',
-      modelProvider: 'openai',
-      messages: [
-        {
-          id: 'assistant-1',
-          role: 'assistant',
-          text: 'Hi.',
-          messageType: 'agentMessage',
-        },
-      ],
-      inProgress: false,
-      activeTurnId: '',
-      hasMoreOlder: false,
-      turnIndexByTurnId: {},
-    })
-
-    const state = useDesktopState()
-    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
-    await state.sendMessageToNewThread('hi', '/tmp/project')
-
-    expect(gatewayMocks.startThread).toHaveBeenCalledWith('/tmp/project', 'gpt-5.5')
-    expect(gatewayMocks.startThreadTurn).toHaveBeenCalledWith(
-      'codex-thread',
-      'hi',
-      [],
-      'gpt-5.5',
-      'medium',
-      undefined,
-      [],
-      'default',
-    )
-    expect(state.readModelIdForThread('codex-thread')).toBe('gpt-5.5')
-    expect(state.messages.value.some((message) => (
-      message.role === 'user' &&
-      message.text === 'hi' &&
-      message.messageType === 'userMessage.optimistic'
-    ))).toBe(true)
-
-    const modelConfigCallsBeforeLoad = gatewayMocks.getCurrentModelConfig.mock.calls.length
-    const availableModelCallsBeforeLoad = gatewayMocks.getAvailableModelIds.mock.calls.length
-    await state.loadMessages('codex-thread')
-    expect(gatewayMocks.getCurrentModelConfig).toHaveBeenCalledTimes(modelConfigCallsBeforeLoad)
-    expect(gatewayMocks.getAvailableModelIds).toHaveBeenCalledTimes(availableModelCallsBeforeLoad)
-    expect(state.messages.value.map((message) => `${message.role}:${message.text}`)).toEqual([
-      'user:hi',
-      'assistant:Hi.',
-    ])
   })
 
   it('refreshes a loaded optimistic thread when completion events arrive', async () => {
@@ -1082,11 +828,10 @@ describe('provider model selection', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.4-mini',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5', 'gpt-5.4-mini'])
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5', 'gpt-5.4-mini'], models: [] })
     gatewayMocks.startThread.mockResolvedValue({
       threadId: 'mini-thread',
       model: 'gpt-5.4-mini',
@@ -1149,11 +894,10 @@ describe('provider model selection', () => {
     gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
     gatewayMocks.getCurrentModelConfig.mockResolvedValue({
       model: 'gpt-5.5',
-      providerId: '',
       reasoningEffort: 'medium',
       speedMode: 'standard',
     })
-    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5', 'gpt-5.4-mini'])
+    gatewayMocks.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5', 'gpt-5.4-mini'], models: [] })
     gatewayMocks.resumeThread.mockRejectedValue(new Error('thread not found'))
 
     const state = useDesktopState()

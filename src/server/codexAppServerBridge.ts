@@ -1,5 +1,5 @@
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
-import { normalizeQueuedGenerationSettings, normalizeQueueProvider, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
+import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink, realpath, utimes } from 'node:fs/promises'
@@ -16,32 +16,13 @@ import { isDeepStrictEqual } from 'node:util'
 import { writeFile } from 'node:fs/promises'
 import { readCodexGlobalState, updateCodexGlobalState } from './codexGlobalState.js'
 import { handleAccountRoutes } from './accountRoutes.js'
-import { buildAppServerArgs } from './appServerRuntimeConfig.js'
+import { applyCodexThreadConfig, buildAppServerArgs } from './appServerRuntimeConfig.js'
 import { checkCodexLoginStatus, getCachedCodexAuthStatus, recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
 import { CodexCredentialError, readChatgptFeatureAuth, readCodexCredentialStore, readPublicAuthStatus, requireFileCredentialStore } from './codexCredentials.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
 import { handleSkillsRoutes } from './skillsRoutes.js'
 import { TelegramThreadBridge } from './telegramThreadBridge.js'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig.js'
-import {
-  FREE_MODE_DEFAULT_MODEL,
-  getCachedFreeModels,
-  getFreeModels,
-  refreshFreeModelsInBackground,
-  FREE_MODE_STATE_FILE,
-  OPENCODE_ZEN_DEFAULT_MODEL,
-  OPENCODE_ZEN_PROVIDER_ID,
-  filterOpenCodeZenModelsForAuthState,
-  getFreeModeConfigArgs,
-  getFreeModeEnvVars,
-  getProviderCompatibilityConfigArgs,
-  isExplicitProviderState,
-  AUTHENTICATION_REQUIRED_MESSAGE,
-  type FreeModeState,
-} from './freeMode.js'
-import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
-import { handleZenProxyRequest } from './zenProxy.js'
-import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
 import { inheritForkTurnMetadata, SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
 import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
@@ -132,13 +113,7 @@ type ThreadSearchIndex = {
   docsById: Map<string, ThreadSearchDocument>
 }
 
-type ProviderModelsResponse = {
-  data: string[]
-  providerId: string
-  source: 'provider' | 'custom'
-}
-
-const PROVIDER_MODELS_FETCH_TIMEOUT_MS = 5_000
+const AUTHENTICATION_REQUIRED_MESSAGE = 'Authentication required. Sign in with Codex or set your personal OPENAI_API_KEY.'
 
 const THREAD_RESPONSE_TURN_LIMIT = 10
 const THREAD_TURN_PAGE_READ_CACHE_TTL_MS = 30_000
@@ -1452,34 +1427,9 @@ function readSessionMetaId(raw: string): string {
   }
 }
 
-function getCurrentImportedSessionModelDefaults(): { model: string; modelProvider: string } | null {
-  const fmState = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-  if (!fmState?.enabled) return null
-  if (fmState.provider === 'opencode-zen') {
-    return {
-      model: fmState.model?.trim() || OPENCODE_ZEN_DEFAULT_MODEL,
-      modelProvider: 'opencode_zen',
-    }
-  }
-  if (fmState.provider === 'custom' && fmState.customBaseUrl?.trim()) {
-    return {
-      model: fmState.model?.trim() || '',
-      modelProvider: 'custom_endpoint',
-    }
-  }
-  if (fmState.apiKey?.trim()) {
-    return {
-      model: fmState.model?.trim() || FREE_MODE_DEFAULT_MODEL,
-      modelProvider: 'openrouter_free',
-    }
-  }
-  return null
-}
-
 function rewriteImportedSession(raw: string, importedCwd: string, importedThreadId: string): string {
   const lines: string[] = []
   let hasUserMessageEvent = false
-  const modelDefaults = getCurrentImportedSessionModelDefaults()
   for (const line of raw.split(/\r?\n/u)) {
     if (!line.trim()) continue
     try {
@@ -1498,10 +1448,6 @@ function rewriteImportedSession(raw: string, importedCwd: string, importedThread
         payload.imported = true
         if (!readNonEmptyString(payload.originator)) {
           payload.originator = 'codex_cli_rs'
-        }
-        if (modelDefaults) {
-          payload.model = modelDefaults.model
-          payload.model_provider = modelDefaults.modelProvider
         }
       }
       lines.push(JSON.stringify(parsed))
@@ -2039,14 +1985,6 @@ async function importProjectZip(buffer: Buffer, destinationParent: string): Prom
   return { projectPath, importedSessions }
 }
 
-function logProviderModelDiscoveryWarning(message: string, details: Record<string, unknown>): void {
-  console.warn('[codex-provider-models]', message, details)
-}
-
-function isTimeoutError(payload: unknown): boolean {
-  return payload instanceof Error && (payload.name === 'AbortError' || payload.name === 'TimeoutError')
-}
-
 function formatProjectlessDateSegment(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
@@ -2165,277 +2103,6 @@ async function cloneGithubRepositoryIntoBase(rawUrl: string, rawBasePath: string
   }
   await persistWorkspaceRoot(targetPath, '')
   return targetPath
-}
-
-function normalizeHeaderValue(value: unknown): string | null {
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    return trimmed.length > 0 ? trimmed : null
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  return null
-}
-
-function normalizeQueryParams(value: unknown): URLSearchParams {
-  const params = new URLSearchParams()
-  const record = asRecord(value)
-  if (!record) return params
-
-  for (const [key, rawValue] of Object.entries(record)) {
-    const normalized = normalizeHeaderValue(rawValue)
-    if (!normalized) continue
-    params.set(key, normalized)
-  }
-
-  return params
-}
-
-function buildProviderModelsUrl(baseUrl: string, queryParams: unknown): URL {
-  const url = new URL(baseUrl)
-  url.pathname = url.pathname.endsWith('/') ? `${url.pathname}models` : `${url.pathname}/models`
-  const extraParams = normalizeQueryParams(queryParams)
-  for (const [key, value] of extraParams.entries()) {
-    url.searchParams.set(key, value)
-  }
-  return url
-}
-
-export function normalizeProviderModelsData(payload: unknown): string[] {
-  const record = asRecord(payload)
-  const dataRows = Array.isArray(record?.data) ? record.data : null
-  const modelRows = Array.isArray(record?.models) ? record.models : null
-  const rows = dataRows?.length ? dataRows : modelRows?.length ? modelRows : dataRows ?? modelRows
-  if (!rows) {
-    throw new Error('provider /models payload is missing a data/models array')
-  }
-
-  const ids: string[] = []
-  const seen = new Set<string>()
-  for (const row of rows) {
-    const candidateFromString = readNonEmptyString(row)
-    const entry = asRecord(row)
-    const candidate = candidateFromString
-      || readNonEmptyString(entry?.id)
-      || readNonEmptyString(entry?.model)
-      || readNonEmptyString(entry?.slug)
-    if (!candidate || seen.has(candidate)) continue
-    seen.add(candidate)
-    ids.push(candidate)
-  }
-  return ids
-}
-
-async function fetchCustomEndpointDefaultModel(baseUrl: string, apiKey: string): Promise<string> {
-  const normalizedBaseUrl = baseUrl.trim()
-  if (!normalizedBaseUrl) return ''
-
-  try {
-    const modelsUrl = buildProviderModelsUrl(normalizedBaseUrl, null)
-    const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-    const response = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS) })
-    if (!response.ok) return ''
-    const payload = await response.json() as unknown
-    const modelIds = normalizeProviderModelsData(payload)
-    return modelIds[0] ?? ''
-  } catch {
-    return ''
-  }
-}
-
-async function fetchCustomEndpointModelIds(baseUrl: string, apiKey: string): Promise<string[]> {
-  const normalizedBaseUrl = baseUrl.trim()
-  if (!normalizedBaseUrl) return []
-  const modelsUrl = buildProviderModelsUrl(normalizedBaseUrl, null)
-  const headers: Record<string, string> = apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-  const response = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS) })
-  if (!response.ok) return []
-  return normalizeProviderModelsData(await response.json() as unknown)
-}
-
-async function fetchOpenCodeZenModelIds(apiKey: string | null | undefined): Promise<string[]> {
-  const headers: Record<string, string> = {}
-  if (apiKey && apiKey !== 'dummy') {
-    headers.Authorization = `Bearer ${apiKey}`
-  }
-  const response = await fetch('https://opencode.ai/zen/v1/models', {
-    headers,
-    signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
-  })
-  if (!response.ok) return []
-  return normalizeProviderModelsData(await response.json() as unknown)
-}
-
-function sortOpenCodeZenModelIds(modelIds: string[]): string[] {
-  const freeIds = modelIds.filter((id) => id.endsWith('-free') || id === OPENCODE_ZEN_DEFAULT_MODEL)
-  const paidIds = modelIds.filter((id) => !id.endsWith('-free') && id !== OPENCODE_ZEN_DEFAULT_MODEL)
-  return [...freeIds, ...paidIds]
-}
-
-async function readProviderBackedModelIds(appServer: AppServerProcess): Promise<ProviderModelsResponse> {
-  const configPayload = asRecord(await appServer.rpc('config/read', {}))
-  const config = asRecord(configPayload?.config)
-  const providerId = readNonEmptyString(config?.model_provider)
-  if (!providerId) {
-    return { data: [], providerId: '', source: 'provider' }
-  }
-
-  const providers = asRecord(config?.model_providers)
-  const provider = asRecord(providers?.[providerId])
-  if (!provider) {
-    logProviderModelDiscoveryWarning('configured provider is missing from model_providers', { providerId })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  const wireApi = readNonEmptyString(provider.wire_api)
-  if (wireApi !== 'responses') {
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  const baseUrl = readNonEmptyString(provider.base_url)
-  if (!baseUrl) {
-    logProviderModelDiscoveryWarning('responses provider is missing base_url', { providerId })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  const headers = new Headers()
-  const configuredHeaders = asRecord(provider.http_headers)
-  if (configuredHeaders) {
-    for (const [key, rawValue] of Object.entries(configuredHeaders)) {
-      const normalized = normalizeHeaderValue(rawValue)
-      if (!normalized) continue
-      headers.set(key, normalized)
-    }
-  }
-
-  const bearerToken = readNonEmptyString(provider.experimental_bearer_token)
-  if (bearerToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${bearerToken}`)
-  }
-
-  const envKey = readNonEmptyString(provider.env_key)
-  const envHttpHeaders = asRecord(provider.env_http_headers)
-  if (envKey || envHttpHeaders) {
-    logProviderModelDiscoveryWarning('provider discovery skipped env-backed auth/header expansion', {
-      providerId,
-      hasEnvKey: Boolean(envKey),
-      hasEnvHttpHeaders: Boolean(envHttpHeaders),
-    })
-  }
-
-  let requestUrl: URL
-  try {
-    requestUrl = buildProviderModelsUrl(baseUrl, provider.query_params)
-  } catch (error) {
-    logProviderModelDiscoveryWarning('provider /models URL was invalid', {
-      providerId,
-      error: getErrorMessage(error, 'invalid url'),
-    })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  let response: Response
-  try {
-    response = await fetch(requestUrl, {
-      method: 'GET',
-      headers,
-      signal: AbortSignal.timeout(PROVIDER_MODELS_FETCH_TIMEOUT_MS),
-    })
-  } catch (error) {
-    logProviderModelDiscoveryWarning('provider /models request failed', {
-      providerId,
-      error: isTimeoutError(error) ? `request timed out after ${PROVIDER_MODELS_FETCH_TIMEOUT_MS}ms` : getErrorMessage(error, 'network error'),
-    })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  let payload: unknown = null
-  try {
-    payload = await response.json()
-  } catch (error) {
-    logProviderModelDiscoveryWarning('provider /models response was not valid JSON', {
-      providerId,
-      status: response.status,
-      error: getErrorMessage(error, 'invalid json'),
-    })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  if (!response.ok) {
-    logProviderModelDiscoveryWarning('provider /models request returned non-2xx', {
-      providerId,
-      status: response.status,
-      statusText: response.statusText,
-    })
-    return { data: [], providerId, source: 'provider' }
-  }
-
-  try {
-    return {
-      data: normalizeProviderModelsData(payload),
-      providerId,
-      source: 'provider',
-    }
-  } catch (error) {
-    logProviderModelDiscoveryWarning('provider /models payload was invalid', {
-      providerId,
-      error: getErrorMessage(error, 'invalid payload'),
-    })
-    return { data: [], providerId, source: 'provider' }
-  }
-}
-
-async function readProviderModelIdsForProvider(
-  appServer: AppServerProcess,
-  providerId: string,
-): Promise<ProviderModelsResponse> {
-  const normalizedProviderId = providerId.trim().toLowerCase().replace(/_/g, '-')
-  if (!normalizedProviderId || normalizedProviderId === 'codex' || normalizedProviderId === 'openai') {
-    return { data: [], providerId: '', source: 'provider' }
-  }
-
-  const fmState = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-  if (normalizedProviderId === 'opencode-zen') {
-    try {
-      const modelIds = filterOpenCodeZenModelsForAuthState(
-        sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState?.provider === 'opencode-zen' ? fmState.apiKey : null)),
-        fmState?.provider === 'opencode-zen' ? fmState.apiKey : null,
-      )
-      if (modelIds.length > 0) {
-        return { data: modelIds, providerId: 'opencode-zen', source: 'provider' }
-      }
-    } catch {
-      // Fall through to the offline Zen defaults.
-    }
-    return {
-      data: ['muse-spark-1.3-contributor-free', 'muse-spark-1.2-contributor-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free'],
-      providerId: 'opencode-zen',
-      source: 'provider',
-    }
-  }
-
-  if (normalizedProviderId === 'openrouter-free' || normalizedProviderId === 'openrouter') {
-    return {
-      data: await getFreeModels(),
-      providerId: 'openrouter-free',
-      source: 'provider',
-    }
-  }
-
-  if (normalizedProviderId === 'custom-endpoint' && fmState?.provider === 'custom' && fmState.customBaseUrl) {
-    try {
-      return {
-        data: await fetchCustomEndpointModelIds(fmState.customBaseUrl, fmState.apiKey ?? ''),
-        providerId: 'custom_endpoint',
-        source: 'custom',
-      }
-    } catch {
-      return { data: [], providerId: 'custom_endpoint', source: 'custom' }
-    }
-  }
-
-  return readProviderBackedModelIds(appServer)
 }
 
 function extractThreadMessageText(threadReadPayload: unknown): string {
@@ -3976,162 +3643,6 @@ export async function refreshChatgptAuthTokensForExternalAuth(
   }
 }
 
-function readFreeModeStateSync(statePath: string): FreeModeState | null {
-  try {
-    return JSON.parse(readFileSync(statePath, 'utf8')) as FreeModeState
-  } catch {
-    return null
-  }
-}
-
-type TomlScanState = {
-  inMultilineBasicString: boolean
-  inMultilineLiteralString: boolean
-}
-
-function stripTomlComment(line: string, state: TomlScanState): string {
-  let content = ''
-  let inSingleQuote = false
-  let inDoubleQuote = false
-  let escaped = false
-  for (let i = 0; i < line.length; i++) {
-    if (state.inMultilineBasicString) {
-      const end = line.indexOf('"""', i)
-      if (end === -1) return content
-      state.inMultilineBasicString = false
-      i = end + 2
-      continue
-    }
-    if (state.inMultilineLiteralString) {
-      const end = line.indexOf("'''", i)
-      if (end === -1) return content
-      state.inMultilineLiteralString = false
-      i = end + 2
-      continue
-    }
-    const ch = line[i]
-    if (inDoubleQuote && escaped) {
-      escaped = false
-      content += ch
-      continue
-    }
-    if (inDoubleQuote && ch === '\\') {
-      escaped = true
-      content += ch
-      continue
-    }
-    if (!inSingleQuote && !inDoubleQuote && line.startsWith('"""', i)) {
-      state.inMultilineBasicString = true
-      i += 2
-      continue
-    }
-    if (!inSingleQuote && !inDoubleQuote && line.startsWith("'''", i)) {
-      state.inMultilineLiteralString = true
-      i += 2
-      continue
-    }
-    if (!inDoubleQuote && ch === "'") {
-      inSingleQuote = !inSingleQuote
-      content += ch
-      continue
-    }
-    if (!inSingleQuote && ch === '"') {
-      inDoubleQuote = !inDoubleQuote
-      content += ch
-      continue
-    }
-    if (!inSingleQuote && !inDoubleQuote && ch === '#') {
-      return content
-    }
-    content += ch
-  }
-  return content
-}
-
-function isModelProviderAssignment(content: string): boolean {
-  return /^(?:model_provider|"model_provider"|'model_provider')\s*=/.test(content)
-}
-
-let explicitCodexModelProviderConfigCache: {
-  path: string
-  mtimeMs: number | null
-  size: number | null
-  value: boolean
-} | null = null
-
-function hasExplicitCodexModelProviderConfigSync(): boolean {
-  const configPath = join(getCodexHomeDir(), 'config.toml')
-  let info: ReturnType<typeof statSync> | null = null
-  try {
-    info = statSync(configPath)
-  } catch {
-    explicitCodexModelProviderConfigCache = {
-      path: configPath,
-      mtimeMs: null,
-      size: null,
-      value: false,
-    }
-    return false
-  }
-  if (
-    explicitCodexModelProviderConfigCache?.path === configPath
-    && explicitCodexModelProviderConfigCache.mtimeMs === info.mtimeMs
-    && explicitCodexModelProviderConfigCache.size === info.size
-  ) {
-    return explicitCodexModelProviderConfigCache.value
-  }
-
-  let value = false
-  try {
-    const raw = readFileSync(configPath, 'utf8')
-    let inTopLevelTable = true
-    const scanState: TomlScanState = {
-      inMultilineBasicString: false,
-      inMultilineLiteralString: false,
-    }
-    for (const line of raw.split(/\r?\n/)) {
-      const content = stripTomlComment(line, scanState).trim()
-      if (!content) continue
-      if (/^\[\[?[^\]]+\]?\]$/.test(content)) {
-        inTopLevelTable = false
-        continue
-      }
-      if (!inTopLevelTable) continue
-      if (isModelProviderAssignment(content)) {
-        value = true
-        break
-      }
-    }
-  } catch {
-    value = false
-  }
-  explicitCodexModelProviderConfigCache = {
-    path: configPath,
-    mtimeMs: info.mtimeMs,
-    size: info.size,
-    value,
-  }
-  return value
-}
-
-export async function writeFreeModeStateFile(statePath: string, state: FreeModeState): Promise<void> {
-  await mkdir(dirname(statePath), { recursive: true })
-  await writeFile(statePath, JSON.stringify(state), { encoding: 'utf8', mode: 0o600 })
-}
-
-export function readConfiguredProviderStateSync(statePath: string): FreeModeState | null {
-  const current = readFreeModeStateSync(statePath)
-  return isExplicitProviderState(current) ? current : null
-}
-
-function isLoopbackRemoteAddress(remoteAddress: string | undefined): boolean {
-  if (!remoteAddress) return false
-  const normalized = remoteAddress.startsWith('::ffff:')
-    ? remoteAddress.slice('::ffff:'.length)
-    : remoteAddress
-  return normalized === '127.0.0.1' || normalized === '::1'
-}
-
 function getTelegramBridgeConfigPath(): string {
   return join(getCodexHomeDir(), 'telegram-bridge.json')
 }
@@ -5611,21 +5122,7 @@ class AppServerProcess {
   }
 
   private buildAppServerConfig(): { args: string[]; env: Record<string, string> } {
-    const args = buildAppServerArgs()
-    let extraEnv: Record<string, string> = {}
-    const serverPort = parseInt(process.env.CODEXUI_SERVER_PORT ?? '', 10) || undefined
-    args.push(...getProviderCompatibilityConfigArgs(serverPort))
-    const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
-    try {
-      const state = readConfiguredProviderStateSync(statePath)
-      if (state) {
-        args.push(...getFreeModeConfigArgs(state, serverPort))
-        extraEnv = getFreeModeEnvVars(state)
-      }
-    } catch {
-      // No free-mode state or invalid — use defaults
-    }
-    return { args, env: extraEnv }
+    return { args: buildAppServerArgs(), env: {} }
   }
 
   private getAppServerConfigSignature(config: { args: string[]; env: Record<string, string> }): string {
@@ -6098,10 +5595,10 @@ class AppServerProcess {
   async rpc(method: string, params: unknown): Promise<unknown> {
     if (!this.process) await hasUsableCodexAuth()
     if (method === 'turn/start' && getCachedCodexAuthStatus() === false
-      && !process.env.OPENAI_API_KEY?.trim() && !hasExplicitCodexModelProviderConfigSync()
-      && !readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))) {
+      && !process.env.OPENAI_API_KEY?.trim()) {
       throw new CodexCredentialError(401, 'authentication_required', AUTHENTICATION_REQUIRED_MESSAGE)
     }
+    params = applyCodexThreadConfig(method, params)
     this.disposeIfConfigChanged()
     await this.ensureInitialized()
     if (method !== 'turn/start') {
@@ -6360,9 +5857,9 @@ export class BackendQueueProcessor {
     })
   }
 
-  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, providerId?: string, saved?: QueuedGenerationSettings): Promise<ResolvedCollaborationModeSettings> {
-    if (saved && (!providerId || normalizeQueueProvider(providerId) !== saved.providerId)) {
-      throw new Error('Queued message provider no longer matches this thread.')
+  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, saved?: QueuedGenerationSettings): Promise<ResolvedCollaborationModeSettings> {
+    if (saved?.unsupportedProvider) {
+      throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
     }
     let currentConfig: Record<string, unknown> | null = null
     try {
@@ -6391,12 +5888,7 @@ export class BackendQueueProcessor {
     }
     const model = saved?.model || configuredModel || readNonEmptyString(models[0]?.id) || readNonEmptyString(models[0]?.model)
     if (model) {
-      const normalizeProvider = (value: unknown): string => {
-        const provider = (readNonEmptyString(value) || 'openai').toLowerCase().replace(/_/g, '-')
-        return provider === 'codex' ? 'openai' : provider
-      }
-      const sameProvider = providerId && normalizeProvider(providerId) === normalizeProvider(currentConfig?.model_provider)
-      const capabilities = sameProvider ? models.find((entry) => entry.id === model || entry.model === model) : null
+      const capabilities = models.find((entry) => entry.id === model || entry.model === model)
       // An unavailable or differently scoped catalog cannot invalidate an explicit choice.
       // Empty effort means unspecified, whereas "none" is a real reasoning effort.
       const reasoningEffort = saved
@@ -6408,7 +5900,7 @@ export class BackendQueueProcessor {
     throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model.`)
   }
 
-  private async buildQueuedTurnParams(turn: BackendQueuedTurn, providerId?: string): Promise<Record<string, unknown>> {
+  private async buildQueuedTurnParams(turn: BackendQueuedTurn): Promise<Record<string, unknown>> {
     const localImageAttachments: StoredQueuedMessage['fileAttachments'] = []
     for (const imageUrl of turn.message.imageUrls) {
       const localImagePath = extractLocalImagePathFromUrl(imageUrl.trim())
@@ -6465,10 +5957,10 @@ export class BackendQueueProcessor {
       }
     }
     if (turn.message.generationSettings) {
-      applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId, turn.message.generationSettings))
+      applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, turn.message.generationSettings))
     } else {
       try {
-        applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, providerId))
+        applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode))
       } catch {
         // Older app-server versions still accept a plain turn/start without collaborationMode.
       }
@@ -6478,9 +5970,11 @@ export class BackendQueueProcessor {
   }
 
   private async startQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
-    const resumed = asRecord(await this.appServer.rpc('thread/resume', { threadId: turn.threadId }))
-    const providerId = readNonEmptyString(resumed?.modelProvider) || readNonEmptyString(asRecord(resumed?.thread)?.modelProvider)
-    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn, providerId || undefined))
+    if (turn.message.generationSettings?.unsupportedProvider) {
+      throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
+    }
+    await this.appServer.rpc('thread/resume', { threadId: turn.threadId })
+    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn))
   }
 }
 
@@ -6611,7 +6105,7 @@ type SharedBridgeState = {
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'experimental-api-v3'
+const SHARED_BRIDGE_VERSION = 'codex-only-api-v1'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -6810,300 +6304,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
-
-      if (url.pathname === '/codex-api/zen-proxy/v1/responses' && req.method === 'POST') {
-        const configured = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-        if (configured?.provider !== 'opencode-zen') {
-          setJson(res, 401, { error: AUTHENTICATION_REQUIRED_MESSAGE })
-          return
-        }
-        if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
-          setJson(res, 403, { error: 'Zen proxy is only available from localhost' })
-          return
-        }
-        const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
-        let bearerToken = ''
-        let wireApi: 'responses' | 'chat' = 'responses'
-        try {
-          const state = readConfiguredProviderStateSync(statePath)
-          bearerToken = state?.apiKey ?? ''
-          if (state) {
-            wireApi = state.wireApi === 'responses' ? 'responses' : 'chat'
-          }
-        } catch { /* use empty */ }
-        handleZenProxyRequest(req, res, bearerToken, wireApi)
-        return
-      }
-
-      if (url.pathname === '/codex-api/openrouter-proxy/v1/responses' && req.method === 'POST') {
-        const configured = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-        if (configured?.provider !== 'openrouter') {
-          setJson(res, 401, { error: AUTHENTICATION_REQUIRED_MESSAGE })
-          return
-        }
-        const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
-        let bearerToken = ''
-        let wireApi: 'responses' | 'chat' = 'responses'
-        try {
-          const state = readConfiguredProviderStateSync(statePath)
-          bearerToken = state?.apiKey ?? ''
-          wireApi = state?.wireApi === 'chat' ? 'chat' : 'responses'
-        } catch { /* use empty */ }
-        handleOpenRouterProxyRequest(req, res, bearerToken, wireApi)
-        return
-      }
-
-      if (url.pathname === '/codex-api/custom-proxy/v1/responses' && req.method === 'POST') {
-        const configured = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-        if (configured?.provider !== 'custom') {
-          setJson(res, 401, { error: AUTHENTICATION_REQUIRED_MESSAGE })
-          return
-        }
-        const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
-        let bearerToken = ''
-        let wireApi: 'responses' | 'chat' = 'responses'
-        let baseUrl = ''
-        try {
-          const state = readConfiguredProviderStateSync(statePath)
-          bearerToken = state?.apiKey ?? ''
-          wireApi = state?.wireApi === 'chat' ? 'chat' : 'responses'
-          baseUrl = state?.customBaseUrl ?? ''
-        } catch { /* use empty */ }
-        handleCustomEndpointProxyRequest(req, res, { baseUrl, bearerToken, wireApi })
-        return
-      }
-
-      if (url.pathname.startsWith('/codex-api/free-mode')) {
-        const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
-        await hasUsableCodexAuth()
-        if (req.method === 'GET' && url.pathname === '/codex-api/free-mode/status') {
-          // The running Codex app-server is authoritative, including for Keyring credentials.
-          try {
-            await appServer.rpc('account/read', { refreshToken: false })
-          } catch { /* Preserve unknown/last known status on transient RPC errors. */ }
-        }
-
-        function readFreeModeState(): FreeModeState {
-          return readFreeModeStateSync(statePath)
-            ?? { enabled: false, apiKey: null, model: FREE_MODE_DEFAULT_MODEL }
-        }
-
-        if (req.method === 'POST' && url.pathname === '/codex-api/free-mode') {
-          try {
-            const body = await readJsonBody(req) as Record<string, unknown> | null
-            const enable = Boolean(body?.enable)
-
-            if (enable) {
-              const prev = readFreeModeState()
-              if (prev.provider !== 'openrouter' || !isExplicitProviderState(prev)) {
-                setJson(res, 400, { error: 'Enter your OpenRouter API key in Settings before enabling OpenRouter.' })
-                return
-              }
-              const apiKey = prev.apiKey!
-              const prevKeys = prev.providerKeys ?? {}
-              if (prev.provider && prev.apiKey) {
-                prevKeys[prev.provider] = prev.apiKey
-              }
-              const state: FreeModeState = {
-                enabled: true,
-                apiKey,
-                customKey: true,
-                model: FREE_MODE_DEFAULT_MODEL,
-                provider: 'openrouter',
-                wireApi: prev.wireApi === 'chat' ? 'chat' : 'responses',
-                providerKeys: prevKeys,
-              }
-              await writeFreeModeStateFile(statePath, state)
-              appServer.dispose()
-              const freeModels = await getFreeModels()
-              setJson(res, 200, {
-                ok: true,
-                enabled: true,
-                model: FREE_MODE_DEFAULT_MODEL,
-                models: freeModels,
-              })
-            } else {
-              const prev = readFreeModeState()
-              const prevKeys = prev.providerKeys ?? {}
-              if (prev.provider && prev.apiKey) {
-                prevKeys[prev.provider] = prev.apiKey
-              }
-              const state: FreeModeState = { ...prev, enabled: false, providerKeys: prevKeys }
-              await writeFreeModeStateFile(statePath, state)
-              appServer.dispose()
-              setJson(res, 200, { ok: true, enabled: false })
-            }
-          } catch (error) {
-            setJson(res, 500, { error: getErrorMessage(error, 'Failed to toggle free mode') })
-          }
-          return
-        }
-
-        if (req.method === 'GET' && url.pathname === '/codex-api/free-mode/status') {
-          try {
-            const state = readConfiguredProviderStateSync(statePath)
-              ?? { enabled: false, apiKey: null, model: FREE_MODE_DEFAULT_MODEL } as FreeModeState
-            const maskedKey = state.apiKey && state.customKey
-              ? state.apiKey.substring(0, 12) + '...' + state.apiKey.substring(state.apiKey.length - 4)
-              : null
-            let models = state.enabled && state.provider === 'openrouter' ? getCachedFreeModels() : []
-            let currentModel = state.enabled ? state.model : null
-            let wireApi = state.wireApi ?? null
-            if (state.provider === OPENCODE_ZEN_PROVIDER_ID) {
-              currentModel = state.enabled ? (state.model?.trim() || OPENCODE_ZEN_DEFAULT_MODEL) : null
-              try {
-                const zenModels = filterOpenCodeZenModelsForAuthState(
-                  sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(state.apiKey)),
-                  state.apiKey,
-                )
-                if (zenModels.length > 0) {
-                  models = zenModels
-                } else {
-                  models = [
-                    OPENCODE_ZEN_DEFAULT_MODEL,
-                    'minimax-m2.5-free',
-                    'nemotron-3-super-free',
-                    'trinity-large-preview-free',
-                  ]
-                }
-              } catch {
-                models = [
-                  OPENCODE_ZEN_DEFAULT_MODEL,
-                  'minimax-m2.5-free',
-                  'nemotron-3-super-free',
-                  'trinity-large-preview-free',
-                ]
-              }
-              wireApi = 'responses'
-            } else if (state.enabled && state.provider === 'openrouter') {
-              refreshFreeModelsInBackground()
-            }
-            setJson(res, 200, {
-              enabled: state.enabled,
-              hasCodexAuth: getCachedCodexAuthStatus(),
-              authenticationError: !state.enabled && getCachedCodexAuthStatus() === false
-                && !process.env.OPENAI_API_KEY?.trim() && !hasExplicitCodexModelProviderConfigSync()
-                ? AUTHENTICATION_REQUIRED_MESSAGE : null,
-              models,
-              currentModel,
-              customKey: Boolean(state.customKey),
-              maskedKey,
-              provider: state.provider ?? null,
-              customBaseUrl: state.customBaseUrl ?? null,
-              wireApi,
-            })
-          } catch (error) {
-            setJson(res, 500, { error: getErrorMessage(error, 'Failed to read free mode status') })
-          }
-          return
-        }
-
-        if (req.method === 'POST' && url.pathname === '/codex-api/free-mode/custom-key') {
-          try {
-            const body = await readJsonBody(req) as Record<string, unknown> | null
-            const key = typeof body?.key === 'string' ? body.key.trim() : ''
-            const current = readFreeModeState()
-
-            if (key.length > 0) {
-              const state: FreeModeState = {
-                ...current,
-                enabled: true,
-                apiKey: key,
-                customKey: true,
-                personalOpenRouterKey: true,
-                providerKeys: { ...current.providerKeys, openrouter: key },
-                provider: 'openrouter',
-                wireApi: current.wireApi === 'chat' ? 'chat' : 'responses',
-              }
-              await writeFreeModeStateFile(statePath, state)
-              appServer.dispose()
-              setJson(res, 200, { ok: true, customKey: true })
-            } else {
-              const providerKeys = { ...current.providerKeys }
-              delete providerKeys.openrouter
-              const state: FreeModeState = {
-                ...current,
-                enabled: false,
-                apiKey: null,
-                providerKeys,
-                personalOpenRouterKey: false,
-                customKey: false,
-                provider: 'openrouter',
-                wireApi: current.wireApi === 'chat' ? 'chat' : 'responses',
-              }
-              await writeFreeModeStateFile(statePath, state)
-              appServer.dispose()
-              setJson(res, 200, { ok: true, customKey: false })
-            }
-          } catch (error) {
-            setJson(res, 500, { error: getErrorMessage(error, 'Failed to set custom key') })
-          }
-          return
-        }
-
-        if (req.method === 'POST' && url.pathname === '/codex-api/free-mode/custom-provider') {
-          try {
-            const body = await readJsonBody(req) as Record<string, unknown> | null
-            const baseUrl = typeof body?.baseUrl === 'string' ? body.baseUrl.trim() : ''
-            const apiKey = typeof body?.apiKey === 'string' ? body.apiKey.trim() : ''
-            const wireApi = body?.wireApi === 'chat' ? 'chat' as const : 'responses' as const
-            const providerType = body?.provider === 'opencode-zen'
-              ? 'opencode-zen' as const
-              : body?.provider === 'openrouter'
-                ? 'openrouter' as const
-                : 'custom' as const
-            if (providerType === 'custom' && !baseUrl) {
-              setJson(res, 400, { error: 'baseUrl is required' })
-              return
-            }
-            const current = readFreeModeState()
-            const prevKeys = current.providerKeys ?? {}
-            if (current.provider && current.apiKey) {
-              prevKeys[current.provider] = current.apiKey
-            }
-            const rememberedKey = providerType === 'openrouter'
-              ? (current.provider === 'openrouter' && current.customKey === true
-                ? current.apiKey : current.personalOpenRouterKey ? prevKeys.openrouter : '')
-              : prevKeys[providerType]
-            const resolvedKey = apiKey || rememberedKey || ''
-            if (providerType === 'openrouter' && !resolvedKey) {
-              setJson(res, 400, { error: 'Enter your OpenRouter API key in Settings.' })
-              return
-            }
-            if (resolvedKey) {
-              prevKeys[providerType] = resolvedKey
-            }
-            const currentModel = (current.model ?? '').trim()
-            const resolvedModel = providerType === 'openrouter'
-              ? (currentModel.includes('/') ? currentModel : FREE_MODE_DEFAULT_MODEL)
-              : providerType === 'custom'
-                ? await fetchCustomEndpointDefaultModel(baseUrl, resolvedKey)
-                : OPENCODE_ZEN_DEFAULT_MODEL
-            const state: FreeModeState = {
-              enabled: true,
-              apiKey: resolvedKey,
-              model: resolvedModel,
-              customKey: true,
-              personalOpenRouterKey: providerType === 'openrouter'
-                || current.personalOpenRouterKey === true
-                || (current.provider === 'openrouter' && current.customKey === true),
-              provider: providerType,
-              customBaseUrl: providerType === 'custom' ? baseUrl : undefined,
-              wireApi,
-              providerKeys: prevKeys,
-            }
-            await writeFreeModeStateFile(statePath, state)
-            appServer.dispose()
-            setJson(res, 200, { ok: true })
-          } catch (error) {
-            setJson(res, 500, { error: getErrorMessage(error, 'Failed to set custom provider') })
-          }
-          return
-        }
-
-        next()
-        return
-      }
 
       if (await handleAccountRoutes(req, res, url, { appServer })) {
         return
@@ -7557,70 +6757,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       if (req.method === 'GET' && url.pathname === '/codex-api/meta/notifications') {
         const methods = await methodCatalog.listNotificationMethods()
         setJson(res, 200, { data: methods })
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/codex-api/provider-models') {
-        try {
-          const requestedProvider = url.searchParams.get('provider')?.trim() ?? ''
-          if (requestedProvider) {
-            setJson(res, 200, {
-              ...(await readProviderModelIdsForProvider(appServer, requestedProvider)),
-              exclusive: true,
-            })
-            return
-          }
-          const fmState = readConfiguredProviderStateSync(join(getCodexHomeDir(), FREE_MODE_STATE_FILE))
-          if (fmState?.enabled) {
-            if (fmState.provider === 'opencode-zen') {
-              try {
-                const modelIds = filterOpenCodeZenModelsForAuthState(
-                  sortOpenCodeZenModelIds(await fetchOpenCodeZenModelIds(fmState.apiKey)),
-                  fmState.apiKey,
-                )
-                if (modelIds.length > 0) {
-                  setJson(res, 200, { data: modelIds, exclusive: true, source: 'opencode-zen' })
-                  return
-                }
-              } catch {
-                // OpenCode Zen model fetch failed
-              }
-              setJson(res, 200, { data: ['muse-spark-1.3-contributor-free', 'muse-spark-1.2-contributor-free', 'mimo-v2.5-free', 'nemotron-3-ultra-free'], exclusive: true, source: 'opencode-zen' })
-              return
-            }
-            if (fmState.provider === 'custom' && fmState.customBaseUrl) {
-              try {
-                const modelsUrl = fmState.customBaseUrl.replace(/\/+$/, '') + '/models'
-                const headers: Record<string, string> = {}
-                if (fmState.apiKey && fmState.apiKey !== 'dummy') {
-                  headers['Authorization'] = `Bearer ${fmState.apiKey}`
-                }
-                const resp = await fetch(modelsUrl, { headers, signal: AbortSignal.timeout(8000) })
-                if (resp.ok) {
-                  const json = await resp.json() as unknown
-                  const ids = normalizeProviderModelsData(json)
-                  const currentModel = fmState.model?.trim() ?? ''
-                  const orderedIds = currentModel && ids.includes(currentModel)
-                    ? [currentModel, ...ids.filter((id) => id !== currentModel)]
-                    : ids
-                  setJson(res, 200, { data: orderedIds, exclusive: true, source: 'custom' })
-                  return
-                }
-              } catch {
-                // Custom endpoint model fetch failed — return empty list
-              }
-              setJson(res, 200, { data: [], exclusive: true, source: 'custom' })
-              return
-            }
-            const freeModels = await getFreeModels()
-            setJson(res, 200, { data: freeModels, exclusive: true })
-            return
-          }
-        } catch {
-          // No free-mode state — proceed normally
-        }
-        const data = await readProviderBackedModelIds(appServer)
-        setJson(res, 200, data)
         return
       }
 

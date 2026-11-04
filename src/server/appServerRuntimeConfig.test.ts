@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAppServerArgs } from './appServerRuntimeConfig'
+import { applyCodexThreadConfig, buildAppServerArgs } from './appServerRuntimeConfig'
 
 describe('app-server runtime config', () => {
   it('enables Codex memories by default for spawned app-server processes', () => {
@@ -23,4 +23,20 @@ describe('app-server runtime config', () => {
       delete process.env.CODEXUI_MEMORIES
     }
   })
+})
+
+it('always selects the official Codex provider without compatibility proxies', () => {
+  const args = buildAppServerArgs()
+  expect(args).toContain('model_provider="openai"')
+  expect(args.join(' ')).not.toMatch(/openrouter|opencode|custom_endpoint|proxy/)
+})
+
+it.each(['thread/start', 'thread/resume', 'thread/fork'])('uses official Codex for %s without mutating supplied metadata', (method) => {
+  const params = { threadId: 'history', modelProvider: 'legacy-endpoint', model: 'gpt-test' }
+  expect(applyCodexThreadConfig(method, params)).toEqual({ ...params, modelProvider: 'openai' })
+  expect(params.modelProvider).toBe('legacy-endpoint')
+})
+it('preserves history reads, turn settings and tool approval payloads', () => {
+  const params = { threadId: 'history', model: 'gpt-test', effort: 'high', approvalPolicy: 'on-request' }
+  for (const method of ['thread/read', 'turn/start', 'account/read', 'account/logout']) expect(applyCodexThreadConfig(method, params)).toBe(params)
 })

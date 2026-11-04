@@ -34,6 +34,7 @@ describe('startThreadTurn collaboration mode payloads', () => {
   })
 
   it('sends default collaboration mode explicitly after a plan turn', async () => {
+    reasoningCatalog.value = [{ id: 'gpt-5.4', supportedReasoningEfforts: ['medium'], defaultReasoningEffort: 'medium' }]
     const { requests } = mockRpcFetch()
 
     await startThreadTurn('thread-1', 'make a plan', [], 'gpt-5.4', 'medium', undefined, [], 'plan')
@@ -81,100 +82,12 @@ describe('startThreadTurn attachment-only payloads', () => {
   })
 })
 
-
-describe('getAvailableModelIds', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('uses provider models without waiting for model/list when provider models are required', async () => {
-    const requests: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      requests.push(String(input))
-      if (String(input) === '/codex-api/provider-models') {
-        return new Response(JSON.stringify({
-          data: ['big-pickle', 'deepseek-v4-flash-free'],
-          exclusive: true,
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      throw new Error(`unexpected request ${String(input)}`)
-    }))
-
-    await expect(getAvailableModelIds({
-      includeProviderModels: true,
-      requireProviderModels: true,
-    })).resolves.toEqual(['big-pickle', 'deepseek-v4-flash-free'])
-    expect(requests).toEqual(['/codex-api/provider-models'])
-  })
-
-  it('requests models for an explicit thread provider', async () => {
-    const requests: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      requests.push(String(input))
-      if (String(input) === '/codex-api/provider-models?provider=opencode-zen') {
-        return new Response(JSON.stringify({
-          data: ['big-pickle', 'ring-2.6-1t-free'],
-          exclusive: true,
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-      throw new Error(`unexpected request ${String(input)}`)
-    }))
-
-    await expect(getAvailableModelIds({
-      includeProviderModels: true,
-      requireProviderModels: true,
-      providerId: 'opencode-zen',
-    })).resolves.toEqual(['big-pickle', 'ring-2.6-1t-free'])
-    expect(requests).toEqual(['/codex-api/provider-models?provider=opencode-zen'])
-  })
-
-  it('falls back to model/list when provider models are optional and unavailable', async () => {
-    const requests: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      requests.push(String(input))
-      if (String(input) === '/codex-api/provider-models') {
-        return new Response(JSON.stringify({ data: [] }), {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      }
-
-      const body = typeof init?.body === 'string'
-        ? JSON.parse(init.body) as { method: string }
-        : { method: '' }
-      expect(body.method).toBe('model/list')
-      return new Response(JSON.stringify({
-        result: {
-          data: [
-            { id: 'gpt-5.5' },
-            { model: 'gpt-5.4-mini' },
-          ],
-        },
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }))
-
-    await expect(getAvailableModelIds({
-      includeProviderModels: true,
-    })).resolves.toEqual(['gpt-5.5', 'gpt-5.4-mini'])
-    expect(requests).toEqual(['/codex-api/provider-models', '/codex-api/rpc'])
-  })
-})
-
 describe('getThreadDetail', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
 
-  it('reads modelProvider from nested thread payloads returned by thread/read', async () => {
+  it('preserves historical provider metadata as data without selecting a connection', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = typeof init?.body === 'string'
         ? JSON.parse(init.body) as { method: string; params: Record<string, unknown> }
@@ -259,15 +172,15 @@ describe('resumeThread', () => {
 
 describe('saved queued generation settings', () => {
   afterEach(() => {
-    reasoningCatalog.value = { providerId: '', models: [] }
+    reasoningCatalog.value = []
     vi.unstubAllGlobals()
   })
 
   it('round-trips independent settings through queue PUT and GET, retaining legacy absence', async () => {
     const entry = { id: 'A', text: 'queued', imageUrls: [], skills: [], fileAttachments: [], collaborationMode: 'default' as const }
     const state = { 'thread-1': [
-      { ...entry, generationSettings: { model: 'M', effort: 'low' as const, providerId: 'openai' } },
-      { ...entry, id: 'B', generationSettings: { model: 'N', effort: 'medium' as const, providerId: 'other' } },
+      { ...entry, generationSettings: { model: 'M', effort: 'low' as const,  } },
+      { ...entry, id: 'B', generationSettings: { model: 'N', effort: 'medium' as const, unsupportedProvider: 'other' } },
       { ...entry, id: 'legacy' },
     ] }
     let stored: unknown
@@ -281,18 +194,37 @@ describe('saved queued generation settings', () => {
   })
 
   it.each([
-    ['codex', 'low', 'low'], ['codex', 'medium', 'medium'], ['codex', 'none', 'none'],
-    ['codex', 'xhigh', 'low'], ['codex', undefined, undefined], ['other', 'medium', 'medium'],
-  ] as const)('uses provider %s requested effort %s as %s in the actual RPC', async (provider, effort, expected) => {
-    reasoningCatalog.value = { providerId: 'codex', models: [{
+    ['low', 'low'], ['medium', 'medium'], ['none', 'none'],
+    ['xhigh', 'low'], [undefined, undefined],
+  ] as const)('uses requested effort %s as %s in the Codex RPC', async (effort, expected) => {
+    reasoningCatalog.value = [{
       id: 'M', supportedReasoningEfforts: ['none', 'low', 'medium'], defaultReasoningEffort: 'low',
-    }] }
+    }]
     const { requests } = mockRpcFetch()
-    await startThreadTurn('thread-1', 'saved steer', [], 'M', effort, undefined, [], 'default', provider, true)
+    await startThreadTurn('thread-1', 'saved steer', [], 'M', effort, undefined, [], 'default', true)
     expect(requests).toHaveLength(1)
     expect(requests[0]?.method).toBe('turn/start')
     expect(requests[0]?.params.model).toBe('M')
     expect(requests[0]?.params.effort).toBe(expected)
     expect(requests[0]?.params.collaborationMode).toMatchObject({ settings: { model: 'M', reasoning_effort: expected ?? null } })
+  })
+})
+
+describe('official Codex model catalog', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  it('loads all model/list pages and retains reasoning capabilities without external requests', async () => {
+    const calls: Array<{ method: string; params: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      expect(String(url)).toBe('/codex-api/rpc')
+      const body = JSON.parse(init.body)
+      calls.push(body)
+      return new Response(JSON.stringify({ result: body.params?.cursor
+        ? { data: [{ id: 'gpt-second' }], nextCursor: null }
+        : { data: [{ id: 'gpt-test', supportedReasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'high' }], nextCursor: 'page2' } }))
+    }))
+    const catalog = await getAvailableModelIds()
+    expect(catalog.ids).toEqual(['gpt-test', 'gpt-second'])
+    expect(catalog.models[0].defaultReasoningEffort).toBe('high')
+    expect(calls).toEqual([{ method: 'model/list', params: {} }, { method: 'model/list', params: { cursor: 'page2' } }])
   })
 })

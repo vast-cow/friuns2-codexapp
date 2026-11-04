@@ -42,9 +42,8 @@ function summarize(rows) {
   }
 }
 
-function buildWarnings(duplicateCounts, apiSummary, apiRows) {
+function buildWarnings(duplicateCounts, apiRows) {
   const warnings = []
-  const providerModels = apiSummary.find((row) => row.key === '/codex-api/provider-models')
   const totalApiKB = round(apiRows.reduce((sum, row) => sum + row.responseBytes, 0) / 1024)
 
   if (duplicateCounts.threadListFirstPage > 1) warnings.push(`threadListFirstPage=${duplicateCounts.threadListFirstPage}`)
@@ -53,7 +52,6 @@ function buildWarnings(duplicateCounts, apiSummary, apiRows) {
   if (duplicateCounts.threadReadDuplicateKeys > 0) warnings.push(`threadReadDuplicateKeys=${duplicateCounts.threadReadDuplicateKeys}`)
   if (duplicateCounts.skillsList > 1) warnings.push(`skillsList=${duplicateCounts.skillsList}`)
   if (duplicateCounts.rateLimitsRead > 1) warnings.push(`rateLimitsRead=${duplicateCounts.rateLimitsRead}`)
-  if (providerModels && providerModels.maxMs > 1000) warnings.push(`providerModels=${providerModels.maxMs}ms`)
   if (totalApiKB > 750) warnings.push(`totalApiKB=${totalApiKB}`)
 
   return { warnings, totalApiKB }
@@ -240,9 +238,8 @@ async function main() {
     ).filter((count) => count > 1).length,
     skillsList: apiRows.filter((row) => row.rpc === 'skills/list').length,
     rateLimitsRead: apiRows.filter((row) => row.rpc === 'account/rateLimits/read').length,
-    providerModels: apiRows.filter((row) => row.path === '/codex-api/provider-models').length,
   }
-  const diagnostics = buildWarnings(duplicateCounts, apiSummary, apiRows)
+  const diagnostics = buildWarnings(duplicateCounts, apiRows)
 
   const report = {
     targetUrl,
