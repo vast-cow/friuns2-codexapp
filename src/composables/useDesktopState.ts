@@ -768,6 +768,19 @@ function hasOptimisticUserMessages(messages: UiMessage[]): boolean {
 
 function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boolean {
   if (target.role !== 'user') return false
+  // A turn ID is assigned to the specific optimistic submission once the
+  // server accepts it. Prefer that identity over prompt content: attachment
+  // prompts can be rewritten by the server, and identical prompts/files can
+  // also be submitted intentionally in separate turns.
+  if (target.turnId) {
+    return messages.some((message) =>
+      message !== target &&
+      message.role === 'user' &&
+      !isOptimisticUserMessage(message) &&
+      message.turnId === target.turnId,
+    )
+  }
+
   const targetText = normalizeMessageText(target.text)
   const targetImages = Array.isArray(target.images) ? target.images : []
   const targetFileCount = Array.isArray(target.fileAttachments) ? target.fileAttachments.length : 0
@@ -775,9 +788,7 @@ function hasEquivalentUserMessage(target: UiMessage, messages: UiMessage[]): boo
 
   return messages.some((message) => {
     if (message === target || message.role !== 'user' || isOptimisticUserMessage(message)) return false
-    if (target.turnId && message.turnId) {
-      if (target.turnId !== message.turnId) return false
-    } else if (typeof target.turnIndex === 'number' && typeof message.turnIndex === 'number' && target.turnIndex !== message.turnIndex) {
+    if (typeof target.turnIndex === 'number' && typeof message.turnIndex === 'number' && target.turnIndex !== message.turnIndex) {
       return false
     }
     const messageText = normalizeMessageText(message.text)
