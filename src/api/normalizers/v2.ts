@@ -630,6 +630,13 @@ export function normalizeThreadGroupsV2(payload: ThreadListResponse): UiProjectG
   return groupThreadsByProject(uiThreads)
 }
 
+// These fields are explicitly milliseconds; do not guess units for other fields.
+function readMessageMilliseconds(value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return undefined
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : undefined
+}
+
 export function normalizeThreadMessagesV2(payload: ThreadReadResponse, baseTurnIndex = 0): UiMessage[] {
   const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
   const messages: UiMessage[] = []
@@ -644,10 +651,15 @@ export function normalizeThreadMessagesV2(payload: ThreadReadResponse, baseTurnI
     for (const item of items) {
       for (const msg of toUiMessages(item)) {
         const timing = turn as Turn & { submittedAt?: unknown; completedAt?: unknown }
-        const itemTiming = item as ThreadItem & { submittedAt?: unknown; completedAt?: unknown }
-        const submittedAt = msg.role === 'user' ? readMessageTimestamp(itemTiming.submittedAt ?? timing.submittedAt) : undefined
+        const itemTiming = item as ThreadItem & { startedAtMs?: unknown; completedAtMs?: unknown; submittedAt?: unknown; completedAt?: unknown; phase?: unknown }
+        const submittedAt = msg.role === 'user'
+          ? readMessageMilliseconds(itemTiming.startedAtMs) ?? readMessageMilliseconds(itemTiming.completedAtMs)
+            ?? readMessageTimestamp(itemTiming.submittedAt) ?? readMessageTimestamp(timing.submittedAt)
+          : undefined
         const completedAt = msg.role === 'assistant' && item.type === 'agentMessage' && item === lastAgentItem && turn.status === 'completed'
-          ? readMessageTimestamp(itemTiming.completedAt ?? timing.completedAt) : undefined
+          && (itemTiming.phase == null || itemTiming.phase === 'final_answer')
+          ? readMessageMilliseconds(itemTiming.completedAtMs) ?? readMessageTimestamp(itemTiming.completedAt) ?? readMessageTimestamp(timing.completedAt)
+          : undefined
         messages.push({ ...msg, submittedAt, completedAt, turnId, turnIndex, ...(msg.role === 'assistant' ? { generationMetadata } : {}) })
       }
     }

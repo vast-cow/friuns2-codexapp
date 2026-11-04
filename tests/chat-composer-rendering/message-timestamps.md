@@ -37,3 +37,32 @@ Validation commands (2026-11-05):
   and missing reasoning catalog mocks. No new suite failures were introduced.
 - Live browser refresh persistence, mobile layout, and light/dark visuals remain
   unverified; follow the manual steps above on a running Codex-backed instance.
+
+## App-server millisecond timestamps
+
+Setup: Use a completed paginated `thread/read` response with user `startedAtMs`
+(and `completedAtMs`) `1793800496289`, and final-answer `completedAtMs`
+`1793800499248`. Set the assistant phase to `final_answer`; include a preceding
+`commentary` message. No session JSONL timestamps are required for this case.
+
+1. Open the conversation. Expect sent time from `2026-11-04T13:54:56.289Z`
+   and answered time from `2026-11-04T13:54:59.248Z`, converted to browser local
+   time (both `2026/11/04 22:54` in Asia/Tokyo). Keep existing labels and styling.
+2. Refresh, switch away and reopen. Expect the same original times.
+3. Set the turn to `inProgress`, or the last assistant phase to `commentary`.
+   Expect no completion timestamp. Remove all timestamp evidence: expect no date.
+4. Try malformed millisecond fields with valid legacy ISO fields. Expect ISO
+   fallback; for user messages, valid `completedAtMs` also backs up `startedAtMs`.
+
+Cleanup: Restore fixture responses or remove the disposable conversation.
+
+Verification: focused normalizer and session-recovery suites pass (24 tests);
+frontend typecheck/Vite build and CLI build pass. Browser local-time and visible
+refresh verification could not run because the Playwright Chromium executable
+is absent. The reload regression re-normalizes a serialized historical response;
+it does not prove browser rendering or server persistence.
+
+Performance: code-path audit confirms constant-time field validation/conversion
+per message, retaining the existing linear traversal and final-message lookup.
+No requests, session-file reads, polling, cache changes, dependencies, or UI
+changes were added. Browser latency was not measured.

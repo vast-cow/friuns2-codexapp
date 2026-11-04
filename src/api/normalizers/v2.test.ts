@@ -200,3 +200,57 @@ it('only stamps the completed answer and never substitutes thread activity time'
   messages = normalizeThreadMessagesV2(payload)
   expect(messages[2]?.completedAt).toBeUndefined()
 })
+
+function timedResponse() {
+  const payload = threadReadResponseWithContent([
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'hello', text_elements: [] }] },
+    { type: 'agentMessage', id: 'progress', text: 'Working' },
+    { type: 'agentMessage', id: 'final', text: 'Done' },
+  ])
+  Object.assign(payload.thread, { historyMode: 'paginated', cliVersion: '0.166.0' })
+  Object.assign(payload.thread.turns[0]!, { startedAt: 1793800494, completedAt: '2026-11-04T13:54:59.257Z' })
+  const items = payload.thread.turns[0]!.items
+  Object.assign(items[0]!, { startedAtMs: 1793800496289, completedAtMs: 1793800496289 })
+  Object.assign(items[1]!, { phase: 'commentary', completedAtMs: 1793800498000 })
+  Object.assign(items[2]!, { phase: 'final_answer', startedAtMs: 1793800498335, completedAtMs: 1793800499248 })
+  return payload
+}
+
+it('uses message milliseconds from paginated history and preserves them after reloading', () => {
+  const payload = timedResponse()
+  for (const response of [payload, JSON.parse(JSON.stringify(payload))]) {
+    const messages = normalizeThreadMessagesV2(response, 10)
+    expect(messages[0]?.submittedAt).toBe('2026-11-04T13:54:56.289Z')
+    expect(messages[1]?.completedAt).toBeUndefined()
+    expect(messages[2]?.completedAt).toBe('2026-11-04T13:54:59.248Z')
+  }
+})
+
+it.each([undefined, null, '', '1793800496289', 'invalid', NaN, Infinity, -1, 1.5, 8640000000000001, {}])(
+  'ignores malformed milliseconds (%s), falling back to valid timestamp evidence', (invalid) => {
+    const payload = timedResponse()
+    const items = payload.thread.turns[0]!.items
+    Object.assign(items[0]!, { startedAtMs: invalid })
+    expect(normalizeThreadMessagesV2(payload)[0]?.submittedAt).toBe('2026-11-04T13:54:56.289Z')
+    Object.assign(items[0]!, { completedAtMs: invalid, submittedAt: '2026-11-04T13:54:55Z' })
+    Object.assign(items[2]!, { completedAtMs: invalid, completedAt: '2026-11-04T13:54:58Z' })
+    let messages = normalizeThreadMessagesV2(payload)
+    expect(messages[0]?.submittedAt).toBe('2026-11-04T13:54:55.000Z')
+    expect(messages[2]?.completedAt).toBe('2026-11-04T13:54:58.000Z')
+    Object.assign(items[0]!, { submittedAt: 'bad' })
+    Object.assign(items[2]!, { completedAt: 'bad' })
+    Object.assign(payload.thread.turns[0]!, { completedAt: 'bad' })
+    messages = normalizeThreadMessagesV2(payload)
+    expect(messages[0]?.submittedAt).toBeUndefined()
+    expect(messages[2]?.completedAt).toBeUndefined()
+  },
+)
+
+it('suppresses completion timestamps for in-progress answers and trailing commentary', () => {
+  const payload = timedResponse()
+  payload.thread.turns[0]!.status = 'inProgress'
+  expect(normalizeThreadMessagesV2(payload)[2]?.completedAt).toBeUndefined()
+  payload.thread.turns[0]!.status = 'completed'
+  Object.assign(payload.thread.turns[0]!.items[2]!, { phase: 'commentary' })
+  expect(normalizeThreadMessagesV2(payload)[2]?.completedAt).toBeUndefined()
+})
