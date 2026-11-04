@@ -703,6 +703,9 @@
                 </div>
               </section>
 
+              <p v-if="formatMessageTimestamp(message.submittedAt || message.completedAt)" class="message-timestamp">
+                <time :datetime="message.submittedAt || message.completedAt">{{ message.role === 'user' ? 'Sent' : 'Answered' }}: {{ formatMessageTimestamp(message.submittedAt || message.completedAt) }}</time>
+              </p>
               <div
                 v-if="message.role === 'user' || showCopyResponseButton(message) || showEditMessageButton(message)"
                 class="message-toolbar"
@@ -948,6 +951,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { generationMetadataLabel } from '../../turnGenerationMetadata'
+import { formatMessageTimestamp } from '../../messageTimestamps'
 import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
 import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'

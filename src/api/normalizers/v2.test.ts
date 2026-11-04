@@ -184,3 +184,19 @@ describe('readThreadInProgressFromResponse', () => {
     expect(readThreadInProgressFromResponse(response)).toBe(true)
   })
 })
+
+it('only stamps the completed answer and never substitutes thread activity time', () => {
+  const payload = threadReadResponseWithContent([
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'hello', text_elements: [] }] },
+    { type: 'agentMessage', id: 'a', text: 'Working' },
+    { type: 'agentMessage', id: 'b', text: 'Done' },
+  ] as ThreadReadResponse['thread']['turns'][number]['items'])
+  Object.assign(payload.thread.turns[0]!, { submittedAt: '2026-11-05T00:12:00Z', completedAt: '2026-11-05T00:13:00Z' })
+  let messages = normalizeThreadMessagesV2(payload)
+  expect(messages[0]?.submittedAt).toBe('2026-11-05T00:12:00.000Z')
+  expect(messages[1]?.completedAt).toBeUndefined()
+  expect(messages[2]?.completedAt).toBe('2026-11-05T00:13:00.000Z')
+  payload.thread.turns[0]!.status = 'inProgress'
+  messages = normalizeThreadMessagesV2(payload)
+  expect(messages[2]?.completedAt).toBeUndefined()
+})

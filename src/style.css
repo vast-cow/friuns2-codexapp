@@ -1992,3 +1992,6 @@
 :root.dark .thread-goal-summary:focus-visible { outline-color: #93c5fd; }
 :root.dark .thread-goal-editor textarea { background: #0f172a; border-color: #475569; }
 :root.dark .thread-composer-active-mode { color: #93c5fd; }
+
+.message-timestamp { margin: 6px 0; font-size: 11px; line-height: 1.5; color: var(--text-muted, #64748b); overflow-wrap: anywhere; }
+:root.dark .message-timestamp { color: #94a3b8; }

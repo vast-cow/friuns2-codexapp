@@ -1,3 +1,4 @@
+import { readMessageTimestamp } from '../../messageTimestamps'
 import type {
   Thread,
   ThreadItem,
@@ -639,9 +640,15 @@ export function normalizeThreadMessagesV2(payload: ThreadReadResponse, baseTurnI
     const turnId = rawTurnId.length > 0 ? rawTurnId : undefined
     const generationMetadata = readGenerationMetadata((turn as Turn & { generationMetadata?: unknown }).generationMetadata)
     const items = Array.isArray(turn.items) ? turn.items : []
+    const lastAgentItem = items.filter(candidate => candidate.type === 'agentMessage').at(-1)
     for (const item of items) {
       for (const msg of toUiMessages(item)) {
-        messages.push({ ...msg, turnId, turnIndex, ...(msg.role === 'assistant' ? { generationMetadata } : {}) })
+        const timing = turn as Turn & { submittedAt?: unknown; completedAt?: unknown }
+        const itemTiming = item as ThreadItem & { submittedAt?: unknown; completedAt?: unknown }
+        const submittedAt = msg.role === 'user' ? readMessageTimestamp(itemTiming.submittedAt ?? timing.submittedAt) : undefined
+        const completedAt = msg.role === 'assistant' && item.type === 'agentMessage' && item === lastAgentItem && turn.status === 'completed'
+          ? readMessageTimestamp(itemTiming.completedAt ?? timing.completedAt) : undefined
+        messages.push({ ...msg, submittedAt, completedAt, turnId, turnIndex, ...(msg.role === 'assistant' ? { generationMetadata } : {}) })
       }
     }
     const errorText = readTurnErrorText(turn)

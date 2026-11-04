@@ -667,6 +667,8 @@ function areMessageFieldsEqual(first: UiMessage, second: UiMessage): boolean {
     first.id === second.id &&
     first.role === second.role &&
     first.text === second.text &&
+    first.submittedAt === second.submittedAt &&
+    first.completedAt === second.completedAt &&
     areStringArraysEqual(first.images, second.images) &&
     areUiFileChangesEqual(first.fileChanges, second.fileChanges) &&
     first.fileChangeStatus === second.fileChangeStatus &&

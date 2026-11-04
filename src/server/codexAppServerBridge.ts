@@ -1,3 +1,4 @@
+import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
 import { normalizeQueuedGenerationSettings, normalizeQueueProvider, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
@@ -278,6 +279,7 @@ type SessionSkillInputCacheEntry = {
   mtimeMs: number
   skillsByTurnId: Map<string, SessionRecoveredSkillInput[]>
   generationByTurnId: Map<string, TurnGenerationMetadata>
+  messageTimes: ReturnType<typeof sessionMessageTimes>
   forkedFromId: string
 }
 
@@ -355,6 +357,7 @@ async function readCachedSessionDetails(sessionPath: string): Promise<SessionSki
     size: sessionStat.size,
     mtimeMs: sessionStat.mtimeMs,
     skillsByTurnId,
+    messageTimes: sessionMessageTimes(sessionLogRaw),
     generationByTurnId: sessionGenerationMetadataCache.readRaw(sessionPath, sessionLogRaw,
       `${sessionStat.dev}:${sessionStat.ino}`, `${sessionStat.size}:${sessionStat.mtimeMs}`),
     forkedFromId: readSessionForkParent(sessionLogRaw),
@@ -468,6 +471,7 @@ async function mergeSessionSkillInputsIntoThreadResult(result: unknown): Promise
     try {
       const details = await readCachedSessionDetails(sessionPath)
       mergedTurns = mergeSessionSkillInputsIntoTurnsFromMap(turns, details.skillsByTurnId)
+      mergedTurns = mergeMessageTimes(mergedTurns, details.messageTimes)
       execution = details.generationByTurnId
     } catch { /* Submitted metadata is still available without a session log. */ }
   }
@@ -8273,6 +8277,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             try {
               const sessionLogRaw = await readFile(sessionPath, 'utf8')
               turns = mergeSessionCommandsIntoTurns(turns, sessionLogRaw)
+              turns = mergeMessageTimes(turns, sessionMessageTimes(sessionLogRaw))
               execution = sessionGenerationMetadataCache.readRaw(sessionPath, sessionLogRaw, sessionIdentity, sessionSignature)
             } catch {
               // Session log not available — continue without command recovery

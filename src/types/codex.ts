@@ -205,6 +205,8 @@ export type UiPlanData = {
 }
 
 export type UiMessage = {
+  submittedAt?: string
+  completedAt?: string
   generationMetadata?: import('../turnGenerationMetadata').TurnGenerationMetadata
   id: string
   role: 'user' | 'assistant' | 'system'

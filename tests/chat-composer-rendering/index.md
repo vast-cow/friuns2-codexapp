@@ -45,3 +45,4 @@ Return to the [manual test index](../../tests.md).
 | [New chat live thinking and stop controls](new-chat-live-thinking-and-stop-controls.md) |
 | [Bold URL trailing punctuation parsing](bold-url-trailing-punctuation-parsing.md) |
 | [Thread goals and slash commands](thread-goals-and-slash-commands.md) |
+| [Prompt and answer timestamps](message-timestamps.md) |
