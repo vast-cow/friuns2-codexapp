@@ -103,7 +103,6 @@ function resolveViteRollbackDebugFallback(): string {
 const viteRollbackDebugFallback = resolveViteRollbackDebugFallback();
 
 export default defineConfig({
-  build: { manifest: true },
   define: {
     "import.meta.env.VITE_WORKTREE_NAME": JSON.stringify(worktreeName),
     "import.meta.env.VITE_APP_VERSION": JSON.stringify(appVersion),

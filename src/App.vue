@@ -107,7 +107,418 @@
               class="sidebar-settings-panel"
               @click.stop
             >
-              <SettingsContent :context="settingsContext" />
+              <div class="sidebar-settings-account-section">
+                <div class="sidebar-settings-account-header">
+                  <div class="sidebar-settings-account-header-main">
+                    <button
+                      class="sidebar-settings-account-collapse"
+                      type="button"
+                      :aria-expanded="!isAccountsSectionCollapsed"
+                      :title="isAccountsSectionCollapsed ? t('Expand accounts') : t('Collapse accounts')"
+                      @click="toggleAccountsSectionCollapsed"
+                    >
+                      <span class="sidebar-settings-account-collapse-icon">{{ isAccountsSectionCollapsed ? '▸' : '▾' }}</span>
+                    </button>
+                    <span class="sidebar-settings-account-title">{{ t('Accounts') }}</span>
+                    <span class="sidebar-settings-account-count">{{ accounts.length }}</span>
+                  </div>
+                  <button
+                    class="sidebar-settings-account-refresh"
+                    type="button"
+                    :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
+                    @click="onRefreshAccounts"
+                  >
+                    {{ isRefreshingAccounts ? t('Reloading…') : t('Reload') }}
+                  </button>
+                </div>
+                <template v-if="!isAccountsSectionCollapsed">
+                  <div v-if="accountActionError" class="sidebar-settings-account-error visible-error-with-feedback">
+                    <span>{{ accountActionError }}</span>
+                    <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, accountActionError)">{{ t('Send feedback') }}</a>
+                  </div>
+                  <div class="sidebar-settings-account-login">
+                    <button
+                      class="sidebar-settings-account-login-button"
+                      type="button"
+                      :disabled="isRefreshingAccounts || isSwitchingAccounts || isStartingCodexLogin || isCompletingCodexLogin"
+                      @click="onStartCodexLogin"
+                    >
+                      {{ isStartingCodexLogin ? t('Starting login…') : t('Login') }}
+                    </button>
+                    <a
+                      v-if="codexLoginUrl"
+                      class="sidebar-settings-account-login-link"
+                      :href="codexLoginUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {{ t('Open login URL') }}
+                    </a>
+                  </div>
+                  <p v-if="accounts.length === 0" class="sidebar-settings-account-empty">
+                    {{ t('Click Login, or run `codex login`, then click reload.') }}
+                  </p>
+                  <div v-else class="sidebar-settings-account-list">
+                  <article
+                    v-for="account in accounts"
+                    :key="account.storageId"
+                    class="sidebar-settings-account-item"
+                    :class="{
+                      'is-active': account.isActive,
+                      'is-unavailable': isAccountUnavailable(account),
+                      'is-confirming-remove': isRemoveConfirmationActive(account),
+                      'is-remove-visible': isRemoveVisible(account),
+                    }"
+                    :title="buildAccountTitle(account)"
+                    @mouseenter="onAccountCardPointerEnter(account.storageId)"
+                    @mouseleave="onAccountCardPointerLeave(account.storageId)"
+                  >
+                    <div class="sidebar-settings-account-main">
+                      <p class="sidebar-settings-account-email">{{ account.email || t('Account') }}</p>
+                      <p class="sidebar-settings-account-meta">
+                        {{ formatAccountMeta(account) }}
+                      </p>
+                      <p class="sidebar-settings-account-quota">
+                        {{ formatAccountQuota(account) }}
+                      </p>
+                      <p class="sidebar-settings-account-id">
+                        <template v-if="account.credentialSource === 'runtime'">{{ t('Active Codex login') }}</template>
+                        <template v-else>Workspace {{ shortAccountId(account.accountId) }}</template>
+                      </p>
+                      <p v-if="account.managementReason" class="sidebar-settings-account-meta">
+                        {{ account.managementReason }}
+                      </p>
+                    </div>
+                    <div class="sidebar-settings-account-actions">
+                      <button
+                        class="sidebar-settings-account-switch"
+                        type="button"
+                        :disabled="isAccountActionDisabled(account) || account.canSwitch === false || account.isActive || isAccountUnavailable(account)"
+                        :title="account.managementReason || undefined"
+                        @click="onSwitchAccount(account.storageId)"
+                      >
+                        {{ getAccountSwitchLabel(account) }}
+                      </button>
+                      <button
+                        class="sidebar-settings-account-remove"
+                        :class="{
+                          'is-visible': isRemoveVisible(account),
+                          'is-confirming': isRemoveConfirmationActive(account),
+                        }"
+                        type="button"
+                        :disabled="isAccountActionDisabled(account) || account.canRemove === false"
+                        :title="account.managementReason || undefined"
+                        @click="onRemoveAccount(account.storageId)"
+                      >
+                        {{ getAccountRemoveLabel(account) }}
+                      </button>
+                    </div>
+                  </article>
+                  </div>
+                </template>
+              </div>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
+                <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
+                <span class="sidebar-settings-label">{{ t('When busy, send as') }}</span>
+                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? t('Steer') : t('Queue') }}</span>
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
+                <span class="sidebar-settings-label">{{ t('Appearance') }}</span>
+                <span class="sidebar-settings-value">{{ darkMode === 'system' ? t('System') : darkMode === 'dark' ? t('Dark') : t('Light') }}</span>
+              </button>
+              <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the interface language for the app.')">
+                <span class="sidebar-settings-label">{{ t('UI language') }}</span>
+                <ComposerDropdown
+                  class="sidebar-settings-provider-dropdown"
+                  :model-value="uiLanguage"
+                  :options="uiLanguageOptions"
+                  :placeholder="t('UI language')"
+                  menu-align="end"
+                  @update:model-value="setUiLanguage($event as 'en' | 'zh-CN')"
+                />
+              </div>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.chatWidth" @click="cycleChatWidth">
+                <span class="sidebar-settings-label">{{ t('Chat width') }}</span>
+                <span class="sidebar-settings-value">{{ chatWidthLabel }}</span>
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationClickToToggle" @click="toggleDictationClickToToggle">
+                <span class="sidebar-settings-label">{{ t('Click to toggle dictation') }}</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationClickToToggle }" />
+              </button>
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationAutoSend" @click="toggleDictationAutoSend">
+                <span class="sidebar-settings-label">{{ t('Auto send dictation') }}</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationAutoSend }" />
+              </button>
+              <a
+                v-if="hasVisibleFeedbackError"
+                class="sidebar-settings-row sidebar-settings-feedback-row"
+                :href="feedbackMailto"
+                @click="prepareFeedbackLink"
+              >
+                <span class="sidebar-settings-label">{{ t('Send feedback') }}</span>
+                <span class="sidebar-settings-value">{{ t('Issue detected') }}</span>
+              </a>
+
+              <div class="sidebar-settings-row sidebar-settings-row--select" :title="t('Choose the API provider for the Codex backend')">
+                <span class="sidebar-settings-label">{{ t('Provider') }}</span>
+                <ComposerDropdown
+                  class="sidebar-settings-provider-dropdown"
+                  :model-value="selectedProvider"
+                  :options="providerDropdownOptions"
+                  :placeholder="t('Provider')"
+                  :disabled="freeModeLoading"
+                  menu-align="end"
+                  @update:model-value="onProviderChange"
+                />
+              </div>
+              <div v-if="providerError" class="sidebar-settings-row sidebar-settings-error">
+                <span>{{ providerError }}</span>
+                <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, providerError)">{{ t('Send feedback') }}</a>
+              </div>
+              <div v-if="selectedProvider === 'openrouter'" class="sidebar-settings-row sidebar-settings-row--input">
+                <div class="sidebar-settings-provider-info">
+                  <span class="sidebar-settings-label">{{ t('OpenRouter API key') }}</span>
+                  <a
+                    class="sidebar-settings-provider-link"
+                    href="https://openrouter.ai/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ t('Get API key') }}</a>
+                </div>
+                <div class="sidebar-settings-key-group">
+                  <template v-if="freeModeHasCustomKey && !freeModeCustomKey">
+                    <span class="sidebar-settings-key-masked">{{ freeModeCustomKeyMasked }}</span>
+                    <button
+                      class="sidebar-settings-key-clear"
+                      type="button"
+                      :disabled="freeModeCustomKeySaving"
+                      :title="t('Remove custom key, use community keys')"
+                      @click="clearFreeModeCustomKey"
+                    >&#x2715;</button>
+                  </template>
+                  <template v-else>
+                    <input
+                      v-model="freeModeCustomKey"
+                      class="sidebar-settings-key-input"
+                      type="password"
+                      :placeholder="t('sk-or-v1-... (optional, uses free keys if empty)')"
+                      @keydown.enter="saveFreeModeCustomKey"
+                    />
+                    <button
+                      class="sidebar-settings-key-save"
+                      type="button"
+                      :disabled="freeModeCustomKeySaving || !freeModeCustomKey.trim()"
+                      @click="saveFreeModeCustomKey"
+                    >{{ freeModeCustomKeySaving ? '...' : t('Set') }}</button>
+                  </template>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--select" style="margin-top: 4px; padding: 0">
+                  <span class="sidebar-settings-label">{{ t('API format') }}</span>
+                  <div class="sidebar-settings-segmented" role="group" :aria-label="t('OpenRouter API format')">
+                    <button
+                      type="button"
+                      class="sidebar-settings-segmented-option"
+                      :class="{ 'is-active': openRouterWireApi === 'responses' }"
+                      :disabled="freeModeCustomKeySaving || freeModeLoading"
+                      @click="setOpenRouterWireApi('responses')"
+                    >
+                      Responses
+                    </button>
+                    <button
+                      type="button"
+                      class="sidebar-settings-segmented-option"
+                      :class="{ 'is-active': openRouterWireApi === 'chat' }"
+                      :disabled="freeModeCustomKeySaving || freeModeLoading"
+                      @click="setOpenRouterWireApi('chat')"
+                    >
+                      Completions
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="selectedProvider === 'opencode-zen'" class="sidebar-settings-row sidebar-settings-row--input">
+                <div class="sidebar-settings-provider-info">
+                  <span class="sidebar-settings-label">{{ t('OpenCode Zen API key') }}</span>
+                  <a
+                    class="sidebar-settings-provider-link"
+                    href="https://opencode.ai/auth"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ t('Get API key') }}</a>
+                </div>
+                <div class="sidebar-settings-key-group">
+                  <input
+                    v-model="opencodeZenKey"
+                    class="sidebar-settings-key-input"
+                    type="password"
+                    :placeholder="t('sk-...')"
+                    @keydown.enter="saveOpencodeZen"
+                  />
+                  <button
+                    class="sidebar-settings-key-save"
+                    type="button"
+                    :disabled="freeModeCustomKeySaving || !opencodeZenKey.trim()"
+                    @click="saveOpencodeZen"
+                  >{{ freeModeCustomKeySaving ? '...' : t('Save') }}</button>
+                </div>
+              </div>
+              <div v-if="selectedProvider === 'custom'" class="sidebar-settings-row sidebar-settings-row--input">
+                <span class="sidebar-settings-label">{{ t('Custom endpoint URL') }}</span>
+                <div class="sidebar-settings-key-group">
+                  <input
+                    v-model="customEndpointUrl"
+                    class="sidebar-settings-key-input"
+                    type="url"
+                    :placeholder="t('https://api.example.com/v1')"
+                    @keydown.enter="saveCustomEndpoint"
+                  />
+                </div>
+                <span class="sidebar-settings-label" style="margin-top: 4px">{{ t('API key') }}</span>
+                <div class="sidebar-settings-key-group">
+                  <input
+                    v-model="customEndpointKey"
+                    class="sidebar-settings-key-input"
+                    type="password"
+                    :placeholder="t('Bearer token (optional)')"
+                    @keydown.enter="saveCustomEndpoint"
+                  />
+                  <button
+                    class="sidebar-settings-key-save"
+                    type="button"
+                    :disabled="freeModeCustomKeySaving || !customEndpointUrl.trim()"
+                    @click="saveCustomEndpoint"
+                  >{{ freeModeCustomKeySaving ? '...' : t('Save') }}</button>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--select" style="margin-top: 4px; padding: 0">
+                  <span class="sidebar-settings-label">{{ t('API format') }}</span>
+                  <div class="sidebar-settings-segmented" role="group" :aria-label="t('Custom endpoint API format')">
+                    <button
+                      type="button"
+                      class="sidebar-settings-segmented-option"
+                      :class="{ 'is-active': customEndpointWireApi === 'responses' }"
+                      @click="customEndpointWireApi = 'responses'"
+                    >
+                      Responses
+                    </button>
+                    <button
+                      type="button"
+                      class="sidebar-settings-segmented-option"
+                      :class="{ 'is-active': customEndpointWireApi === 'chat' }"
+                      @click="customEndpointWireApi = 'chat'"
+                    >
+                      Completions
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
+                <span class="sidebar-settings-label">{{ t('Dictation language') }}</span>
+                <ComposerDropdown
+                  class="sidebar-settings-language-dropdown"
+                  :model-value="dictationLanguage"
+                  :options="dictationLanguageOptions"
+                  :placeholder="t('Auto-detect')"
+                  open-direction="up"
+                  :enable-search="true"
+                  :search-placeholder="t('Search language...')"
+                  @update:model-value="onDictationLanguageChange"
+                />
+              </div>
+              <button class="sidebar-settings-row" type="button" aria-live="polite" @click="toggleTelegramConfig">
+                <span class="sidebar-settings-label">{{ t('Telegram') }}</span>
+                <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
+              </button>
+              <div v-if="isTelegramConfigOpen" class="sidebar-settings-telegram-panel">
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('Bot token') }}</span>
+                  <input
+                    v-model="telegramBotTokenDraft"
+                    class="sidebar-settings-input"
+                    type="password"
+                    placeholder="123456:ABCDEF"
+                    autocomplete="off"
+                    spellcheck="false"
+                  >
+                </label>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('Allowed Telegram user IDs') }}</span>
+                  <textarea
+                    v-model="telegramAllowedUserIdsDraft"
+                    class="sidebar-settings-textarea"
+                    rows="3"
+                    placeholder="123456789&#10;987654321"
+                    spellcheck="false"
+                  />
+                </label>
+                <div class="sidebar-settings-field-help">
+                  {{ t('Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.') }}
+                </div>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label inline-flex items-center gap-1"><input v-model="telegramNotifyEnabledDraft" type="checkbox" />{{ t('All completed tasks') }}</span>
+                </label>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('Private notification chat ID') }}</span>
+                  <input v-model="telegramNotifyChatIdDraft" class="sidebar-settings-input" type="text" inputmode="numeric" placeholder="123456789" />
+                </label>
+                <label class="sidebar-settings-field">
+                  <span class="sidebar-settings-field-label">{{ t('App URL reachable from your phone') }}</span>
+                  <input v-model="telegramAppUrlDraft" class="sidebar-settings-input" type="url" placeholder="https://your-app.example" />
+                </label>
+                <p class="sidebar-settings-field-help">{{ t('Notifies successful turns observed by this running backend. Use /notify on or /notify off in a private bot chat. A finished turn does not guarantee the whole task succeeded.') }}</p>
+                <div class="sidebar-settings-field-help" role="status">
+                  <p>{{ t('Notification status') }}: {{ telegramNotificationStatusText }}</p>
+                  <p v-if="telegramStatus.notification?.lastTestAt">{{ t('Last test') }}: {{ new Date(telegramStatus.notification.lastTestAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.lastSuccessAt">{{ t('Last notification sent') }}: {{ new Date(telegramStatus.notification.lastSuccessAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.lastFailureAt">{{ t('Last notification failure') }}: {{ new Date(telegramStatus.notification.lastFailureAt).toLocaleString() }}</p>
+                  <p v-if="telegramStatus.notification?.pendingCount">{{ t('Pending notifications') }}: {{ telegramStatus.notification.pendingCount }} ({{ t('retrying') }}: {{ telegramStatus.notification.retryingCount }})</p>
+                  <p v-if="telegramStatus.notification?.lastError">{{ t('Notification delivery failed') }}: {{ telegramStatus.notification.lastError }}</p>
+                  <template v-if="telegramStatus.notification?.lastTestResult === 'failure'">
+                    <p>{{ t('Check the bot token, chat ID, network connection, DNS, and proxy settings.') }}</p>
+                    <p>{{ t('Technical details') }}: {{ telegramStatus.notification.lastTestError }}</p>
+                  </template>
+                  <p v-if="telegramTestUnavailable">{{ telegramTestUnavailable }}</p>
+                  <p v-if="telegramTestError">{{ telegramTestError }}</p>
+                  <p>{{ t('A successful test means Telegram accepted the message; it does not guarantee display on your device.') }}</p>
+                </div>
+                <button class="sidebar-settings-telegram-save" type="button" :disabled="Boolean(telegramTestUnavailable)" @click="sendTelegramTest">
+                  {{ isTelegramTesting ? t('Sending test notification…') : telegramStatus.notification?.lastTestResult === 'failure' ? t('Retry Test Notification') : t('Send Test Notification') }}
+                </button>
+                <div v-if="telegramConfigError" class="sidebar-settings-telegram-error">
+                  <span>{{ telegramConfigError }}</span>
+                  <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, telegramConfigError)">{{ t('Send feedback') }}</a>
+                </div>
+                <div class="sidebar-settings-telegram-actions">
+                  <button
+                    class="sidebar-settings-telegram-save"
+                    type="button"
+                    :disabled="isTelegramSaving"
+                    @click="saveTelegramConfig"
+                  >
+                    {{ isTelegramSaving ? t('Saving…') : t('Save Telegram config') }}
+                  </button>
+                </div>
+              </div>
+              <div
+                v-if="showThreadContextBadge"
+                class="sidebar-settings-row sidebar-settings-context-row"
+                :data-state="threadContextBadgeState"
+                :title="threadContextTooltip"
+              >
+                <span class="sidebar-settings-label">{{ t('Context') }}</span>
+                <span class="sidebar-settings-context-value" :data-state="threadContextBadgeState">
+                  {{ threadContextPrimaryText }}
+                  <span class="sidebar-settings-context-meta">{{ threadContextSecondaryText }}</span>
+                </span>
+              </div>
+              <div class="sidebar-settings-rate-limits">
+                <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
+              </div>
+              <div class="sidebar-settings-build-label" :aria-label="t('Worktree name and version')">
+                WT {{ worktreeName }} · v{{ appVersion }}
+              </div>
             </div>
           </Transition>
           <button
@@ -253,8 +664,231 @@
                     @change="onDirectProjectImportFileChange"
                   />
                 </div>
-
-
+                <Teleport to="body">
+                  <div v-if="isExistingFolderPickerOpen" class="new-thread-open-folder-overlay" @click.self="onCloseExistingFolderPanel">
+                    <div class="new-thread-open-folder" role="dialog" aria-modal="true" :aria-label="t('Select folder')" @keydown.esc.prevent="onCloseExistingFolderPanel">
+                      <div class="new-thread-open-folder-header">
+                        <p class="new-thread-open-folder-title">{{ t('Select folder') }}</p>
+                        <button class="new-thread-open-folder-close" type="button" @click="onCloseExistingFolderPanel">
+                          {{ t('Cancel') }}
+                        </button>
+                      </div>
+                      <p class="new-thread-open-folder-label">{{ t('Current folder') }}</p>
+                      <div class="new-thread-open-folder-current">
+                        <input
+                          ref="existingFolderPathInputRef"
+                          v-model="existingFolderPathDraft"
+                          class="new-thread-open-folder-path"
+                          type="text"
+                          :placeholder="t('Current folder')"
+                          :title="existingFolderPathDraft || t('Unavailable')"
+                          :disabled="isExistingFolderLoading || isOpeningExistingFolder"
+                          @keydown.enter.prevent="onRetryExistingFolderBrowse"
+                          @keydown.esc.prevent="onCloseExistingFolderPanel"
+                        />
+                      </div>
+                      <div class="new-thread-open-folder-actions">
+                        <button
+                          class="new-thread-folder-action"
+                          type="button"
+                          :disabled="!resolvedExistingFolderPath || isExistingFolderLoading || isOpeningExistingFolder"
+                          @click="onRetryExistingFolderBrowse"
+                        >
+                          {{ t('Browse') }}
+                        </button>
+                        <button
+                          class="new-thread-folder-action new-thread-folder-action-primary"
+                          type="button"
+                          :disabled="!resolvedExistingFolderPath || isExistingFolderLoading || isOpeningExistingFolder"
+                          @click="onConfirmExistingFolder()"
+                        >
+                          {{ isOpeningExistingFolder ? t('Opening…') : t('Select') }}
+                        </button>
+                      </div>
+                      <div class="new-thread-open-folder-actions">
+                        <label class="new-thread-open-folder-toggle">
+                          <input
+                            v-model="showHiddenFolders"
+                            class="new-thread-open-folder-toggle-input"
+                            type="checkbox"
+                            @change="onToggleHiddenFolders"
+                          />
+                          <span>{{ t('Show hidden folders') }}</span>
+                        </label>
+                        <button
+                          class="new-thread-folder-action"
+                          :class="{ 'new-thread-folder-action-primary': isCreateFolderOpen }"
+                          type="button"
+                          :aria-pressed="isCreateFolderOpen"
+                          :disabled="!existingFolderBrowsePath || isExistingFolderLoading || isOpeningExistingFolder || isCreatingFolder || (!!existingFolderError && !isCreateFolderOpen)"
+                          @click="onOpenCreateFolderPanel"
+                        >
+                          {{ t('New folder') }}
+                        </button>
+                      </div>
+                      <div v-if="isCreateFolderOpen" class="new-thread-open-folder-create">
+                        <div class="new-thread-open-folder-create-composer">
+                          <input
+                            ref="createFolderInputRef"
+                            v-model="createFolderDraft"
+                            class="new-thread-open-folder-create-input"
+                            type="text"
+                            :placeholder="t('Folder name')"
+                            @keydown.enter.prevent="onCreateFolder"
+                            @keydown.esc.prevent="onCloseCreateFolderPanel"
+                          />
+                          <button
+                            class="new-thread-folder-action new-thread-folder-action-primary new-thread-open-folder-create-submit"
+                            type="button"
+                            :disabled="!canCreateFolder || isCreatingFolder"
+                            @click="onCreateFolder"
+                          >
+                            {{ createFolderSubmitLabel }}
+                          </button>
+                        </div>
+                        <div v-if="createFolderError" class="new-thread-open-folder-error visible-error-with-feedback">
+                          <span>{{ createFolderError }}</span>
+                          <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, createFolderError)">{{ t('Send feedback') }}</a>
+                        </div>
+                      </div>
+                      <input
+                        ref="existingFolderFilterInputRef"
+                        v-model="existingFolderFilter"
+                        class="new-thread-open-folder-filter"
+                        type="text"
+                        :placeholder="t('Filter folders...')"
+                        @keydown.esc.prevent="onCloseExistingFolderPanel"
+                      />
+                      <div v-if="existingFolderError" class="new-thread-open-folder-error-actions">
+                        <div class="new-thread-open-folder-error visible-error-with-feedback">
+                          <span>{{ existingFolderError }}</span>
+                          <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, existingFolderError)">{{ t('Send feedback') }}</a>
+                        </div>
+                        <button
+                          class="new-thread-folder-action"
+                          type="button"
+                          :disabled="isExistingFolderLoading || isOpeningExistingFolder"
+                          @click="onRetryExistingFolderBrowse"
+                        >
+                          {{ t('Retry') }}
+                        </button>
+                      </div>
+                      <p v-if="isExistingFolderLoading" class="new-thread-open-folder-status">{{ t('Loading folders…') }}</p>
+                      <p v-else-if="!existingFolderError && existingFolderFilteredEntries.length === 0" class="new-thread-open-folder-status">
+                        {{ existingFolderFilter.trim() ? t('No folders match this filter.') : t('No subfolders found here.') }}
+                      </p>
+                      <ul v-else-if="existingFolderFilteredEntries.length > 0" class="new-thread-open-folder-list">
+                        <li v-for="entry in existingFolderFilteredEntries" :key="entry.key" class="new-thread-open-folder-item">
+                          <button
+                            class="new-thread-open-folder-item-main"
+                            type="button"
+                            :title="entry.path"
+                            :disabled="isExistingFolderLoading || isOpeningExistingFolder"
+                            @click="onBrowseExistingFolder(entry.path)"
+                          >
+                            <span class="new-thread-open-folder-item-name">{{ entry.name }}</span>
+                          </button>
+                          <button
+                            v-if="entry.kind === 'directory'"
+                            class="new-thread-open-folder-item-open"
+                            type="button"
+                            :disabled="isExistingFolderLoading || isOpeningExistingFolder"
+                            @click="onConfirmExistingFolder(entry.path)"
+                          >
+                            {{ t('Select') }}
+                          </button>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </Teleport>
+                <Teleport to="body">
+                  <div v-if="isProjectSetupModalOpen" class="new-thread-open-folder-overlay" @click.self="onCloseProjectSetupModal">
+                    <div class="new-thread-project-modal" role="dialog" aria-modal="true" :aria-label="t('Create or clone project')" @keydown.esc.prevent="onCloseProjectSetupModal">
+                      <div class="new-thread-open-folder-header">
+                        <p class="new-thread-open-folder-title">{{ t('Create or clone project') }}</p>
+                        <button class="new-thread-open-folder-close" type="button" :disabled="isProjectSetupSubmitting" @click="onCloseProjectSetupModal">
+                          {{ t('Cancel') }}
+                        </button>
+                      </div>
+                      <div class="new-thread-project-mode-tabs" role="tablist" :aria-label="t('Project source')">
+                        <button
+                          class="new-thread-project-mode-tab"
+                          :class="{ 'is-active': projectSetupMode === 'create' }"
+                          type="button"
+                          role="tab"
+                          :aria-selected="projectSetupMode === 'create'"
+                          :disabled="isProjectSetupSubmitting"
+                          @click="projectSetupMode = 'create'"
+                        >
+                          {{ t('New project') }}
+                        </button>
+                        <button
+                          class="new-thread-project-mode-tab"
+                          :class="{ 'is-active': projectSetupMode === 'clone' }"
+                          type="button"
+                          role="tab"
+                          :aria-selected="projectSetupMode === 'clone'"
+                          :disabled="isProjectSetupSubmitting"
+                          @click="projectSetupMode = 'clone'"
+                        >
+                          {{ t('Clone from GitHub') }}
+                        </button>
+                      </div>
+                      <label class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('Destination folder') }}</span>
+                        <input
+                          v-model="projectSetupBaseDir"
+                          class="new-thread-open-folder-path"
+                          type="text"
+                          :disabled="isProjectSetupSubmitting"
+                          :placeholder="t('Destination folder')"
+                        />
+                      </label>
+                      <label v-if="projectSetupMode === 'create'" class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('Project name') }}</span>
+                        <input
+                          ref="projectSetupPrimaryInputRef"
+                          v-model="projectNameDraft"
+                          class="new-thread-open-folder-create-input"
+                          type="text"
+                          :disabled="isProjectSetupSubmitting"
+                          :placeholder="t('Project name')"
+                          @keydown.enter.prevent="onSubmitProjectSetup"
+                        />
+                      </label>
+                      <label v-else-if="projectSetupMode === 'clone'" class="new-thread-project-field">
+                        <span class="new-thread-open-folder-label">{{ t('GitHub repository URL') }}</span>
+                        <input
+                          ref="projectSetupPrimaryInputRef"
+                          v-model="githubCloneUrlDraft"
+                          class="new-thread-open-folder-create-input"
+                          type="url"
+                          :disabled="isProjectSetupSubmitting"
+                          placeholder="https://github.com/owner/repo"
+                          @keydown.enter.prevent="onSubmitProjectSetup"
+                        />
+                      </label>
+                      <div v-if="projectSetupError" class="new-thread-open-folder-error visible-error-with-feedback">
+                        <span>{{ projectSetupError }}</span>
+                        <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, projectSetupError)">{{ t('Send feedback') }}</a>
+                      </div>
+                      <div class="new-thread-project-modal-actions">
+                        <button class="new-thread-folder-action" type="button" :disabled="isProjectSetupSubmitting" @click="onCloseProjectSetupModal">
+                          {{ t('Cancel') }}
+                        </button>
+                        <button
+                          class="new-thread-folder-action new-thread-folder-action-primary"
+                          type="button"
+                          :disabled="!canSubmitProjectSetup || isProjectSetupSubmitting"
+                          @click="onSubmitProjectSetup"
+                        >
+                          {{ projectSetupSubmitLabel }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </Teleport>
                 <ComposerRuntimeDropdown
                   v-if="isNewThreadCwdGitRepo"
                   class="new-thread-runtime-dropdown"
@@ -337,7 +971,7 @@
               </div>
             </div>
           </template>
-          <template v-else-if="route.name === 'thread'">
+          <template v-else>
             <div class="content-grid">
               <ReviewPane
                 v-if="isReviewPaneOpen && selectedThreadId && composerCwd"
@@ -370,7 +1004,6 @@
                     <a class="visible-error-feedback" :href="feedbackMailto" @click="prepareFeedbackLink($event, codexCliMissingError)">{{ t('Send feedback') }}</a>
                   </div>
                   <QueuedMessages
-                    v-if="selectedThreadQueuedMessages.length > 0"
                     :messages="selectedThreadQueuedMessages"
                     @edit="onEditQueuedMessage"
                     @steer="steerQueuedMessage"
@@ -425,7 +1058,7 @@
                     @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
                     @update:selected-reasoning-effort="onSelectReasoningEffort"
                     @update:selected-speed-mode="onSelectSpeedMode"
-                    @edit-goal="pendingGoalEdit = route.fullPath"
+                    @edit-goal="threadGoalPanelRef?.edit()"
                     @interrupt="onInterruptTurn" />
                 </div>
               </template>
@@ -435,9 +1068,46 @@
       </section>
     </template>
   </DesktopLayout>
-  <div v-if="projectLoadError" role="alert">{{ projectLoadError }} <button type="button" @click="retryProject">Retry</button></div>
-  <ProjectDialogs v-if="isExistingFolderPickerOpen || isProjectSetupModalOpen || projectZipExportStatus.phase !== 'idle'" :context="projectContext" />
-
+  <div v-if="projectZipExportStatus.phase !== 'idle'" class="project-zip-modal-backdrop" role="presentation">
+    <div class="project-zip-modal" role="dialog" aria-modal="true" :aria-label="t('Export Project')" @click.stop>
+      <div class="project-zip-modal-header">
+        <h2 class="project-zip-modal-title">{{ t('Export Project') }}</h2>
+        <button
+          class="project-zip-modal-close"
+          type="button"
+          :aria-label="t('Close')"
+          :disabled="projectZipExportStatus.phase === 'exporting'"
+          @click="onCloseProjectZipExportModal"
+        >
+          ×
+        </button>
+      </div>
+      <p class="project-zip-modal-copy">
+        {{ projectZipExportStatus.phase === 'exporting' ? t('Preparing project ZIP...') : projectZipExportStatus.fileName }}
+      </p>
+      <div class="project-zip-progress-label" role="status" aria-live="polite">
+        <span>{{ projectZipExportStatus.phase === 'exporting' ? t('Exporting') : t('Ready') }}</span>
+        <span>{{ projectZipProgressText }}</span>
+      </div>
+      <div class="project-zip-progress-track">
+        <div class="project-zip-progress-fill" :style="{ width: projectZipProgressWidth }" />
+      </div>
+      <p v-if="projectZipExportStatus.error" class="project-zip-modal-error" role="alert">
+        {{ projectZipExportStatus.error }}
+      </p>
+      <div class="project-zip-modal-actions">
+        <button class="project-zip-modal-cancel" type="button" :disabled="projectZipExportStatus.phase === 'exporting'" @click="onCloseProjectZipExportModal">
+          {{ t('Close') }}
+        </button>
+        <button class="project-zip-modal-action" type="button" :disabled="!projectZipExportStatus.blob" @click="onDownloadProjectZipExport">
+          {{ t('Download') }}
+        </button>
+        <button class="project-zip-modal-action project-zip-modal-action-primary" type="button" :disabled="!projectZipExportStatus.blob" @click="onShareProjectZipExport">
+          {{ t('Share') }}
+        </button>
+      </div>
+    </div>
+  </div>
   <div
     v-if="isCodexLoginModalOpen"
     class="codex-login-modal-backdrop"
@@ -511,42 +1181,69 @@
 </template>
 
 <script setup lang="ts">
-import { deferredActions } from './features/deferredActions'
-import { lazyFeature } from './features/lazyFeature'
-import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
-import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
-import ComposerDropdown from './components/content/ComposerDropdown.vue'
-import ContentHeader from './components/content/ContentHeader.vue'
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
-
-const ThreadGoalPanel = defineAsyncComponent(() => import('./components/content/ThreadGoalPanel.vue'))
+import ContentHeader from './components/content/ContentHeader.vue'
+import ThreadGoalPanel from './components/content/ThreadGoalPanel.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
-
+import QueuedMessages from './components/content/QueuedMessages.vue'
+import ComposerDropdown from './components/content/ComposerDropdown.vue'
+import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import IconTablerBolt from './components/icons/IconTablerBolt.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
-
+import IconTablerTerminal from './components/icons/IconTablerTerminal.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
 import { useUiLanguage } from './composables/useUiLanguage'
 import { useFeedbackDiagnostics } from './composables/useFeedbackDiagnostics'
-import { checkoutGitBranch, createPermanentWorktree, createWorktree, createProjectlessThreadDirectory, getGitBranchState, getGitBranchCommits, getGitCommitFiles, getGitRepositoryStatus, getReviewSummary, getWorktreeBranchOptions, getAccounts, completeCodexLogin, getHomeDirectory, getProjectRootSuggestion, getThreadTerminalQuickCommands, getThreadTerminalStatus, getWorkspaceRootsState, importProjectZip, openProjectRoot, refreshAccountsFromAuth, resetGitBranchToCommit, searchThreads } from './api/codexGateway'
-import type { ReasoningEffort, SpeedMode, UiAccountEntry, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
+import {
+  checkoutGitBranch,
+  cloneGithubRepository,
+  configureTelegramBot,
+  createPermanentWorktree,
+  createWorktree,
+  createProjectlessThreadDirectory,
+  downloadProjectZip,
+  getGitBranchState,
+  getGitBranchCommits,
+  getGitCommitFiles,
+  getGitRepositoryStatus,
+  getReviewSummary,
+  getWorktreeBranchOptions,
+  getAccounts,
+  completeCodexLogin,
+  createLocalDirectory,
+  getHomeDirectory,
+  getTelegramConfig,
+  getProjectRootSuggestion,
+  getTelegramStatus,
+  sendTelegramTestNotification,
+  getThreadTerminalQuickCommands,
+  getThreadTerminalStatus,
+  getWorkspaceRootsState,
+  importProjectZip,
+  listLocalDirectories,
+  openProjectRoot,
+  removeAccount,
+  refreshAccountsFromAuth,
+  resetGitBranchToCommit,
+  startCodexLogin,
+  searchThreads,
+  switchAccount,
+} from './api/codexGateway'
+import type { ReasoningEffort, SpeedMode, UiAccountEntry, UiRateLimitWindow, UiServerRequest, UiServerRequestReply, UiThreadAutomation, UiThreadTokenUsage } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { GitCommitFileChange, GitCommitOption, LocalDirectoryEntry, TelegramStatus, ThreadTerminalQuickCommand, WorktreeBranchOption } from './api/codexGateway'
-import { getFreeModeStatus } from './api/codexGateway'
+import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
 import { copyTextToClipboard } from './utils/clipboard'
 
 // Load conditional panels only when their existing v-if guards render them.
-// Queue controls are only needed once a thread has queued messages.
-const SettingsContent = lazyFeature(() => import('./features/SettingsContent.vue'))
-const QueuedMessages = defineAsyncComponent(() => import('./components/content/QueuedMessages.vue'))
 const RateLimitStatus = defineAsyncComponent(() => import('./components/content/RateLimitStatus.vue'))
 const ThreadPendingRequestPanel = defineAsyncComponent(() => import('./components/content/ThreadPendingRequestPanel.vue'))
 const HeaderGitBranchDropdown = defineAsyncComponent(() => import('./components/content/HeaderGitBranchDropdown.vue'))
@@ -826,15 +1523,6 @@ function prepareFeedbackLink(event: MouseEvent, message?: string): void {
 }
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadGoalPanelRef = ref<InstanceType<typeof ThreadGoalPanel> | null>(null)
-const pendingGoalEdit = ref('')
-watch([threadGoalPanelRef, () => route.fullPath, pendingGoalEdit], () => {
-  if (!pendingGoalEdit.value) return
-  if (pendingGoalEdit.value !== route.fullPath) { pendingGoalEdit.value = ''; return }
-  if (threadGoalPanelRef.value) {
-    pendingGoalEdit.value = ''
-    threadGoalPanelRef.value.edit()
-  }
-}, { flush: 'post' })
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)
 const homeTerminalPanelRef = ref<ThreadTerminalPanelExposed | null>(null)
@@ -1073,7 +1761,7 @@ let accountStatePollTimer: number | null = null
 let isAccountStatePollInFlight = false
 let externalCodexAuthAvailable = false
 let externalAuthImportAttempted = false
-const existingFolderBrowseRequestId = ref(0)
+let existingFolderBrowseRequestId = 0
 
 const routeThreadId = computed(() => {
   const rawThreadId = route.params.threadId
@@ -1472,6 +2160,8 @@ onMounted(() => {
   void loadHomeDirectory()
   void loadWorkspaceRootOptionsState()
   void refreshDefaultProjectName()
+  void refreshTelegramConfig()
+  void refreshTelegramStatus()
   void loadFreeModeStatus()
   void refreshThreadTerminalStatus()
   void refreshTerminalQuickCommands()
@@ -1602,7 +2292,7 @@ function onSkillsChanged(): void {
 
 async function refreshTelegramStatus(): Promise<void> {
   try {
-    telegramStatus.value = await (await import('./api/telegramGateway')).getTelegramStatus()
+    telegramStatus.value = await getTelegramStatus()
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load Telegram status'
     telegramStatus.value = {
@@ -1619,7 +2309,6 @@ async function refreshTelegramStatus(): Promise<void> {
 
 async function refreshTelegramConfig(): Promise<void> {
   try {
-    const { getTelegramConfig } = await import('./api/telegramGateway')
     const config = await getTelegramConfig()
     telegramBotTokenDraft.value = config.botToken
     telegramNotifyEnabledDraft.value = config.completionNotifications.enabled
@@ -1634,6 +2323,91 @@ async function refreshTelegramConfig(): Promise<void> {
 }
 
 let telegramStatusTimer: ReturnType<typeof setInterval> | undefined
+function toggleTelegramConfig(): void {
+  isTelegramConfigOpen.value = !isTelegramConfigOpen.value
+  clearInterval(telegramStatusTimer)
+  if (isTelegramConfigOpen.value) {
+    void refreshTelegramStatus()
+    telegramStatusTimer = setInterval(() => { void refreshTelegramStatus() }, 10000)
+  }
+}
+
+async function sendTelegramTest(): Promise<void> {
+  if (telegramTestUnavailable.value) return
+  isTelegramTesting.value = true
+  telegramTestError.value = ''
+  try {
+    await sendTelegramTestNotification()
+  } catch (error) {
+    telegramTestError.value = error instanceof Error ? error.message : t('Test notification failed')
+  } finally {
+    await refreshTelegramStatus()
+    isTelegramTesting.value = false
+  }
+}
+
+function parseTelegramAllowedUserIdsInput(value: string): Array<number | '*'> {
+  const rawEntries = value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim().replace(/^(telegram|tg):/i, '').trim())
+    .filter(Boolean)
+  const allowAllUsers = rawEntries.includes('*')
+  const normalizedUserIds = Array.from(new Set(rawEntries
+    .filter((entry) => /^-?\d+$/.test(entry))
+    .map((entry) => Number.parseInt(entry, 10))))
+  return allowAllUsers ? ['*', ...normalizedUserIds] : normalizedUserIds
+}
+
+async function saveTelegramConfig(): Promise<void> {
+  const botToken = telegramBotTokenDraft.value.trim()
+  const allowedUserIds = parseTelegramAllowedUserIdsInput(telegramAllowedUserIdsDraft.value)
+  if (!botToken) {
+    telegramConfigError.value = t('Telegram bot token is required.')
+    return
+  }
+  if (allowedUserIds.length === 0) {
+    telegramConfigError.value = t('At least one allowed Telegram user ID or * is required.')
+    return
+  }
+
+  const chatIdText = telegramNotifyChatIdDraft.value.trim()
+  const chatId = Number(chatIdText)
+  if ((chatIdText || telegramNotifyEnabledDraft.value) && (!/^\d+$/.test(chatIdText) || !Number.isSafeInteger(chatId) || chatId <= 0)) {
+    telegramConfigError.value = t('Enter a positive private Telegram chat ID, or use /notify on in your bot chat.')
+    return
+  }
+  const appUrl = telegramAppUrlDraft.value.trim()
+  if (appUrl) {
+    try {
+      const url = new URL(appUrl)
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid URL')
+    } catch {
+      telegramConfigError.value = t('Enter a valid HTTP or HTTPS app URL.')
+      return
+    }
+  }
+  isTelegramSaving.value = true
+  telegramConfigError.value = ''
+  try {
+    await configureTelegramBot(botToken, allowedUserIds, {
+      enabled: telegramNotifyEnabledDraft.value,
+      chatIds: chatIdText ? [chatId] : [],
+      statuses: ['completed'],
+      appUrl,
+    })
+    telegramAllowedUserIdsDraft.value = allowedUserIds.map((value) => String(value)).join('\n')
+    await Promise.all([
+      refreshTelegramConfig(),
+      refreshTelegramStatus(),
+    ])
+    window.alert(t('Telegram bot configured. Only allowlisted Telegram users can use the bridge.'))
+  } catch (error) {
+    telegramConfigError.value = error instanceof Error ? error.message : t('Failed to connect Telegram bot')
+    void refreshTelegramStatus()
+  } finally {
+    isTelegramSaving.value = false
+  }
+}
 
 function toggleSidebarSearch(): void {
   isSidebarSearchVisible.value = !isSidebarSearchVisible.value
@@ -1747,6 +2521,18 @@ async function onCopyThreadChat(threadId: string): Promise<void> {
   await copySelectedThreadChat()
 }
 
+function shortAccountId(accountId: string): string {
+  return accountId.length > 8 ? accountId.slice(-8) : accountId
+}
+
+function formatAccountMeta(account: UiAccountEntry): string {
+  const segments = [account.planType || t('unknown')]
+  if (account.authMode) {
+    segments.unshift(account.authMode)
+  }
+  return segments.join(' · ')
+}
+
 function isPaymentRequiredErrorMessage(value: string | null): boolean {
   if (!value) return false
   const normalized = value.toLowerCase()
@@ -1755,6 +2541,114 @@ function isPaymentRequiredErrorMessage(value: string | null): boolean {
 
 function isAccountUnavailable(account: UiAccountEntry): boolean {
   return account.unavailableReason === 'payment_required' || isPaymentRequiredErrorMessage(account.quotaError)
+}
+
+function isAccountActionDisabled(account: UiAccountEntry): boolean {
+  return isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0
+    || (account.isActive && removingAccountId.value !== account.storageId && isAccountSwitchBlocked.value)
+}
+
+function isRemoveConfirmationActive(account: UiAccountEntry): boolean {
+  return confirmingRemoveAccountId.value === account.storageId
+}
+
+function isRemoveVisible(account: UiAccountEntry): boolean {
+  return hoveredAccountId.value === account.storageId || isRemoveConfirmationActive(account)
+}
+
+function getAccountSwitchLabel(account: UiAccountEntry): string {
+  if (isAccountUnavailable(account)) return t('Unavailable')
+  if (account.isActive) return t('Active')
+  if (account.canSwitch === false) return t('Switch unavailable')
+  if (isSwitchingAccounts.value) return t('Switching…')
+  return t('Switch')
+}
+
+function getAccountRemoveLabel(account: UiAccountEntry): string {
+  if (removingAccountId.value === account.storageId) return t('Removing…')
+  if (isRemoveConfirmationActive(account)) return t('Click again to remove')
+  return t('Remove')
+}
+
+function onAccountCardPointerEnter(accountId: string): void {
+  hoveredAccountId.value = accountId
+}
+
+function onAccountCardPointerLeave(accountId: string): void {
+  if (hoveredAccountId.value === accountId) {
+    hoveredAccountId.value = ''
+  }
+  if (removingAccountId.value === accountId) return
+  if (confirmingRemoveAccountId.value === accountId) {
+    confirmingRemoveAccountId.value = ''
+  }
+}
+
+function pickWeeklyQuotaWindow(account: UiAccountEntry) {
+  const quota = account.quotaSnapshot
+  if (!quota) return null
+  const windows = [quota?.primary, quota?.secondary].filter((quotaWindow): quotaWindow is UiRateLimitWindow => quotaWindow !== null)
+  const exactWeekly = windows.find((quotaWindow) => quotaWindow.windowMinutes === 7 * 24 * 60)
+  if (exactWeekly) {
+    return exactWeekly
+  }
+  const longerWindow = windows
+    .filter((quotaWindow) => typeof quotaWindow.windowMinutes === 'number' && quotaWindow.windowMinutes >= 7 * 24 * 60)
+    .sort((first, second) => (first.windowMinutes ?? 0) - (second.windowMinutes ?? 0))[0] ?? null
+  if (longerWindow) {
+    return longerWindow
+  }
+  return quota.secondary ?? null
+}
+
+function formatResetDateCompact(resetsAt: number | null): string {
+  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return ''
+  const date = new Date(resetsAt * 1000)
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+function formatAccountQuota(account: UiAccountEntry): string {
+  if (isAccountUnavailable(account)) {
+    return account.quotaError || t('402 Payment Required')
+  }
+  const quota = account.quotaSnapshot
+  const window = pickWeeklyQuotaWindow(account)
+  const fallbackWindow = quota?.primary ?? quota?.secondary ?? null
+  const displayWindow = window ?? fallbackWindow
+  if (displayWindow) {
+    const remainingPercent = Math.max(0, Math.min(100, 100 - Math.round(displayWindow.usedPercent)))
+    const refreshDate = formatResetDateCompact(displayWindow.resetsAt)
+    return refreshDate
+      ? `${remainingPercent}% ${t('weekly remaining')} · ${refreshDate}`
+      : `${remainingPercent}% ${t('weekly remaining')}`
+  }
+  if (quota?.credits?.unlimited) {
+    return t('Unlimited credits')
+  }
+  if (quota?.credits?.hasCredits && quota.credits.balance) {
+    return `${quota.credits.balance} ${t('credits')}`
+  }
+  if (account.quotaStatus === 'loading') {
+    return t('Loading quota…')
+  }
+  if (account.quotaStatus === 'error') {
+    return account.quotaError || t('Quota unavailable')
+  }
+  if (account.quotaStatus === 'ready' || account.quotaStatus === 'idle') {
+    return t('Quota unavailable')
+  }
+  return t('Fetching account details…')
+}
+
+function buildAccountTitle(account: UiAccountEntry): string {
+  return [
+    account.email || t('Account'),
+    formatAccountMeta(account),
+    isAccountUnavailable(account) ? t('Unavailable account') : null,
+    formatAccountQuota(account),
+    account.credentialSource === 'runtime' ? t('Active Codex login') : `${t('Workspace')} ${account.accountId}`,
+    account.managementReason,
+  ].filter(Boolean).join('\n')
 }
 
 async function loadAccountsState(options: { silent?: boolean } = {}): Promise<void> {
@@ -1770,6 +2664,76 @@ async function loadAccountsState(options: { silent?: boolean } = {}): Promise<vo
   } catch (error) {
     if (options.silent === true) return
     accountActionError.value = error instanceof Error ? error.message : t('Failed to load accounts')
+  }
+}
+
+async function onRefreshAccounts(): Promise<void> {
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
+  accountActionError.value = ''
+  hoveredAccountId.value = ''
+  confirmingRemoveAccountId.value = ''
+  isRefreshingAccounts.value = true
+  try {
+    const result = await refreshAccountsFromAuth()
+    accounts.value = result.accounts
+    stopPolling()
+    startPolling()
+    void refreshAll({
+      includeSelectedThreadMessages: true,
+    })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to refresh accounts')
+  } finally {
+    isRefreshingAccounts.value = false
+  }
+}
+
+async function onSwitchAccount(storageId: string): Promise<void> {
+  if (isSwitchingAccounts.value || isRefreshingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
+  if (isAccountSwitchBlocked.value) {
+    accountActionError.value = t('Finish the current turn and pending requests before switching accounts.')
+    return
+  }
+  accountActionError.value = ''
+  hoveredAccountId.value = ''
+  confirmingRemoveAccountId.value = ''
+  isSwitchingAccounts.value = true
+  try {
+    const nextActiveAccount = await switchAccount(storageId)
+    accounts.value = accounts.value.map((account) => (
+      account.storageId === storageId
+        ? nextActiveAccount
+        : { ...account, isActive: false }
+    ))
+    stopPolling()
+    startPolling()
+    void refreshAll({
+      includeSelectedThreadMessages: true,
+    })
+    void loadAccountsState({ silent: true })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to switch account')
+  } finally {
+    isSwitchingAccounts.value = false
+  }
+}
+
+async function onStartCodexLogin(): Promise<void> {
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value) return
+  accountActionError.value = ''
+  codexLoginCallbackUrl.value = ''
+  isStartingCodexLogin.value = true
+  try {
+    const loginUrl = await startCodexLogin()
+    codexLoginUrl.value = loginUrl
+    isCodexLoginModalOpen.value = true
+    window.open(loginUrl, '_blank', 'noopener,noreferrer')
+    await nextTick()
+    codexLoginCallbackInputRef.value?.focus()
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to start Codex login')
+  } finally {
+    isStartingCodexLogin.value = false
   }
 }
 
@@ -1804,6 +2768,41 @@ async function completeCodexLoginFromCallback(callbackUrl: string): Promise<void
     accountActionError.value = error instanceof Error ? error.message : t('Failed to complete Codex login')
   } finally {
     isCompletingCodexLogin.value = false
+  }
+}
+
+async function onRemoveAccount(storageId: string): Promise<void> {
+  if (isRefreshingAccounts.value || isSwitchingAccounts.value || isStartingCodexLogin.value || isCompletingCodexLogin.value || removingAccountId.value.length > 0) return
+  const targetAccount = accounts.value.find((account) => account.storageId === storageId) ?? null
+  if (!targetAccount) return
+  if (confirmingRemoveAccountId.value !== storageId) {
+    confirmingRemoveAccountId.value = storageId
+    return
+  }
+  if (targetAccount.isActive && isAccountSwitchBlocked.value) {
+    accountActionError.value = t('Finish the current turn and pending requests before removing the active account.')
+    return
+  }
+
+  const removedWasActive = targetAccount.isActive
+  accountActionError.value = ''
+  confirmingRemoveAccountId.value = ''
+  removingAccountId.value = storageId
+  try {
+    const result = await removeAccount(storageId)
+    accounts.value = result.accounts
+    stopPolling()
+    startPolling()
+    if (removedWasActive) {
+      void refreshAll({
+        includeSelectedThreadMessages: true,
+      })
+    }
+    void loadAccountsState({ silent: true })
+  } catch (error) {
+    accountActionError.value = error instanceof Error ? error.message : t('Failed to remove account')
+  } finally {
+    removingAccountId.value = ''
   }
 }
 
@@ -1922,28 +2921,78 @@ function formatByteCount(bytes: number): string {
   return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
 }
 
-async function downloadProjectZipFallback(blob: Blob, fileName: string) {
-  return projectDeferred.invoke('downloadProjectZipFallback', blob, fileName)
+function downloadProjectZipFallback(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000)
 }
 
-async function shareProjectZip(blob: Blob, fileName: string) {
-  return projectDeferred.invoke('shareProjectZip', blob, fileName)
+async function shareProjectZip(blob: Blob, fileName: string): Promise<void> {
+  const file = new File([blob], fileName, { type: blob.type || 'application/zip' })
+  const shareData = {
+    files: [file],
+    title: fileName,
+  }
+  const canShareFiles = typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData))
+  if (!canShareFiles) {
+    throw new Error('File sharing is not supported in this browser.')
+  }
+  await navigator.share(shareData)
 }
 
-async function onCloseProjectZipExportModal() {
-  return projectDeferred.invoke('onCloseProjectZipExportModal')
+function onCloseProjectZipExportModal(): void {
+  if (projectZipExportStatus.value.phase === 'exporting') return
+  projectZipExportStatus.value = { phase: 'idle', loaded: 0, total: null, blob: null, fileName: '', error: '' }
 }
 
-async function onDownloadProjectZipExport() {
-  return projectDeferred.invoke('onDownloadProjectZipExport')
+function onDownloadProjectZipExport(): void {
+  const { blob, fileName } = projectZipExportStatus.value
+  if (!blob || !fileName) return
+  projectZipExportStatus.value = { ...projectZipExportStatus.value, error: '' }
+  downloadProjectZipFallback(blob, fileName)
 }
 
-async function onShareProjectZipExport() {
-  return projectDeferred.invoke('onShareProjectZipExport')
+async function onShareProjectZipExport(): Promise<void> {
+  const { blob, fileName } = projectZipExportStatus.value
+  if (!blob || !fileName) return
+  try {
+    projectZipExportStatus.value = { ...projectZipExportStatus.value, error: '' }
+    await shareProjectZip(blob, fileName)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    const message = error instanceof Error ? error.message : ''
+    const wasBlocked = error instanceof DOMException && error.name === 'NotAllowedError'
+      || /permission denied|notallowed|not allowed|gesture/iu.test(message)
+    projectZipExportStatus.value = {
+      ...projectZipExportStatus.value,
+      error: wasBlocked
+        ? t('This browser blocked sharing the ZIP. Use Download instead.')
+        : (message || t('Failed to share project. Use Download instead.')),
+    }
+  }
 }
 
-async function exportProjectZipForCwd(targetCwd: string) {
-  return projectDeferred.invoke('exportProjectZipForCwd', targetCwd)
+async function exportProjectZipForCwd(targetCwd: string): Promise<void> {
+  if (!targetCwd || typeof document === 'undefined') return
+  projectZipExportStatus.value = { phase: 'exporting', loaded: 0, total: null, blob: null, fileName: '', error: '' }
+  try {
+    const { blob, fileName } = await downloadProjectZip(targetCwd, ({ loaded, total }) => {
+      projectZipExportStatus.value = { ...projectZipExportStatus.value, phase: 'exporting', loaded, total }
+    })
+    projectZipExportStatus.value = { phase: 'ready', loaded: blob.size, total: blob.size, blob, fileName, error: '' }
+  } catch (error) {
+    projectZipExportStatus.value = { phase: 'idle', loaded: 0, total: null, blob: null, fileName: '', error: '' }
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    const message = error instanceof Error ? error.message : 'Failed to export project.'
+    window.alert(message)
+  }
 }
 
 async function onCreateProjectWorktree(projectName: string): Promise<void> {
@@ -2181,19 +3230,13 @@ async function openTerminalAndRunCommand(command: string): Promise<void> {
 }
 
 async function waitForTerminalPanel(): Promise<ThreadTerminalPanelExposed | null> {
-  const routeKey = route.fullPath
-  const cwd = composerCwd.value
-  return new Promise((resolve) => {
-    const stop = watch([homeTerminalPanelRef, threadTerminalPanelRef, () => route.fullPath, composerCwd, isComposerTerminalOpen], () => {
-      if (route.fullPath !== routeKey || composerCwd.value !== cwd || !isComposerTerminalOpen.value) {
-        stop(); resolve(null); return
-      }
-      const panel = isHomeRoute.value ? homeTerminalPanelRef.value : threadTerminalPanelRef.value
-      if (panel) { stop(); resolve(panel) }
-    }, { flush: 'post' })
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await nextTick()
     const panel = isHomeRoute.value ? homeTerminalPanelRef.value : threadTerminalPanelRef.value
-    if (panel) { stop(); resolve(panel) }
-  })
+    if (panel) return panel
+    await new Promise((resolve) => window.setTimeout(resolve, 25))
+  }
+  return null
 }
 
 async function refreshTerminalQuickCommands(): Promise<void> {
@@ -2463,6 +3506,7 @@ function onEditQueuedMessage(messageId: string): void {
   removeQueuedMessage(messageId)
 }
 
+
 function scheduleMobileConversationJumpToLatest(): void {
   if (!isMobile.value || isHomeRoute.value) return
 
@@ -2722,24 +3766,71 @@ function clearCommitReviewContext(): void {
   isReviewPaneOpen.value = false
 }
 
-async function onOpenProjectSetupModal() {
-  return projectDeferred.invoke('onOpenProjectSetupModal')
+async function onOpenProjectSetupModal(): Promise<void> {
+  const baseDir = await resolveProjectBaseDirectory()
+  if (!baseDir) return
+
+  await refreshDefaultProjectName()
+  projectSetupBaseDir.value = baseDir
+  projectNameDraft.value = defaultNewProjectName.value.trim() || 'New Project (1)'
+  githubCloneUrlDraft.value = ''
+  projectSetupError.value = ''
+  projectSetupMode.value = 'create'
+  isProjectSetupModalOpen.value = true
+  void nextTick(() => projectSetupPrimaryInputRef.value?.focus())
 }
 
-async function onCloseProjectSetupModal() {
-  return projectDeferred.invoke('onCloseProjectSetupModal')
+function onCloseProjectSetupModal(): void {
+  if (isProjectSetupSubmitting.value) return
+  isProjectSetupModalOpen.value = false
+  projectSetupError.value = ''
 }
 
-async function createProjectFromSetupModal() {
-  return projectDeferred.invoke('createProjectFromSetupModal')
+async function createProjectFromSetupModal(): Promise<string> {
+  const baseDir = projectSetupBaseDir.value.trim()
+  const normalizedProjectName = projectNameDraft.value.trim()
+  if (!isProjectNameDraftValid.value) {
+    throw new Error('Enter a single project folder name.')
+  }
+  const targetPath = normalizeAbsolutePath(joinPath(baseDir, normalizedProjectName))
+  if (!targetPath) return ''
+
+  return openProjectRoot(targetPath, {
+    createIfMissing: true,
+    label: '',
+  })
 }
 
-async function cloneGithubRepositoryFromSetupModal() {
-  return projectDeferred.invoke('cloneGithubRepositoryFromSetupModal')
+async function cloneGithubRepositoryFromSetupModal(): Promise<string> {
+  const baseDir = projectSetupBaseDir.value.trim()
+  const normalizedRepoUrl = githubCloneUrlDraft.value.trim()
+  if (!normalizedRepoUrl) return ''
+
+  return cloneGithubRepository(normalizedRepoUrl, baseDir)
 }
 
-async function onSubmitProjectSetup() {
-  return projectDeferred.invoke('onSubmitProjectSetup')
+async function onSubmitProjectSetup(): Promise<void> {
+  if (!canSubmitProjectSetup.value || isProjectSetupSubmitting.value) return
+
+  projectSetupError.value = ''
+  isProjectSetupSubmitting.value = true
+  try {
+    const normalizedPath =
+      projectSetupMode.value === 'clone'
+        ? await cloneGithubRepositoryFromSetupModal()
+        : await createProjectFromSetupModal()
+    if (!normalizedPath) return
+
+    newThreadCwd.value = normalizedPath
+    await pinProjectToTop(normalizedPath)
+    await loadWorkspaceRootOptionsState()
+    await refreshDefaultProjectName()
+    isProjectSetupModalOpen.value = false
+  } catch (error) {
+    projectSetupError.value = error instanceof Error ? error.message : 'Failed to create or clone project.'
+  } finally {
+    isProjectSetupSubmitting.value = false
+  }
 }
 
 function onChooseProjectImportZip(): void {
@@ -2752,8 +3843,29 @@ function openProjectImportInput(input: HTMLInputElement | null): void {
   input.click()
 }
 
-async function finishProjectImport(input: HTMLInputElement | null, importer: (baseDir: string) => Promise<{ path: string }>, fallbackMessage: string) {
-  return projectDeferred.invoke('finishProjectImport', input, importer, fallbackMessage)
+async function finishProjectImport(
+  input: HTMLInputElement | null,
+  importer: (baseDir: string) => Promise<{ path: string }>,
+  fallbackMessage: string,
+): Promise<void> {
+  isProjectImporting.value = true
+  try {
+    const baseDir = await resolveProjectBaseDirectory()
+    if (!baseDir) return
+    const result = await importer(baseDir)
+    if (!result.path) return
+    newThreadCwd.value = result.path
+    await pinProjectToTop(result.path)
+    await loadWorkspaceRootOptionsState()
+    await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
+    await refreshDefaultProjectName()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : fallbackMessage
+    window.alert(message)
+  } finally {
+    isProjectImporting.value = false
+    if (input) input.value = ''
+  }
 }
 
 async function onDirectProjectImportFileChange(event: Event): Promise<void> {
@@ -2764,40 +3876,143 @@ async function onDirectProjectImportFileChange(event: Event): Promise<void> {
   await finishProjectImport(input, (baseDir) => importProjectZip(file, baseDir), 'Failed to import project.')
 }
 
-async function onOpenExistingFolder() {
-  return projectDeferred.invoke('onOpenExistingFolder')
+async function onOpenExistingFolder(): Promise<void> {
+  const startPath = newThreadCwd.value.trim() || await resolveProjectBaseDirectory()
+  if (!startPath) return
+  isCreateFolderOpen.value = false
+  isExistingFolderPickerOpen.value = true
+  existingFolderFilter.value = ''
+  await loadExistingFolderListing(startPath)
+  if (!existingFolderError.value) {
+    void nextTick(() => existingFolderPathInputRef.value?.focus())
+  }
 }
 
-async function onCloseExistingFolderPanel() {
-  return projectDeferred.invoke('onCloseExistingFolderPanel')
+function onCloseExistingFolderPanel(): void {
+  existingFolderBrowseRequestId += 1
+  isExistingFolderPickerOpen.value = false
+  isExistingFolderLoading.value = false
+  existingFolderError.value = ''
+  existingFolderFilter.value = ''
+  existingFolderPathDraft.value = ''
+  onCloseCreateFolderPanel()
 }
 
-async function onBrowseExistingFolder(path: string) {
-  return projectDeferred.invoke('onBrowseExistingFolder', path)
+async function onBrowseExistingFolder(path: string): Promise<void> {
+  if (!path || isExistingFolderLoading.value) return
+  existingFolderFilter.value = ''
+  await loadExistingFolderListing(path)
 }
 
-async function onToggleHiddenFolders() {
-  return projectDeferred.invoke('onToggleHiddenFolders')
+function onToggleHiddenFolders(): void {
+  const currentPath = existingFolderBrowsePath.value.trim()
+  if (!isExistingFolderPickerOpen.value || !currentPath) return
+  void loadExistingFolderListing(currentPath)
 }
 
-async function onRetryExistingFolderBrowse() {
-  return projectDeferred.invoke('onRetryExistingFolderBrowse')
+function onRetryExistingFolderBrowse(): void {
+  const currentPath = resolvedExistingFolderPath.value
+  if (!isExistingFolderPickerOpen.value || !currentPath || isExistingFolderLoading.value || isOpeningExistingFolder.value) return
+  void loadExistingFolderListing(currentPath)
 }
 
-async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value) {
-  return projectDeferred.invoke('onConfirmExistingFolder', path)
+async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value): Promise<void> {
+  const targetPath = normalizePathForUi(path).trim()
+  if (!targetPath) return
+
+  existingFolderError.value = ''
+  isOpeningExistingFolder.value = true
+  try {
+    const normalizedPath = await openProjectRoot(targetPath, {
+      createIfMissing: false,
+      label: '',
+    })
+    if (!normalizedPath) {
+      existingFolderError.value = 'Failed to open the selected folder.'
+      return
+    }
+
+    newThreadCwd.value = normalizedPath
+    await pinProjectToTop(normalizedPath)
+    await loadWorkspaceRootOptionsState()
+    await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
+    await refreshDefaultProjectName()
+    onCloseExistingFolderPanel()
+  } catch (error) {
+    existingFolderError.value = error instanceof Error ? error.message : 'Failed to open the selected folder.'
+  } finally {
+    isOpeningExistingFolder.value = false
+  }
 }
 
-async function onOpenCreateFolderPanel() {
-  return projectDeferred.invoke('onOpenCreateFolderPanel')
+async function onOpenCreateFolderPanel(): Promise<void> {
+  createFolderError.value = ''
+  if (isCreateFolderOpen.value) {
+    onCloseCreateFolderPanel()
+    return
+  }
+  if (!isExistingFolderPickerOpen.value) {
+    const startPath = newThreadCwd.value.trim() || await resolveProjectBaseDirectory()
+    if (!startPath) return
+    isExistingFolderPickerOpen.value = true
+    existingFolderFilter.value = ''
+    await loadExistingFolderListing(startPath)
+    if (existingFolderError.value) return
+  }
+  if (existingFolderError.value) return
+  createFolderDraft.value = defaultNewProjectName.value
+  isCreateFolderOpen.value = true
+  void nextTick(() => createFolderInputRef.value?.focus())
 }
 
-async function onCloseCreateFolderPanel() {
-  return projectDeferred.invoke('onCloseCreateFolderPanel')
+function onCloseCreateFolderPanel(): void {
+  createFolderError.value = ''
+  createFolderDraft.value = ''
+  isCreateFolderOpen.value = false
 }
 
-async function onCreateFolder() {
-  return projectDeferred.invoke('onCreateFolder')
+async function onCreateFolder(): Promise<void> {
+  const normalizedInput = createFolderDraft.value.trim()
+  if (!normalizedInput) return
+
+  createFolderError.value = ''
+  if (existingFolderError.value) {
+    createFolderError.value = 'Reload the current folder before creating a new one.'
+    return
+  }
+  isCreatingFolder.value = true
+
+  const baseDir = createFolderParentPath.value.trim()
+  const targetPath = normalizeAbsolutePath(joinPath(baseDir, normalizedInput))
+
+  if (!targetPath) {
+    createFolderError.value = 'Unable to determine where the new folder should be created.'
+    isCreatingFolder.value = false
+    return
+  }
+
+  if (!isCreateFolderNameValid.value) {
+    createFolderError.value = 'Enter a single folder name.'
+    isCreatingFolder.value = false
+    return
+  }
+
+  try {
+    const normalizedPath = await createLocalDirectory(targetPath)
+    if (!normalizedPath) {
+      createFolderError.value = 'Failed to create the folder.'
+      return
+    }
+
+    createFolderError.value = ''
+    existingFolderFilter.value = ''
+    await loadExistingFolderListing(normalizedPath)
+    onCloseCreateFolderPanel()
+  } catch (error) {
+    createFolderError.value = error instanceof Error ? error.message : 'Failed to create folder.'
+  } finally {
+    isCreatingFolder.value = false
+  }
 }
 
 async function applyLaunchProjectPathFromUrl(): Promise<boolean> {
@@ -2883,8 +4098,32 @@ async function loadWorkspaceRootOptionsState(): Promise<void> {
   }
 }
 
-async function loadExistingFolderListing(path: string) {
-  return projectDeferred.invoke('loadExistingFolderListing', path)
+async function loadExistingFolderListing(path: string): Promise<void> {
+  const requestId = ++existingFolderBrowseRequestId
+  const normalizedRequestedPath = normalizePathForUi(path).trim()
+  existingFolderPathDraft.value = normalizedRequestedPath
+  existingFolderBrowsePath.value = normalizedRequestedPath
+  existingFolderError.value = ''
+  isExistingFolderLoading.value = true
+
+  try {
+    const listing = await listLocalDirectories(path, { showHidden: showHiddenFolders.value })
+    if (requestId !== existingFolderBrowseRequestId) return
+    existingFolderPathDraft.value = listing.path
+    existingFolderBrowsePath.value = listing.path
+    existingFolderParentPath.value = listing.parentPath
+    existingFolderEntries.value = listing.entries
+  } catch (error) {
+    if (requestId !== existingFolderBrowseRequestId) return
+    existingFolderError.value = error instanceof Error ? error.message : 'Failed to load local folders.'
+    existingFolderParentPath.value = getPathParent(existingFolderBrowsePath.value)
+    existingFolderEntries.value = []
+    onCloseCreateFolderPanel()
+  } finally {
+    if (requestId === existingFolderBrowseRequestId) {
+      isExistingFolderLoading.value = false
+    }
+  }
 }
 
 function joinPath(parent: string, child: string): string {
@@ -2991,6 +4230,7 @@ function onImplementPlan(payload: { turnId: string }): void {
   scheduleMobileConversationJumpToLatest()
   void sendMessageToSelectedThread('Implement', [], [], 'steer', [], undefined, 'default')
 }
+
 
 async function copySelectedThreadChat(): Promise<void> {
   if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) return
@@ -3124,6 +4364,140 @@ function toggleDictationClickToToggle(): void {
 function toggleDictationAutoSend(): void {
   dictationAutoSend.value = !dictationAutoSend.value
   window.localStorage.setItem(DICTATION_AUTO_SEND_KEY, dictationAutoSend.value ? '1' : '0')
+}
+
+
+async function onProviderChange(provider: string): Promise<void> {
+  if (freeModeLoading.value) return
+  freeModeLoading.value = true
+  try {
+    if (provider === 'codex') {
+      selectedProvider.value = 'codex'
+      const result = await setFreeMode(false)
+      freeModeEnabled.value = result.enabled
+    } else if (provider === 'openrouter') {
+      selectedProvider.value = 'openrouter'
+      const result = await setFreeMode(true)
+      freeModeEnabled.value = result.enabled
+      await setCustomProvider('', '', {
+        wireApi: openRouterWireApi.value,
+        provider: 'openrouter',
+      })
+    } else if (provider === 'opencode-zen') {
+      selectedProvider.value = 'opencode-zen'
+      await setCustomProvider('', opencodeZenKey.value.trim(), {
+        wireApi: 'responses',
+        provider: 'opencode-zen',
+      })
+      freeModeEnabled.value = true
+    } else if (provider === 'custom') {
+      selectedProvider.value = 'custom'
+      if (customEndpointUrl.value.trim() && customEndpointKey.value.trim()) {
+        await setCustomProvider(customEndpointUrl.value.trim(), customEndpointKey.value.trim(), {
+          wireApi: customEndpointWireApi.value,
+        })
+        freeModeEnabled.value = true
+      }
+    }
+    providerError.value = ''
+    await refreshAll({ includeSelectedThreadMessages: false, providerChanged: true, awaitAncillaryRefreshes: true })
+  } catch (err) {
+    providerError.value = err instanceof Error ? err.message : 'Failed to switch provider'
+  } finally {
+    freeModeLoading.value = false
+  }
+}
+
+async function saveCustomEndpoint(): Promise<void> {
+  if (freeModeCustomKeySaving.value) return
+  const url = customEndpointUrl.value.trim()
+  if (!url) return
+  freeModeCustomKeySaving.value = true
+  try {
+    providerError.value = ''
+    await setCustomProvider(url, customEndpointKey.value.trim(), {
+      wireApi: customEndpointWireApi.value,
+    })
+    freeModeEnabled.value = true
+    await refreshAll({ includeSelectedThreadMessages: false, providerChanged: true, awaitAncillaryRefreshes: true })
+  } catch (err) {
+    providerError.value = err instanceof Error ? err.message : 'Failed to save custom endpoint'
+  } finally {
+    freeModeCustomKeySaving.value = false
+  }
+}
+
+async function setOpenRouterWireApi(nextWireApi: 'responses' | 'chat'): Promise<void> {
+  if (freeModeCustomKeySaving.value || freeModeLoading.value) return
+  if (openRouterWireApi.value === nextWireApi) return
+  const previousWireApi = openRouterWireApi.value
+  openRouterWireApi.value = nextWireApi
+  freeModeCustomKeySaving.value = true
+  try {
+    providerError.value = ''
+    await setCustomProvider('', '', {
+      wireApi: nextWireApi,
+      provider: 'openrouter',
+    })
+    freeModeEnabled.value = true
+    await refreshAll({ includeSelectedThreadMessages: false, providerChanged: true, awaitAncillaryRefreshes: true })
+  } catch (err) {
+    openRouterWireApi.value = previousWireApi
+    providerError.value = err instanceof Error ? err.message : 'Failed to save OpenRouter API format'
+  } finally {
+    freeModeCustomKeySaving.value = false
+  }
+}
+
+async function saveOpencodeZen(): Promise<void> {
+  if (freeModeCustomKeySaving.value) return
+  const key = opencodeZenKey.value.trim()
+  if (!key) return
+  freeModeCustomKeySaving.value = true
+  try {
+    providerError.value = ''
+    await setCustomProvider('', key, {
+      wireApi: 'responses',
+      provider: 'opencode-zen',
+    })
+    freeModeEnabled.value = true
+    await refreshAll({ includeSelectedThreadMessages: false, providerChanged: true, awaitAncillaryRefreshes: true })
+  } catch (err) {
+    providerError.value = err instanceof Error ? err.message : 'Failed to save OpenCode Zen config'
+  } finally {
+    freeModeCustomKeySaving.value = false
+  }
+}
+
+async function saveFreeModeCustomKey(): Promise<void> {
+  if (freeModeCustomKeySaving.value) return
+  freeModeCustomKeySaving.value = true
+  try {
+    const key = freeModeCustomKey.value.trim()
+    await setFreeModeCustomKey(key)
+    freeModeCustomKey.value = ''
+    await loadFreeModeStatus()
+    await refreshAll({ includeSelectedThreadMessages: false })
+  } catch {
+    // Silently fail
+  } finally {
+    freeModeCustomKeySaving.value = false
+  }
+}
+
+async function clearFreeModeCustomKey(): Promise<void> {
+  if (freeModeCustomKeySaving.value) return
+  freeModeCustomKeySaving.value = true
+  try {
+    await setFreeModeCustomKey('')
+    freeModeCustomKey.value = ''
+    await loadFreeModeStatus()
+    await refreshAll({ includeSelectedThreadMessages: false })
+  } catch {
+    // Silently fail
+  } finally {
+    freeModeCustomKeySaving.value = false
+  }
 }
 
 async function loadFreeModeStatus(): Promise<void> {
@@ -3524,6 +4898,7 @@ watch(
   { immediate: true },
 )
 
+
 watch(isMobile, (mobile) => {
   if (mobile && !isSidebarCollapsed.value) {
     setSidebarCollapsed(true)
@@ -3636,27 +5011,6 @@ async function loadWorktreeBranches(sourceCwd: string): Promise<void> {
     isLoadingWorktreeBranches.value = false
   }
 }
-
-function toggleTelegramConfig(): void {
-  isTelegramConfigOpen.value = !isTelegramConfigOpen.value
-  clearInterval(telegramStatusTimer)
-  if (isTelegramConfigOpen.value) {
-    void refreshTelegramStatus()
-    telegramStatusTimer = setInterval(() => { void refreshTelegramStatus() }, 10000)
-  }
-}
-
-watch(isSettingsOpen, (open) => {
-  if (open) { void refreshTelegramConfig(); void refreshTelegramStatus() }
-})
-
-const settingsContext = { RateLimitStatus, t, uiLanguage, uiLanguageOptions, setUiLanguage, worktreeName, appVersion, SETTINGS_HELP, accountRateLimitSnapshots, refreshAll, startPolling, stopPolling, feedbackMailto, prepareFeedbackLink, isAccountsSectionCollapsed, accounts, isRefreshingAccounts, isSwitchingAccounts, isStartingCodexLogin, isCompletingCodexLogin, isCodexLoginModalOpen, codexLoginUrl, codexLoginCallbackUrl, codexLoginCallbackInputRef, removingAccountId, confirmingRemoveAccountId, hoveredAccountId, accountActionError, sendWithEnter, inProgressSendMode, darkMode, chatWidth, dictationClickToToggle, dictationAutoSend, dictationLanguage, dictationLanguageOptions, freeModeEnabled, freeModeLoading, freeModeCustomKey, freeModeHasCustomKey, freeModeCustomKeyMasked, freeModeCustomKeySaving, providerError, selectedProvider, providerDropdownOptions, customEndpointUrl, customEndpointKey, customEndpointWireApi, openRouterWireApi, opencodeZenKey, isTelegramConfigOpen, telegramBotTokenDraft, telegramAllowedUserIdsDraft, telegramNotifyEnabledDraft, telegramNotifyChatIdDraft, telegramAppUrlDraft, telegramConfigError, isTelegramSaving, isTelegramTesting, telegramTestError, telegramTestUnavailable, telegramNotificationStatusText, hasVisibleFeedbackError, telegramStatus, showThreadContextBadge, isAccountSwitchBlocked, threadContextBadgeState, threadContextPrimaryText, threadContextSecondaryText, threadContextTooltip, chatWidthLabel, telegramStatusText, refreshTelegramStatus, refreshTelegramConfig, toggleTelegramConfig, isAccountUnavailable, loadAccountsState, toggleSendWithEnter, cycleInProgressSendMode, cycleDarkMode, cycleChatWidth, toggleDictationClickToToggle, toggleDictationAutoSend, loadFreeModeStatus, onDictationLanguageChange, toggleAccountsSectionCollapsed }
-
-const projectContext = { t, refreshAll, pinProjectToTop, feedbackMailto, prepareFeedbackLink, newThreadCwd, projectZipExportStatus, defaultNewProjectName, createFolderInputRef, projectZipProgressText, projectZipProgressWidth, isCreateFolderOpen, createFolderDraft, createFolderError, isCreatingFolder, isProjectSetupModalOpen, projectSetupMode, projectSetupBaseDir, projectNameDraft, githubCloneUrlDraft, isProjectImporting, projectSetupError, isProjectSetupSubmitting, projectSetupPrimaryInputRef, isExistingFolderPickerOpen, existingFolderPathInputRef, existingFolderFilterInputRef, existingFolderPathDraft, existingFolderBrowsePath, existingFolderParentPath, existingFolderEntries, existingFolderError, isExistingFolderLoading, isOpeningExistingFolder, showHiddenFolders, existingFolderFilter, existingFolderBrowseRequestId, createFolderParentPath, isCreateFolderNameValid, canCreateFolder, isProjectNameDraftValid, canSubmitProjectSetup, resolvedExistingFolderPath, createFolderSubmitLabel, projectSetupSubmitLabel, existingFolderFilteredEntries, resolveProjectBaseDirectory, refreshDefaultProjectName, loadWorkspaceRootOptionsState, joinPath, normalizeAbsolutePath }
-const projectDeferred = deferredActions(() => import('./features/projectActions').then(m => m.createProjectActions(projectContext)))
-const { error: projectLoadError, retry: retryProject } = projectDeferred
-
-const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue'))
 </script>
 
 <style scoped>
@@ -3722,8 +5076,36 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
   @apply w-3.5 h-3.5;
 }
 
+.sidebar-skills-link {
+  @apply mx-2 flex items-center gap-3 rounded-2xl border border-transparent bg-transparent px-3 py-2.5 text-left text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950 cursor-pointer;
+}
+
 .sidebar-skills-link.is-active {
   @apply border-transparent bg-zinc-100 text-zinc-950;
+}
+
+.sidebar-skills-link-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white;
+}
+
+.sidebar-automations-link-icon {
+  @apply bg-amber-500;
+}
+
+.sidebar-skills-link-icon :deep(svg) {
+  @apply h-5 w-5;
+}
+
+.sidebar-skills-link-copy {
+  @apply flex min-w-0 flex-col;
+}
+
+.sidebar-skills-link-title {
+  @apply truncate text-sm font-semibold leading-5 tracking-[-0.01em];
+}
+
+.sidebar-skills-link-subtitle {
+  @apply truncate text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
 }
 
 .sidebar-thread-controls-header-host {
@@ -3740,6 +5122,14 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
 
 .skills-route-header-icon :deep(svg) {
   @apply h-4.5 w-4.5;
+}
+
+:global(:root.dark) .sidebar-skills-link-title {
+  @apply text-zinc-50;
+}
+
+:global(:root.dark) .sidebar-skills-link-subtitle {
+  @apply text-zinc-400;
 }
 
 .content-body {
@@ -3769,6 +5159,12 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
 
 .content-root.is-virtual-keyboard-open .content-keyboard-spacer {
   display: none;
+}
+
+
+
+.content-error {
+  @apply m-0 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700;
 }
 
 .content-grid {
@@ -3912,12 +5308,181 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
   @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
 }
 
+.new-thread-open-folder-overlay {
+  @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4;
+}
+
+.new-thread-open-folder {
+  @apply flex w-full max-w-3xl max-h-[90vh] flex-col gap-2 overflow-y-auto rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left shadow-xl;
+}
+
+.new-thread-project-modal {
+  @apply flex w-full max-w-xl max-h-[90vh] flex-col gap-3 overflow-y-auto rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left shadow-xl;
+}
+
+.new-thread-open-folder-header {
+  @apply flex items-center justify-between gap-3;
+}
+
+.new-thread-open-folder-title {
+  @apply m-0 text-sm font-semibold text-zinc-900;
+}
+
+.new-thread-open-folder-close {
+  @apply border-0 bg-transparent p-0 text-sm text-zinc-500 transition hover:text-zinc-800;
+}
+
+.new-thread-open-folder-label {
+  @apply m-0 text-xs font-medium uppercase tracking-wide text-zinc-500;
+}
+
+.new-thread-open-folder-current {
+  @apply flex items-start gap-2;
+}
+
+.new-thread-open-folder-path {
+  @apply min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 outline-none transition focus:border-zinc-400;
+}
+
+.new-thread-open-folder-actions {
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.new-thread-project-mode-tabs {
+  @apply grid grid-cols-2 rounded-xl border border-zinc-200 bg-zinc-50 p-1;
+}
+
+.new-thread-project-mode-tab {
+  @apply inline-flex h-9 items-center justify-center rounded-lg border-0 bg-transparent px-3 text-sm font-medium text-zinc-600 transition hover:bg-white hover:text-zinc-900 disabled:cursor-default disabled:opacity-60;
+}
+
 .new-thread-project-mode-tab.is-active {
   @apply bg-white text-zinc-950 shadow-sm;
 }
 
+.new-thread-project-field {
+  @apply flex flex-col gap-1.5;
+}
+
+.new-thread-project-modal-actions {
+  @apply mt-1 flex flex-wrap justify-end gap-2;
+}
+
+.new-thread-open-folder-toggle {
+  @apply inline-flex items-center gap-2 text-sm text-zinc-600;
+}
+
+.new-thread-open-folder-toggle-input {
+  @apply relative h-4 w-4 shrink-0 appearance-none rounded-[4px] border border-zinc-300 bg-white outline-none transition;
+}
+
+.new-thread-open-folder-toggle-input:focus-visible {
+  box-shadow: 0 0 0 3px rgb(228 228 231);
+}
+
+.new-thread-open-folder-toggle-input:checked {
+  border-color: rgb(24 24 27);
+  background-color: rgb(255 255 255);
+}
+
+.new-thread-open-folder-toggle-input::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border-right: 2px solid rgb(24 24 27);
+  border-bottom: 2px solid rgb(24 24 27);
+  transform: rotate(45deg);
+  opacity: 0;
+}
+
+.new-thread-open-folder-toggle-input:checked::after {
+  opacity: 1;
+}
+
+.new-thread-open-folder-filter {
+  @apply w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-400;
+}
+
+.new-thread-open-folder-create {
+  @apply flex flex-col gap-2;
+}
+
+.new-thread-open-folder-create-composer {
+  @apply flex items-center gap-2;
+}
+
+.new-thread-open-folder-create-input {
+  @apply w-full min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-400;
+}
+
+.new-thread-open-folder-create-submit {
+  @apply shrink-0;
+}
+
 .new-thread-folder-action[aria-pressed='true'] {
   @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+.new-thread-open-folder-status {
+  @apply m-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600;
+}
+
+.new-thread-open-folder-error {
+  @apply m-0 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700;
+}
+
+.new-thread-open-folder-error-actions {
+  @apply flex flex-wrap items-start gap-2;
+}
+
+.new-thread-open-folder-list {
+  @apply m-0 flex max-h-72 list-none flex-col gap-1 overflow-y-auto p-0 pr-3;
+  scrollbar-gutter: stable;
+  scrollbar-color: rgb(161 161 170) rgb(244 244 245);
+  scrollbar-width: thin;
+}
+
+.new-thread-open-folder-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.new-thread-open-folder-list::-webkit-scrollbar-track {
+  background: rgb(244 244 245);
+  border-radius: 9999px;
+}
+
+.new-thread-open-folder-list::-webkit-scrollbar-thumb {
+  background: rgb(161 161 170);
+  border-radius: 9999px;
+  border: 2px solid rgb(244 244 245);
+}
+
+.new-thread-open-folder-list::-webkit-scrollbar-thumb:hover {
+  background: rgb(113 113 122);
+}
+
+.new-thread-open-folder-item {
+  @apply grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1;
+}
+
+.new-thread-open-folder-item-main {
+  @apply min-w-0 truncate rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-left text-sm font-medium leading-5 text-zinc-900 transition hover:border-zinc-300 hover:bg-zinc-100;
+}
+
+.new-thread-open-folder-item-main:disabled,
+.new-thread-open-folder-item-open:disabled {
+  @apply cursor-default opacity-60;
+}
+
+.new-thread-open-folder-item-name {
+  @apply block truncate;
+}
+
+.new-thread-open-folder-item-open {
+  @apply inline-flex h-7 items-center justify-center rounded-xl border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50;
 }
 
 .new-thread-runtime-dropdown {
@@ -3982,6 +5547,123 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
 
 .sidebar-settings-panel {
   @apply mb-1 max-h-[min(70vh,36rem)] overflow-y-auto rounded-lg border border-zinc-200 bg-white;
+}
+
+.sidebar-settings-row {
+  @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-zinc-700 border-0 bg-transparent transition hover:bg-zinc-50 cursor-pointer;
+}
+
+.sidebar-settings-row--select {
+  @apply cursor-default items-center gap-2;
+}
+
+.sidebar-settings-language-dropdown {
+  @apply min-w-0 max-w-52;
+}
+
+.sidebar-settings-language-dropdown :deep(.composer-dropdown-trigger) {
+  @apply h-auto rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700;
+}
+
+.sidebar-settings-language-dropdown :deep(.composer-dropdown-value) {
+  @apply max-w-32;
+}
+
+.sidebar-settings-row + .sidebar-settings-row {
+  @apply border-t border-zinc-100;
+}
+
+.sidebar-settings-telegram-panel {
+  @apply border-t border-zinc-100 bg-zinc-50/70 px-3 py-3;
+}
+
+.sidebar-settings-field {
+  @apply flex flex-col gap-1.5;
+}
+
+.sidebar-settings-field + .sidebar-settings-field {
+  @apply mt-3;
+}
+
+.sidebar-settings-field-label {
+  @apply text-xs font-medium text-zinc-700;
+}
+
+.sidebar-settings-input,
+.sidebar-settings-textarea {
+  @apply w-full rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-800 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200;
+}
+
+.sidebar-settings-textarea {
+  @apply min-h-20 resize-y font-mono text-xs;
+}
+
+.sidebar-settings-field-help {
+  @apply mt-2 text-xs leading-5 text-zinc-500;
+}
+
+.sidebar-settings-telegram-error {
+  @apply mt-2 rounded-md bg-rose-50 px-2.5 py-2 text-xs text-rose-700;
+}
+
+.sidebar-settings-telegram-actions {
+  @apply mt-3 flex items-center justify-end;
+}
+
+.sidebar-settings-telegram-save {
+  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-section {
+  @apply border-t border-zinc-100 bg-zinc-50/60 px-3 py-3;
+}
+
+.sidebar-settings-account-header {
+  @apply mb-2 flex items-center justify-between gap-2;
+}
+
+.sidebar-settings-account-header-main {
+  @apply flex items-center gap-2;
+}
+
+.sidebar-settings-account-collapse {
+  @apply inline-flex h-5 w-5 items-center justify-center rounded border border-zinc-200 bg-white text-zinc-600 transition hover:bg-zinc-100;
+}
+
+.sidebar-settings-account-collapse-icon {
+  @apply text-[11px] leading-none;
+}
+
+.sidebar-settings-account-title {
+  @apply text-sm font-medium text-zinc-800;
+}
+
+.sidebar-settings-account-count {
+  @apply rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600;
+}
+
+.sidebar-settings-account-error {
+  @apply mb-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-700;
+}
+
+.sidebar-settings-account-refresh {
+  @apply shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-login {
+  @apply mb-2 flex items-center gap-2;
+}
+
+.sidebar-settings-account-login-button {
+  @apply shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-login-link {
+  @apply min-w-0 truncate text-xs text-blue-600 hover:text-blue-700 hover:underline;
+}
+
+.sidebar-settings-account-empty {
+  @apply text-xs text-zinc-500;
 }
 
 .codex-login-modal-backdrop {
@@ -4066,19 +5748,328 @@ const ProjectDialogs = lazyFeature(() => import('./features/ProjectDialogs.vue')
   @apply border-zinc-200 bg-zinc-100 text-zinc-900 hover:bg-white;
 }
 
+.sidebar-settings-account-list {
+  @apply flex flex-col gap-2;
+}
+
+.sidebar-settings-account-item {
+  @apply flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-2;
+}
+
 .sidebar-settings-account-item.is-active {
   @apply border-emerald-200 bg-emerald-50;
+}
+
+.sidebar-settings-account-item.is-unavailable {
+  @apply border-rose-200 bg-rose-50;
+}
+
+.sidebar-settings-account-main {
+  @apply min-w-0 flex-1;
+}
+
+.sidebar-settings-account-actions {
+  @apply flex w-24 shrink-0 flex-col items-end gap-1.5;
+}
+
+.sidebar-settings-account-email {
+  @apply truncate text-sm text-zinc-800;
+}
+
+.sidebar-settings-account-meta {
+  @apply truncate text-[11px] text-zinc-500;
+}
+
+.sidebar-settings-account-quota {
+  @apply truncate text-[11px] text-zinc-600;
+}
+
+.sidebar-settings-account-id {
+  @apply mt-1 inline-flex max-w-full rounded-full bg-zinc-100 px-2 py-0.5 font-mono text-[11px] text-zinc-700;
 }
 
 .sidebar-settings-account-item.is-active .sidebar-settings-account-id {
   @apply bg-emerald-100 text-emerald-800;
 }
 
+.sidebar-settings-account-item.is-unavailable .sidebar-settings-account-id {
+  @apply bg-rose-100 text-rose-800;
+}
+
+.sidebar-settings-account-switch {
+  @apply min-w-[4.75rem] shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-center text-xs text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-remove {
+  @apply invisible shrink-0 rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] leading-4 text-zinc-500 opacity-0 pointer-events-none transition-colors hover:bg-amber-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.sidebar-settings-account-remove.is-visible {
+  @apply visible opacity-100 pointer-events-auto;
+}
+
+.sidebar-settings-account-remove.is-confirming {
+  @apply border-amber-300 bg-amber-50 text-amber-700 font-medium;
+}
+
+.sidebar-settings-label {
+  @apply text-left;
+}
+
+.sidebar-settings-value {
+  @apply text-xs text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5;
+}
+
+
+.sidebar-settings-toggle {
+  @apply relative w-9 h-5 rounded-full bg-zinc-300 transition-colors shrink-0;
+}
+
+.sidebar-settings-toggle::after {
+  content: '';
+  @apply absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow-sm;
+}
+
+.sidebar-settings-toggle.is-on {
+  @apply bg-zinc-800;
+}
+
+.sidebar-settings-toggle.is-on::after {
+  transform: translateX(16px);
+}
+
+.sidebar-settings-row--input {
+  @apply flex flex-col gap-1 py-1.5;
+}
+
+.sidebar-settings-error {
+  @apply text-xs text-red-600 bg-red-50 rounded px-2 py-1.5 break-words;
+}
+
+.sidebar-settings-key-group {
+  @apply flex items-center gap-1.5 w-full;
+}
+
+.sidebar-settings-key-input {
+  @apply flex-1 min-w-0 text-xs rounded border border-zinc-200 bg-white px-2 py-1 outline-none transition-colors placeholder:text-zinc-400;
+}
+
+.sidebar-settings-key-input:focus {
+  @apply border-zinc-400;
+}
+
+.sidebar-settings-key-save {
+  @apply shrink-0 rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-default;
+}
+
+.sidebar-settings-key-masked {
+  @apply flex-1 min-w-0 text-xs text-zinc-500 font-mono truncate;
+}
+
+.sidebar-settings-key-clear {
+  @apply shrink-0 w-6 h-6 flex items-center justify-center rounded-full border border-zinc-200 text-xs text-zinc-400 transition-colors hover:text-zinc-600 hover:border-zinc-300 disabled:opacity-40;
+}
+
+.sidebar-settings-provider-dropdown {
+  @apply min-w-0 max-w-44;
+}
+
+.sidebar-settings-provider-dropdown :deep(.composer-dropdown-trigger) {
+  @apply h-auto rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700;
+}
+
+.sidebar-settings-provider-dropdown :deep(.composer-dropdown-value) {
+  @apply max-w-36;
+}
+
+.sidebar-settings-segmented {
+  @apply inline-flex items-center rounded-md border border-zinc-200 bg-white p-0.5;
+}
+
+.sidebar-settings-segmented-option {
+  @apply rounded px-2 py-1 text-xs text-zinc-600 transition-colors;
+}
+
 .sidebar-settings-segmented-option.is-active {
   @apply bg-zinc-800 text-white;
+}
+
+.sidebar-settings-provider-info {
+  @apply flex items-center justify-between w-full;
+}
+
+.sidebar-settings-provider-link {
+  @apply text-xs text-blue-600 hover:text-blue-700 underline shrink-0;
+}
+
+:root.dark .sidebar-settings-segmented {
+  @apply border-zinc-600 bg-zinc-800;
+}
+
+:root.dark .sidebar-settings-segmented-option {
+  @apply text-zinc-300;
 }
 
 :root.dark .sidebar-settings-segmented-option.is-active {
   @apply bg-zinc-100 text-zinc-900;
 }
+
+:root.dark .sidebar-settings-provider-link {
+  @apply text-blue-400 hover:text-blue-300;
+}
+
+:root.dark .sidebar-settings-key-input {
+  @apply border-zinc-600 bg-zinc-800 text-zinc-200 placeholder:text-zinc-500;
+}
+
+:root.dark .sidebar-settings-key-input:focus {
+  @apply border-zinc-500;
+}
+
+:root.dark .sidebar-settings-key-save {
+  @apply border-zinc-600 bg-zinc-700 text-zinc-200 hover:bg-zinc-600;
+}
+
+:root.dark .sidebar-settings-key-masked {
+  @apply text-zinc-400;
+}
+
+:root.dark .sidebar-settings-key-clear {
+  @apply border-zinc-600 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500;
+}
+
+.settings-panel-enter-active,
+.settings-panel-leave-active {
+  transition: all 150ms ease;
+}
+
+.settings-panel-enter-from,
+.settings-panel-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.project-zip-modal-backdrop {
+  @apply fixed inset-0 z-[100] flex items-center justify-center bg-black/35 px-4;
+}
+
+.project-zip-modal {
+  @apply flex w-full max-w-md flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 text-zinc-900 shadow-2xl;
+}
+
+.project-zip-modal-header {
+  @apply flex items-center justify-between gap-3;
+}
+
+.project-zip-modal-title {
+  @apply text-base font-semibold;
+}
+
+.project-zip-modal-close {
+  @apply inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg leading-none text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.project-zip-modal-copy {
+  @apply min-h-5 truncate text-sm text-zinc-600;
+}
+
+.project-zip-modal-error {
+  @apply rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900;
+}
+
+.project-zip-progress-label {
+  @apply flex items-center justify-between gap-3 text-sm font-semibold;
+}
+
+.project-zip-progress-label span:last-child {
+  @apply shrink-0 text-xs font-medium text-zinc-500;
+}
+
+.project-zip-progress-track {
+  @apply h-2 overflow-hidden rounded-full bg-zinc-100;
+}
+
+.project-zip-progress-fill {
+  @apply h-full rounded-full bg-emerald-600 transition-all duration-150;
+}
+
+.project-zip-modal-actions {
+  @apply flex items-center justify-end gap-2;
+}
+
+.project-zip-modal-cancel,
+.project-zip-modal-action {
+  @apply rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-default disabled:opacity-60;
+}
+
+.project-zip-modal-action-primary {
+  @apply border-zinc-900 bg-zinc-900 text-white hover:bg-zinc-800;
+}
+
+:root.dark .project-zip-modal {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-100;
+}
+
+:root.dark .project-zip-modal-close,
+:root.dark .project-zip-modal-cancel,
+:root.dark .project-zip-modal-action {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800;
+}
+
+:root.dark .project-zip-modal-copy {
+  @apply text-zinc-400;
+}
+
+:root.dark .project-zip-modal-error {
+  @apply border-amber-900/60 bg-amber-950/40 text-amber-100;
+}
+
+:root.dark .project-zip-modal-action-primary {
+  @apply border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white;
+}
+
+:root.dark .project-zip-progress-label span:last-child {
+  @apply text-zinc-400;
+}
+
+:root.dark .project-zip-progress-track {
+  @apply bg-zinc-800;
+}
+
+:root.dark .project-zip-progress-fill {
+  @apply bg-emerald-500;
+}
+
+.sidebar-settings-context-row {
+  @apply cursor-default;
+}
+
+.sidebar-settings-context-value {
+  @apply text-xs font-semibold text-zinc-700 text-right;
+}
+
+.sidebar-settings-context-value[data-state='ok'] {
+  @apply text-emerald-700;
+}
+
+.sidebar-settings-context-value[data-state='warning'] {
+  @apply text-amber-700;
+}
+
+.sidebar-settings-context-value[data-state='danger'] {
+  @apply text-rose-700;
+}
+
+.sidebar-settings-context-meta {
+  @apply block text-[11px] font-normal text-zinc-500;
+}
+
+.sidebar-settings-rate-limits {
+  @apply border-t border-zinc-200 px-2 pt-2;
+}
+
+.sidebar-settings-build-label {
+  @apply border-t border-zinc-100 px-3 py-2 text-[11px] text-zinc-500;
+}
+
 </style>

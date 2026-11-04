@@ -332,8 +332,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { applyReviewAction, getReviewSnapshot, initializeReviewGit } from '../../api/reviewGateway'
-import { subscribeCodexNotifications, type RpcNotification } from '../../api/codexGateway'
+import {
+  applyReviewAction,
+  getReviewSnapshot,
+  initializeReviewGit,
+  subscribeCodexNotifications,
+  type RpcNotification,
+} from '../../api/codexGateway'
 import { useMobile } from '../../composables/useMobile'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 import type {
