@@ -271,10 +271,6 @@ function openBrowser(url: string): void {
   child.unref()
 }
 
-function buildTunnelAutologinUrl(tunnelUrl: string, _password: string | undefined): string {
-  return tunnelUrl
-}
-
 function parseCloudflaredUrl(chunk: string): string | null {
   const urlMatch = chunk.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/g)
   if (!urlMatch || urlMatch.length === 0) {
@@ -302,34 +298,6 @@ function getAccessibleUrls(port: number): string[] {
     }
   } catch {}
   return Array.from(urls)
-}
-
-function isTailscaleIPv4Address(address: string): boolean {
-  const parts = address.split('.')
-  if (parts.length !== 4) return false
-  const octets = parts.map((part) => Number.parseInt(part, 10))
-  if (octets.some((value) => Number.isNaN(value) || value < 0 || value > 255)) return false
-  return octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127
-}
-
-function isTailscaleIPv6Address(address: string): boolean {
-  const normalized = address.toLowerCase()
-  return normalized.startsWith('fd7a:115c:a1e0:')
-}
-
-function hasDetectedTailscaleIp(): boolean {
-  try {
-    const interfaces = networkInterfaces()
-    for (const entries of Object.values(interfaces)) {
-      if (!entries) continue
-      for (const entry of entries) {
-        if (entry.internal) continue
-        if (entry.family === 'IPv4' && isTailscaleIPv4Address(entry.address)) return true
-        if (entry.family === 'IPv6' && isTailscaleIPv6Address(entry.address)) return true
-      }
-    }
-  } catch {}
-  return false
 }
 
 async function startCloudflaredTunnel(command: string, localPort: number): Promise<{
@@ -524,17 +492,16 @@ async function startServer(options: {
     lines.push(`  Requested port ${String(requestedPort)} was unavailable; using ${String(port)}.`)
   }
 
-  const tunnelQrUrl = tunnelUrl ? buildTunnelAutologinUrl(tunnelUrl, password) : null
   if (tunnelUrl) {
-    lines.push(`  Tunnel:   ${tunnelQrUrl ?? tunnelUrl}`)
+    lines.push(`  Tunnel:   ${tunnelUrl}`)
     lines.push('  Tunnel QR code below')
   }
 
   printTermuxKeepAlive(lines)
   lines.push('')
   console.log(lines.join('\n'))
-  if (tunnelQrUrl) {
-    qrcode.generate(tunnelQrUrl, { small: true })
+  if (tunnelUrl) {
+    qrcode.generate(tunnelUrl, { small: true })
     console.log('')
   }
   if (options.open) openBrowser(`http://localhost:${String(port)}`)

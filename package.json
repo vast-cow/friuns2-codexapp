@@ -50,7 +50,6 @@
     "profile:thread": "PROFILE_ROUTE='#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c' node scripts/profile-browser-runtime.cjs"
   },
   "dependencies": {
-    "@composio/client": "0.1.0-alpha.66",
     "commander": "^13.1.0",
     "express": "^5.1.0",
     "firebase": "^12.2.1",
@@ -61,7 +60,6 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.2",
