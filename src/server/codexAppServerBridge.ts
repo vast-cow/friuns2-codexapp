@@ -15,6 +15,7 @@ import { writeFile } from 'node:fs/promises'
 import { readCodexGlobalState, updateCodexGlobalState } from './codexGlobalState.js'
 import { handleAccountRoutes } from './accountRoutes.js'
 import { buildAppServerArgs } from './appServerRuntimeConfig.js'
+import { checkCodexLoginStatus, getCachedCodexAuthStatus, recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
 import { handleReviewRoutes } from './reviewGit.js'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
@@ -1111,40 +1112,14 @@ function mergeStreamTurnErrorsIntoThreadResult(appServer: AppServerProcess, resu
   }
 }
 
-const warnedCodexAuthReadFailures = new Set<string>()
-
 function getErrorCode(error: unknown): string | null {
   return typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: unknown }).code ?? '')
     : null
 }
 
-function getCodexAuthReadErrorMessage(error: unknown): string {
-  return error instanceof Error && error.message.trim().length > 0
-    ? error.message
-    : String(error)
-}
-
-function warnCodexAuthReadFailure(authPath: string, error: unknown): void {
-  const message = getCodexAuthReadErrorMessage(error)
-  const warningKey = `${authPath}:${message}`
-  if (warnedCodexAuthReadFailures.has(warningKey)) return
-  warnedCodexAuthReadFailures.add(warningKey)
-  console.warn('[codex-auth] Unable to read Codex auth state', { path: authPath, error: message })
-}
-
-export async function hasUsableCodexAuth(): Promise<boolean> {
-  const authPath = getCodexAuthPath()
-  try {
-    const raw = await readFile(authPath, 'utf8')
-    const auth = JSON.parse(raw) as CodexAuth
-    return Boolean(auth.tokens?.access_token?.trim() || auth.tokens?.refresh_token?.trim())
-  } catch (error) {
-    if (getErrorCode(error) !== 'ENOENT') {
-      warnCodexAuthReadFailure(authPath, error)
-    }
-    return false
-  }
+export async function hasUsableCodexAuth(): Promise<boolean | null> {
+  return checkCodexLoginStatus()
 }
 
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -4803,6 +4778,8 @@ export async function refreshChatgptAuthTokensForExternalAuth(
   }
 }
 
+// Raw tokens are only used by legacy transcription/logo requests, never auth detection.
+// Keyring credentials stay in Codex; a missing file here does not imply a signed-out account.
 async function readCodexAuth(): Promise<{ accessToken: string; accountId?: string } | null> {
   try {
     const raw = await readFile(getCodexAuthPath(), 'utf8')
@@ -4812,16 +4789,6 @@ async function readCodexAuth(): Promise<{ accessToken: string; accountId?: strin
     return { accessToken: token, accountId: auth.tokens?.account_id ?? undefined }
   } catch {
     return null
-  }
-}
-
-function hasUsableCodexAuthSync(): boolean {
-  try {
-    const raw = readFileSync(getCodexAuthPath(), 'utf8')
-    const auth = JSON.parse(raw) as CodexAuth
-    return Boolean(auth.tokens?.access_token?.trim())
-  } catch {
-    return false
   }
 }
 
@@ -4970,7 +4937,8 @@ export async function writeFreeModeStateFile(statePath: string, state: FreeModeS
 
 export function ensureDefaultFreeModeStateForMissingAuthSync(statePath: string): FreeModeState | null {
   const current = readFreeModeStateSync(statePath)
-  const hasUsableCodexAuth = hasUsableCodexAuthSync()
+  // Unknown auth must not force a Keyring user into community fallback while probing.
+  const hasUsableCodexAuth = getCachedCodexAuthStatus() !== false
   if (shouldSuppressCommunityFreeModeForCodexAuth(current, hasUsableCodexAuth)) {
     return null
   }
@@ -6600,6 +6568,10 @@ class AppServerProcess {
   }
 
   private emitNotification(notification: { method: string; params: unknown }): void {
+    if (notification.method === 'account/updated') {
+      const params = asRecord(notification.params)
+      if (params && 'authMode' in params) recordCodexAuthStatus(params.authMode !== null)
+    }
     if (notification.method === 'turn/started') {
       const params = asRecord(notification.params)
       const turn = asRecord(params?.turn)
@@ -6944,9 +6916,15 @@ class AppServerProcess {
   }
 
   async rpc(method: string, params: unknown): Promise<unknown> {
+    if (!this.process) await hasUsableCodexAuth()
     this.disposeIfConfigChanged()
     await this.ensureInitialized()
-    if (method !== 'turn/start') return this.call(method, params)
+    if (method !== 'turn/start') {
+      const result = await this.call(method, params)
+      if (method === 'account/read') recordCodexAccountRead(result)
+      if (method === 'account/logout') recordCodexAuthStatus(false)
+      return result
+    }
     const threadId = readNonEmptyString(asRecord(params)?.threadId)
     const metadata = submittedGenerationMetadata(params)
     const candidates = this.pendingGenerationSettings.get(threadId) ?? new Set<TurnGenerationMetadata>()
@@ -7685,6 +7663,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (url.pathname.startsWith('/codex-api/free-mode')) {
         const statePath = join(getCodexHomeDir(), FREE_MODE_STATE_FILE)
+        await hasUsableCodexAuth()
+        if (req.method === 'GET' && url.pathname === '/codex-api/free-mode/status') {
+          // The running Codex app-server is authoritative, including for Keyring credentials.
+          try {
+            await appServer.rpc('account/read', { refreshToken: false })
+          } catch { /* Preserve unknown/last known status on transient RPC errors. */ }
+        }
 
         function readFreeModeState(): FreeModeState {
           return ensureDefaultFreeModeStateForMissingAuthSync(statePath)
@@ -7789,7 +7774,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             }
             setJson(res, 200, {
               enabled: state.enabled,
-              hasCodexAuth: hasUsableCodexAuthSync(),
+              hasCodexAuth: getCachedCodexAuthStatus(),
               keyCount: getFreeKeyCount(),
               models,
               currentModel,
@@ -8053,11 +8038,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
 	        if (body.method === 'generate-thread-title') {
 	          setJson(res, 200, { result: { title: '' } })
-	          return
-	        }
-
-	        if (body.method === 'account/rateLimits/read' && !(await hasUsableCodexAuth())) {
-	          setJson(res, 200, { result: null })
 	          return
 	        }
 

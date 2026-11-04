@@ -4511,9 +4511,12 @@ async function loadFreeModeStatus(): Promise<void> {
     } else {
       selectedProvider.value = 'codex'
     }
-    externalCodexAuthAvailable = status.hasCodexAuth === true
-    if (!externalCodexAuthAvailable) {
-      externalAuthImportAttempted = false
+    // A failed credential-service probe is unknown, not a sign-out.
+    if (typeof status.hasCodexAuth === 'boolean') {
+      externalCodexAuthAvailable = status.hasCodexAuth
+      if (!externalCodexAuthAvailable) {
+        externalAuthImportAttempted = false
+      }
     }
     const providerChanged = selectedProvider.value !== previousProvider
     if (providerChanged) {

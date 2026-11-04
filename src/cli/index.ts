@@ -25,6 +25,7 @@ import {
 import { updateCodexGlobalState } from '../server/codexGlobalState.js'
 import { createServer as createApp } from '../server/httpServer.js'
 import { spawnSyncCommand } from '../utils/commandInvocation.js'
+import { checkCodexLoginStatus } from '../server/codexAuthStatus.js'
 
 const program = new Command().name('codexui').description('Web interface for Codex app-server')
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -199,11 +200,6 @@ async function resolveCloudflaredForTunnel(): Promise<string | null> {
   }
 
   return ensureCloudflaredInstalledLinux()
-}
-
-function hasCodexAuth(): boolean {
-  const codexHome = getCodexHomePath()
-  return existsSync(join(codexHome, 'auth.json'))
 }
 
 function ensureCodexInstalled(): string | null {
@@ -475,8 +471,12 @@ async function startServer(options: {
     process.env.CODEXUI_APPROVAL_POLICY = options.approvalPolicy
   }
   const runtimeConfig = resolveAppServerRuntimeConfig()
-  if (options.login && !hasCodexAuth()) {
-    console.log('\nCodex is not logged in. You can log in later via settings or run `codexui login`.\n')
+  if (options.login) {
+    void checkCodexLoginStatus().then((authenticated) => {
+      if (authenticated === false) {
+        console.log('\nCodex is not logged in. You can log in later via settings or run `codexui login`.\n')
+      }
+    }).catch(() => { /* Auth availability must not prevent server startup. */ })
   }
   const requestedPort = parseInt(options.port, 10)
   const password = typeof options.password === 'string' ? options.password : undefined

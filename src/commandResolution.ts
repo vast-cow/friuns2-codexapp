@@ -117,14 +117,18 @@ export function prependPathEntry(existingPath: string, entry: string): string {
   return existingPath ? `${normalizedEntry}${delimiter}${existingPath}` : normalizedEntry
 }
 
-export function resolveCodexCommand(): string | null {
+export function getCodexCommandCandidates(): string[] {
   const explicit = process.env.CODEXUI_CODEX_COMMAND?.trim()
   const packageCandidates = getPotentialNpmPrefixes().flatMap(getPotentialCodexExecutables)
   const fallbackCandidates = process.platform === 'win32'
     ? [...packageCandidates, 'codex']
     : ['codex', ...packageCandidates]
 
-  for (const candidate of uniqueStrings([explicit, ...fallbackCandidates])) {
+  return uniqueStrings([explicit, ...fallbackCandidates])
+}
+
+export function resolveCodexCommand(): string | null {
+  for (const candidate of getCodexCommandCandidates()) {
     if (isRunnableCommand(candidate, ['--version'])) {
       return candidate
     }

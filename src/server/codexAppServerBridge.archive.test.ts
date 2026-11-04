@@ -1,3 +1,4 @@
+import { recordCodexAuthStatus } from './codexAuthStatus'
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -8,7 +9,6 @@ import {
   canonicalizeThreadListResponseForRead,
   canonicalizeWorkspaceRootsStateForRead,
   ensureDefaultFreeModeStateForMissingAuthSync,
-  hasUsableCodexAuth,
   isEmptyThreadReadError,
   isThreadMaterializationPendingError,
   isThreadNotFoundError,
@@ -349,51 +349,21 @@ describe('isThreadNotFoundError', () => {
   })
 })
 
-describe('hasUsableCodexAuth', () => {
-  it('returns false when auth.json is missing or does not contain usable tokens', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-no-token-'))
-    process.env.CODEX_HOME = codexHome
-    try {
-      await expect(hasUsableCodexAuth()).resolves.toBe(false)
-      await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: {} }))
-      await expect(hasUsableCodexAuth()).resolves.toBe(false)
-    } finally {
-      await rm(codexHome, { recursive: true, force: true })
-    }
-  })
-
-  it('returns true when auth.json contains an access token or refresh token', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-with-token-'))
-    process.env.CODEX_HOME = codexHome
-    try {
-      await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { access_token: 'access-token' } }))
-      await expect(hasUsableCodexAuth()).resolves.toBe(true)
-      await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { refresh_token: 'refresh-token' } }))
-      await expect(hasUsableCodexAuth()).resolves.toBe(true)
-    } finally {
-      await rm(codexHome, { recursive: true, force: true })
-    }
-  })
-
-  it('warns when auth.json exists but cannot be parsed', async () => {
-    const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-invalid-auth-'))
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    process.env.CODEX_HOME = codexHome
-    try {
-      await writeFile(join(codexHome, 'auth.json'), '{')
-      await expect(hasUsableCodexAuth()).resolves.toBe(false)
-      expect(warn).toHaveBeenCalledWith(
-        '[codex-auth] Unable to read Codex auth state',
-        expect.objectContaining({ path: join(codexHome, 'auth.json') }),
-      )
-    } finally {
-      warn.mockRestore()
-      await rm(codexHome, { recursive: true, force: true })
-    }
-  })
-})
-
 describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
+  it.each([true, null])('keeps Codex available without auth.json for auth status %s', async (status) => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-keyring-'))
+    process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(status)
+    try {
+      const statePath = join(codexHome, 'webui-custom-providers.json')
+      await writeFile(statePath, JSON.stringify({ enabled: true, provider: 'opencode-zen', apiKey: null }))
+      expect(ensureDefaultFreeModeStateForMissingAuthSync(statePath)).toBeNull()
+      await expect(stat(join(codexHome, 'auth.json'))).rejects.toThrow()
+    } finally {
+      await rm(codexHome, { recursive: true, force: true })
+    }
+  })
+
   it('creates CODEX_HOME before writing free-mode state', async () => {
     const codexHome = join(tmpdir(), `codex-home-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     const statePath = join(codexHome, 'webui-custom-providers.json')
@@ -419,6 +389,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-runtime-zen-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       const state = ensureDefaultFreeModeStateForMissingAuthSync(statePath)
 
@@ -434,8 +405,10 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-auth-no-state-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { access_token: 'access-token' } }))
+      recordCodexAuthStatus(true)
 
       expect(ensureDefaultFreeModeStateForMissingAuthSync(statePath)).toBeNull()
       await expect(stat(statePath)).rejects.toThrow()
@@ -448,6 +421,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-config-provider-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'config.toml'), [
         'model = "gpt-5.5"',
@@ -469,6 +443,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-quoted-config-provider-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'config.toml'), [
         '"model_provider" = "azure"',
@@ -489,6 +464,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-nested-provider-config-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'config.toml'), [
         '# model_provider = "azure"',
@@ -511,6 +487,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-multiline-provider-config-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'config.toml'), [
         'banner = """',
@@ -532,8 +509,10 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-auth-community-provider-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { access_token: 'access-token' } }))
+      recordCodexAuthStatus(true)
       await writeFile(statePath, JSON.stringify({
         enabled: true,
         apiKey: 'community-openrouter-key',
@@ -553,8 +532,10 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-auth-custom-provider-'))
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { access_token: 'access-token' } }))
+      recordCodexAuthStatus(true)
       const configuredState = {
         enabled: true,
         apiKey: 'user-openrouter-key',
@@ -576,6 +557,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
     const legacyStatePath = join(codexHome, 'webui-free-mode.json')
     const statePath = join(codexHome, 'webui-custom-providers.json')
     process.env.CODEX_HOME = codexHome
+    recordCodexAuthStatus(false)
     try {
       await writeFile(legacyStatePath, JSON.stringify({
         enabled: true,
@@ -585,6 +567,7 @@ describe('ensureDefaultFreeModeStateForMissingAuthSync', () => {
         wireApi: 'responses',
       }))
       await writeFile(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { access_token: 'access-token' } }))
+      recordCodexAuthStatus(true)
 
       expect(ensureDefaultFreeModeStateForMissingAuthSync(statePath)).toBeNull()
       await expect(stat(statePath)).rejects.toThrow()

@@ -32,3 +32,25 @@ Runtime auth detection after starting without auth.
 - Stop the temporary container and remove its mounted `CODEX_HOME` directory.
 
 ---
+
+### File and Keyring authentication detection
+
+#### Prerequisites/Setup
+- Use an isolated Codex profile with a working credential backend. Configure `cli_auth_credentials_store = "keyring"` and sign in using Codex. Confirm `codex login status` succeeds while `auth.json` is absent. Do not export credentials.
+- Prepare a separate file-storage profile and a genuinely signed-out profile.
+
+#### Steps
+1. Start the app with the Keyring profile and open Settings. Confirm Codex is selected and available, including when an old community fallback state exists.
+2. Read account rate limits, reload, and send a Codex message. Confirm the account and quotas are available without creating `auth.json`.
+3. Repeat with file-based authentication.
+4. Start with the signed-out profile. Confirm the existing community fallback is selected and unauthenticated rate-limit responses are handled gracefully.
+5. Sign in or out through the app, then reload Settings. Confirm provider selection follows the updated account state. Explicit custom provider selections must remain intact.
+6. Simulate an unavailable credential service. Confirm startup continues, no interactive login starts, and an unknown auth check alone does not enable fallback.
+
+#### Expected Results
+- Official CLI/app-server account status determines authentication for both credential stores; the absence of a file never suppresses rate-limit RPCs.
+- Concurrent bootstrap checks share one bounded asynchronous process and cached results. Account reads and account-change notifications update the cache immediately; external changes are rechecked after its 30-second TTL.
+- Keyring credentials stay managed by Codex. Legacy direct transcription/logo requests and importing file-backed accounts still require file tokens and are outside this change.
+
+#### Rollback/Cleanup
+- Stop the temporary app and remove only the isolated test profiles. Restore the original profile environment; leave the user's credential storage configuration unchanged.
