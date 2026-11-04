@@ -182,14 +182,19 @@
                         {{ formatAccountQuota(account) }}
                       </p>
                       <p class="sidebar-settings-account-id">
-                        Workspace {{ shortAccountId(account.accountId) }}
+                        <template v-if="account.credentialSource === 'runtime'">{{ t('Active Codex login') }}</template>
+                        <template v-else>Workspace {{ shortAccountId(account.accountId) }}</template>
+                      </p>
+                      <p v-if="account.managementReason" class="sidebar-settings-account-meta">
+                        {{ account.managementReason }}
                       </p>
                     </div>
                     <div class="sidebar-settings-account-actions">
                       <button
                         class="sidebar-settings-account-switch"
                         type="button"
-                        :disabled="isAccountActionDisabled(account) || account.isActive || isAccountUnavailable(account)"
+                        :disabled="isAccountActionDisabled(account) || account.canSwitch === false || account.isActive || isAccountUnavailable(account)"
+                        :title="account.managementReason || undefined"
                         @click="onSwitchAccount(account.storageId)"
                       >
                         {{ getAccountSwitchLabel(account) }}
@@ -201,7 +206,8 @@
                           'is-confirming': isRemoveConfirmationActive(account),
                         }"
                         type="button"
-                        :disabled="isAccountActionDisabled(account)"
+                        :disabled="isAccountActionDisabled(account) || account.canRemove === false"
+                        :title="account.managementReason || undefined"
                         @click="onRemoveAccount(account.storageId)"
                       >
                         {{ getAccountRemoveLabel(account) }}
@@ -2553,6 +2559,7 @@ function isRemoveVisible(account: UiAccountEntry): boolean {
 function getAccountSwitchLabel(account: UiAccountEntry): string {
   if (isAccountUnavailable(account)) return t('Unavailable')
   if (account.isActive) return t('Active')
+  if (account.canSwitch === false) return t('Switch unavailable')
   if (isSwitchingAccounts.value) return t('Switching…')
   return t('Switch')
 }
@@ -2639,7 +2646,8 @@ function buildAccountTitle(account: UiAccountEntry): string {
     formatAccountMeta(account),
     isAccountUnavailable(account) ? t('Unavailable account') : null,
     formatAccountQuota(account),
-    `${t('Workspace')} ${account.accountId}`,
+    account.credentialSource === 'runtime' ? t('Active Codex login') : `${t('Workspace')} ${account.accountId}`,
+    account.managementReason,
   ].filter(Boolean).join('\n')
 }
 

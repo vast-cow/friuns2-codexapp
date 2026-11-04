@@ -515,6 +515,10 @@ function normalizeAccountEntry(
     quotaStatusRaw === 'loading' || quotaStatusRaw === 'ready' || quotaStatusRaw === 'error' ? quotaStatusRaw : 'idle'
   if (!accountId) return null
   return {
+    credentialSource: record.credentialSource === 'runtime' ? 'runtime' : 'file',
+    canSwitch: readBoolean(record.canSwitch) ?? true,
+    canRemove: readBoolean(record.canRemove) ?? true,
+    managementReason: readString(record.managementReason),
     accountId,
     storageId: storageId ?? accountId,
     userId: readString(record.userId),

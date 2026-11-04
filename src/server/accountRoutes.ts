@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildAppServerArgs } from './appServerRuntimeConfig.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
+import { recordCodexAuthStatus } from './codexAuthStatus.js'
 
 type AppServerLike = {
   rpc(method: string, params: unknown): Promise<unknown>
@@ -93,7 +94,7 @@ const ACCOUNT_QUOTA_LOADING_STALE_MS = 2 * 60 * 1000
 const ACCOUNT_INSPECTION_TIMEOUT_MS = 25 * 1000
 const LOGIN_URL_TIMEOUT_MS = 15 * 1000
 const LOGIN_CALLBACK_TIMEOUT_MS = 20 * 1000
-const LOGIN_AUTH_FILE_TIMEOUT_MS = 10 * 1000
+const LOGIN_COMPLETION_TIMEOUT_MS = 10 * 1000
 
 let backgroundRefreshPromise: Promise<void> | null = null
 let activeLogin: {
@@ -879,9 +880,9 @@ async function refreshAccountsInBackground(storageIds: string[]): Promise<void> 
 }
 
 async function scheduleAccountsBackgroundRefresh(
-  options: { force?: boolean; prioritizeStorageId?: string; storageIds?: string[] } = {},
+  options: { force?: boolean; prioritizeStorageId?: string; storageIds?: string[]; state?: StoredAccountsState } = {},
 ): Promise<StoredAccountsState> {
-  const state = await readStoredAccountsState()
+  const state = options.state ?? await readStoredAccountsState()
   if (state.accounts.length === 0) return state
   if (backgroundRefreshPromise) return state
 
@@ -1041,6 +1042,7 @@ async function startCodexLogin(): Promise<string> {
     exitCode: null,
     exitSignal: null,
     exitPromise: new Promise<void>((resolve) => {
+      proc.once('error', () => resolve())
       proc.once('exit', (code, signal) => {
         if (activeLogin?.proc === proc) {
           activeLogin.exited = true
@@ -1093,22 +1095,20 @@ async function curlLoginCallback(callbackUrl: string): Promise<void> {
   }
 }
 
-async function getActiveAuthMtimeMs(): Promise<number | null> {
+async function waitForLoginCompletion(): Promise<void> {
+  const login = activeLogin
+  if (!login) throw new Error('Login process is not running.')
+  let timer: NodeJS.Timeout | undefined
   try {
-    return (await stat(getActiveAuthPath())).mtimeMs
-  } catch {
-    return null
-  }
-}
-
-async function waitForAuthFileUpdate(previousMtimeMs: number | null): Promise<void> {
-  const startedAt = Date.now()
-  while (Date.now() - startedAt <= LOGIN_AUTH_FILE_TIMEOUT_MS) {
-    const nextMtimeMs = await getActiveAuthMtimeMs()
-    if (nextMtimeMs !== null && (previousMtimeMs === null || nextMtimeMs > previousMtimeMs)) {
-      return
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250))
+    await Promise.race([
+      login.exitPromise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out waiting for Codex login to finish.')), LOGIN_COMPLETION_TIMEOUT_MS)
+      }),
+    ])
+    if (login.exitCode !== 0) throw new Error('Codex login did not complete successfully. Please try again.')
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -1120,6 +1120,183 @@ function stopActiveLogin(): void {
   activeLogin = null
 }
 
+type PublicAccountEntry = StoredAccountEntry & {
+  isActive: boolean
+  credentialSource?: 'file' | 'runtime'
+  canSwitch?: boolean
+  canRemove?: boolean
+  managementReason?: string | null
+}
+
+type RuntimeAccount = {
+  backend: string
+  account: Record<string, unknown> | null
+  quotaSnapshot: StoredRateLimitSnapshot | null
+  quotaError: string | null
+}
+
+const RUNTIME_STORAGE_ID = 'codex-runtime-active'
+const RUNTIME_MANAGEMENT_REASON = 'Codex manages the active credentials. Snapshot switching and removing the active login are only supported with file credential storage. Use Codex CLI to manage this login.'
+const runtimeReads = new WeakMap<AppServerLike, { home: string; expiresAt: number; promise: Promise<RuntimeAccount> }>()
+
+async function withRuntimeReadTimeout<T>(operation: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Codex account request timed out. Try Reload.')), 5000)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function readRuntimeAccount(appServer: AppServerLike, force = false): Promise<RuntimeAccount> {
+  const cached = runtimeReads.get(appServer)
+  const home = getCodexHomeDir()
+  if (!force && cached?.home === home && cached.expiresAt > Date.now()) return cached.promise
+  const promise = (async (): Promise<RuntimeAccount> => {
+    const [accountResult, configResult] = await Promise.allSettled([
+      withRuntimeReadTimeout(appServer.rpc('account/read', { refreshToken: false })),
+      withRuntimeReadTimeout(appServer.rpc('config/read', { includeLayers: false })),
+    ])
+    if (accountResult.status === 'rejected') throw accountResult.reason
+    const response = asRecord(accountResult.value)
+    if (!response || !('account' in response)) throw new Error('Codex did not return account status.')
+    const account = asRecord(response.account)
+    const config = configResult.status === 'fulfilled' ? asRecord(asRecord(configResult.value)?.config) : null
+    // config/read exposes additional configuration keys. The Codex default is file storage.
+    const backend = config ? readString(config.cli_auth_credentials_store) ?? 'file' : 'unknown'
+    let quotaSnapshot: StoredRateLimitSnapshot | null = null
+    let quotaError: string | null = null
+    if (account) {
+      try {
+        quotaSnapshot = pickCodexRateLimitSnapshot(await withRuntimeReadTimeout(callRpcWithRateLimitDecodeRecovery(appServer, 'account/rateLimits/read', null)))
+      } catch (error) {
+        quotaError = getErrorMessage(error, 'Account quota is unavailable.')
+      }
+    }
+    return { backend, account, quotaSnapshot, quotaError }
+  })()
+  const entry = { home, expiresAt: Number.POSITIVE_INFINITY, promise }
+  runtimeReads.set(appServer, entry)
+  try {
+    return await promise
+  } finally {
+    // Cache failed reads too, avoiding a request storm while Codex is unavailable.
+    entry.expiresAt = Date.now() + 30_000
+  }
+}
+
+async function requireFileCredentialStorage(appServer: AppServerLike): Promise<void> {
+  // Check the live effective configuration before any active credential file mutation.
+  const payload = asRecord(await withRuntimeReadTimeout(appServer.rpc('config/read', { includeLayers: false })))
+  const config = asRecord(payload?.config)
+  if (!config || (readString(config.cli_auth_credentials_store) ?? 'file') !== 'file') {
+    throw new Error(RUNTIME_MANAGEMENT_REASON)
+  }
+}
+
+export async function readAccountsForRuntime(appServer: AppServerLike, force = false): Promise<{
+  activeAccountId: string | null
+  activeStorageId: string | null
+  accounts: PublicAccountEntry[]
+}> {
+  const runtime = await readRuntimeAccount(appServer, force)
+  const stored = await readStoredAccountsState()
+  const email = readString(runtime.account?.email)
+  const matches = email ? stored.accounts.filter((entry) => entry.email?.toLowerCase() === email.toLowerCase()) : []
+  const activeSnapshotId = runtime.backend === 'file'
+    ? await readActiveAuthStorageId()
+    : matches.length === 1 ? matches[0]?.storageId : null
+  // Quotas for the active login come from the live server, not another inspection process.
+  const state = await scheduleAccountsBackgroundRefresh({
+    state: stored,
+    storageIds: stored.accounts.filter((entry) => entry.storageId !== activeSnapshotId).map((entry) => entry.storageId),
+  })
+  const accounts: PublicAccountEntry[] = sortAccounts(state.accounts, null).map((entry) => ({
+    ...entry,
+    isActive: false,
+    credentialSource: 'file',
+    canSwitch: runtime.backend === 'file',
+    canRemove: true,
+    managementReason: runtime.backend === 'file' ? null : RUNTIME_MANAGEMENT_REASON,
+  }))
+  if (!runtime.account) return { activeAccountId: null, activeStorageId: null, accounts }
+
+  // Email is not an account ID: only reuse a snapshot row when the match is unambiguous.
+  const match = accounts.find((entry) => entry.storageId === activeSnapshotId)
+  const now = new Date().toISOString()
+  const active: PublicAccountEntry = {
+    // This is an ephemeral UI identity, never a claimed Codex account ID or snapshot key.
+    accountId: match?.accountId ?? RUNTIME_STORAGE_ID,
+    storageId: match?.storageId ?? RUNTIME_STORAGE_ID,
+    userId: match?.userId ?? null,
+    authMode: readString(runtime.account.type),
+    email,
+    planType: readString(runtime.account.planType),
+    lastRefreshedAtIso: now,
+    lastActivatedAtIso: match?.lastActivatedAtIso ?? null,
+    quotaSnapshot: runtime.quotaSnapshot,
+    quotaUpdatedAtIso: now,
+    quotaStatus: runtime.quotaError ? 'error' : runtime.quotaSnapshot ? 'ready' : 'idle',
+    quotaError: runtime.quotaError,
+    unavailableReason: detectAccountUnavailableReason(runtime.quotaError),
+    isActive: true,
+    credentialSource: runtime.backend === 'file' && match ? 'file' : 'runtime',
+    canSwitch: false,
+    canRemove: runtime.backend === 'file' && !!match,
+    managementReason: runtime.backend === 'file'
+      ? match ? null : 'Reload to save this file-backed account before managing its snapshot.'
+      : RUNTIME_MANAGEMENT_REASON,
+  }
+  return {
+    activeAccountId: active.accountId,
+    activeStorageId: active.storageId,
+    accounts: [active, ...accounts.filter((entry) => entry.storageId !== active.storageId)],
+  }
+}
+
+async function refreshManagedAccounts(appServer: AppServerLike): Promise<Awaited<ReturnType<typeof readAccountsForRuntime>> & {
+  importedAccountId: string | null
+  importedStorageId: string | null
+}> {
+  runtimeReads.delete(appServer)
+  appServer.dispose()
+  const runtime = await readRuntimeAccount(appServer, true)
+  if (!runtime.account) throw new Error('Codex is not logged in. Sign in with Codex before reloading accounts.')
+  if (runtime.backend === 'file') {
+    // Only snapshot credentials when the effective backend actually uses this file.
+    // A leftover auth.json under Keyring/auto/ephemeral must never be imported.
+    const activeFile = await readAuthFileFromPath(getActiveAuthPath()).catch(() => null)
+    const runtimeEmail = readString(runtime.account.email)
+    if (activeFile && (!runtimeEmail || !activeFile.metadata.email || activeFile.metadata.email.toLowerCase() === runtimeEmail.toLowerCase())) {
+      const imported = await importAccountFromAuthPath(getActiveAuthPath())
+      const state = await readStoredAccountsState()
+      const now = new Date().toISOString()
+      await writeStoredAccountsState({
+        activeAccountId: imported.importedAccountId,
+        activeStorageId: imported.importedStorageId,
+        accounts: state.accounts.map((entry) => entry.storageId === imported.importedStorageId ? {
+          ...entry,
+          email: readString(runtime.account?.email) ?? entry.email,
+          planType: readString(runtime.account?.planType) ?? entry.planType,
+          lastActivatedAtIso: now,
+          quotaSnapshot: runtime.quotaSnapshot ?? entry.quotaSnapshot,
+          quotaUpdatedAtIso: now,
+          quotaStatus: runtime.quotaError ? 'error' : 'ready',
+          quotaError: runtime.quotaError,
+          unavailableReason: detectAccountUnavailableReason(runtime.quotaError),
+        } : entry),
+      })
+    }
+  }
+  const result = await readAccountsForRuntime(appServer)
+  return { ...result, importedAccountId: result.activeAccountId, importedStorageId: result.activeStorageId }
+}
+
 export async function handleAccountRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1129,89 +1306,29 @@ export async function handleAccountRoutes(
   const { appServer } = context
 
   if (req.method === 'GET' && url.pathname === '/codex-api/accounts') {
-    const state = await scheduleAccountsBackgroundRefresh()
-    setJson(res, 200, {
-      data: {
-        activeAccountId: state.activeAccountId,
-        activeStorageId: state.activeStorageId,
-        accounts: sortAccounts(state.accounts, state.activeStorageId).map((entry) => toPublicAccountEntry(entry, state.activeStorageId)),
-      },
-    })
+    try {
+      setJson(res, 200, { data: await readAccountsForRuntime(appServer) })
+    } catch (error) {
+      setJson(res, 502, { error: 'account_read_failed', message: getErrorMessage(error, 'Failed to read Codex account.') })
+    }
     return true
   }
 
   if (req.method === 'GET' && url.pathname === '/codex-api/accounts/active') {
-    const state = await readStoredAccountsState()
-    const active = state.activeStorageId
-      ? state.accounts.find((entry) => entry.storageId === state.activeStorageId) ?? null
-      : null
-    setJson(res, 200, {
-      data: active ? toPublicAccountEntry(active, state.activeStorageId) : null,
-    })
+    try {
+      const state = await readAccountsForRuntime(appServer)
+      setJson(res, 200, { data: state.accounts.find((entry) => entry.isActive) ?? null })
+    } catch (error) {
+      setJson(res, 502, { error: 'account_read_failed', message: getErrorMessage(error, 'Failed to read Codex account.') })
+    }
     return true
   }
 
   if (req.method === 'POST' && url.pathname === '/codex-api/accounts/refresh') {
     try {
-      const imported = await importAccountFromAuthPath(getActiveAuthPath())
-
-      try {
-        appServer.dispose()
-        const inspection = await validateSwitchedAccount(appServer)
-        const state = await readStoredAccountsState()
-        const importedAccountId = imported.importedAccountId
-        const importedStorageId = imported.importedStorageId
-        const target = state.accounts.find((entry) => entry.storageId === importedStorageId) ?? null
-        if (!target) {
-          throw new Error('account_not_found')
-        }
-
-        const nextEntry: StoredAccountEntry = {
-          ...target,
-          email: inspection.metadata.email ?? target.email,
-          planType: inspection.metadata.planType ?? target.planType,
-          lastActivatedAtIso: new Date().toISOString(),
-          quotaSnapshot: inspection.quotaSnapshot ?? target.quotaSnapshot,
-          quotaUpdatedAtIso: new Date().toISOString(),
-          quotaStatus: 'ready',
-          quotaError: null,
-          unavailableReason: null,
-        }
-        const nextState = withUpsertedAccount({
-          activeAccountId: importedAccountId,
-          activeStorageId: importedStorageId,
-          accounts: state.accounts,
-        }, nextEntry)
-        await writeStoredAccountsState(nextState)
-
-        const backgroundState = await scheduleAccountsBackgroundRefresh({
-          force: true,
-          prioritizeStorageId: importedStorageId,
-          storageIds: nextState.accounts.filter((entry) => entry.storageId !== importedStorageId).map((entry) => entry.storageId),
-        })
-
-        setJson(res, 200, {
-          data: {
-            activeAccountId: importedAccountId,
-            activeStorageId: importedStorageId,
-            importedAccountId,
-            importedStorageId,
-            accounts: sortAccounts(backgroundState.accounts, importedStorageId).map((entry) => toPublicAccountEntry(entry, importedStorageId)),
-          },
-        })
-      } catch (error) {
-        setJson(res, 502, {
-          error: 'account_refresh_failed',
-          message: getErrorMessage(error, 'Failed to refresh account'),
-        })
-      }
+      setJson(res, 200, { data: await refreshManagedAccounts(appServer) })
     } catch (error) {
-      const message = getErrorMessage(error, 'Failed to refresh account')
-      if (message === 'missing_account_id') {
-        setJson(res, 400, { error: 'missing_account_id', message: 'Current auth.json is missing tokens.account_id.' })
-        return true
-      }
-      setJson(res, 400, { error: 'invalid_auth_json', message: 'Failed to parse the current auth.json file.' })
+      setJson(res, 502, { error: 'account_refresh_failed', message: getErrorMessage(error, 'Failed to refresh account.') })
     }
     return true
   }
@@ -1246,61 +1363,18 @@ export async function handleAccountRoutes(
         setJson(res, 400, { error: 'invalid_callback_url', message: 'The callback URL must use http://localhost or http://127.0.0.1.' })
         return true
       }
-      if (!activeLogin || activeLogin.exited) {
+      if (!activeLogin || (activeLogin.exited && activeLogin.exitCode !== 0)) {
         setJson(res, 409, { error: 'login_not_running', message: 'Start Codex login before submitting the callback URL.' })
         return true
       }
 
-      const previousAuthMtimeMs = await getActiveAuthMtimeMs()
-      await curlLoginCallback(callbackUrl)
-      await waitForAuthFileUpdate(previousAuthMtimeMs)
-
-      const imported = await importAccountFromAuthPath(getActiveAuthPath())
+      if (!activeLogin.exited) await curlLoginCallback(callbackUrl)
+      // Successful CLI exit confirms the selected credential backend has committed login.
+      await waitForLoginCompletion()
       stopActiveLogin()
-      appServer.dispose()
-      const inspection = await validateSwitchedAccount(appServer)
-      const state = await readStoredAccountsState()
-      const importedAccountId = imported.importedAccountId
-      const importedStorageId = imported.importedStorageId
-      const target = state.accounts.find((entry) => entry.storageId === importedStorageId) ?? null
-      if (!target) {
-        throw new Error('account_not_found')
-      }
-
-      const nextEntry: StoredAccountEntry = {
-        ...target,
-        email: inspection.metadata.email ?? target.email,
-        planType: inspection.metadata.planType ?? target.planType,
-        lastActivatedAtIso: new Date().toISOString(),
-        quotaSnapshot: inspection.quotaSnapshot ?? target.quotaSnapshot,
-        quotaUpdatedAtIso: new Date().toISOString(),
-        quotaStatus: 'ready',
-        quotaError: null,
-        unavailableReason: null,
-      }
-      const nextState = withUpsertedAccount({
-        activeAccountId: importedAccountId,
-        activeStorageId: importedStorageId,
-        accounts: state.accounts,
-      }, nextEntry)
-      await writeStoredAccountsState(nextState)
-
-      const backgroundState = await scheduleAccountsBackgroundRefresh({
-        force: true,
-        prioritizeStorageId: importedStorageId,
-        storageIds: nextState.accounts.filter((entry) => entry.storageId !== importedStorageId).map((entry) => entry.storageId),
-      })
-
-      setJson(res, 200, {
-        ok: true,
-        data: {
-          activeAccountId: importedAccountId,
-          activeStorageId: importedStorageId,
-          importedAccountId,
-          importedStorageId,
-          accounts: sortAccounts(backgroundState.accounts, importedStorageId).map((entry) => toPublicAccountEntry(entry, importedStorageId)),
-        },
-      })
+      recordCodexAuthStatus(true)
+      const data = await refreshManagedAccounts(appServer)
+      setJson(res, 200, { ok: true, data })
     } catch (error) {
       setJson(res, 500, {
         error: 'account_login_complete_failed',
@@ -1328,6 +1402,11 @@ export async function handleAccountRoutes(
         return true
       }
 
+      if (storageId === RUNTIME_STORAGE_ID || accountId === RUNTIME_STORAGE_ID) {
+        setJson(res, 409, { error: 'account_management_unsupported', message: RUNTIME_MANAGEMENT_REASON })
+        return true
+      }
+
       const state = await readStoredAccountsState()
       const target = storageId
         ? state.accounts.find((entry) => entry.storageId === storageId) ?? null
@@ -1336,6 +1415,14 @@ export async function handleAccountRoutes(
         setJson(res, 404, { error: 'account_not_found', message: 'The requested account was not found.' })
         return true
       }
+
+      try {
+        await requireFileCredentialStorage(appServer)
+      } catch (error) {
+        setJson(res, 409, { error: 'account_switch_unsupported', message: getErrorMessage(error, RUNTIME_MANAGEMENT_REASON) })
+        return true
+      }
+      runtimeReads.delete(appServer)
 
       const snapshotPath = getSnapshotPath(target.storageId)
       if (!(await fileExists(snapshotPath))) {
@@ -1354,6 +1441,7 @@ export async function handleAccountRoutes(
       await writeFile(getActiveAuthPath(), targetRaw, { encoding: 'utf8', mode: 0o600 })
 
       try {
+        runtimeReads.delete(appServer)
         appServer.dispose()
         const inspection = await validateSwitchedAccount(appServer)
         const nextEntry: StoredAccountEntry = {
@@ -1388,6 +1476,7 @@ export async function handleAccountRoutes(
         })
       } catch (error) {
         await restoreActiveAuth(previousRaw)
+        runtimeReads.delete(appServer)
         appServer.dispose()
         await replaceStoredAccount({
           ...target,
@@ -1420,6 +1509,11 @@ export async function handleAccountRoutes(
         return true
       }
 
+      if (storageId === RUNTIME_STORAGE_ID || accountId === RUNTIME_STORAGE_ID) {
+        setJson(res, 409, { error: 'account_management_unsupported', message: RUNTIME_MANAGEMENT_REASON })
+        return true
+      }
+
       const state = await readStoredAccountsState()
       const target = storageId
         ? state.accounts.find((entry) => entry.storageId === storageId) ?? null
@@ -1429,10 +1523,27 @@ export async function handleAccountRoutes(
         return true
       }
 
-      const remainingAccounts = state.accounts.filter((entry) => entry.storageId !== target.storageId)
-      if (state.activeStorageId !== target.storageId) {
+      const runtime = await readRuntimeAccount(appServer, true)
+      if (runtime.backend !== 'file') {
+        const visible = await readAccountsForRuntime(appServer)
+        if (visible.activeStorageId === target.storageId) {
+          setJson(res, 409, { error: 'account_management_unsupported', message: RUNTIME_MANAGEMENT_REASON })
+          return true
+        }
         await removeSnapshot(target.storageId)
-        const activeState = resolveActiveState(remainingAccounts, state.activeStorageId)
+        await writeStoredAccountsState({ ...state, accounts: state.accounts.filter((entry) => entry.storageId !== target.storageId) })
+        runtimeReads.delete(appServer)
+        setJson(res, 200, { ok: true, data: await readAccountsForRuntime(appServer) })
+        return true
+      }
+      await requireFileCredentialStorage(appServer)
+      runtimeReads.delete(appServer)
+
+      const remainingAccounts = state.accounts.filter((entry) => entry.storageId !== target.storageId)
+      const activeFileStorageId = await readActiveAuthStorageId()
+      if (activeFileStorageId !== target.storageId) {
+        await removeSnapshot(target.storageId)
+        const activeState = resolveActiveState(remainingAccounts, activeFileStorageId)
         await writeStoredAccountsState({
           ...activeState,
           accounts: remainingAccounts,
@@ -1466,6 +1577,7 @@ export async function handleAccountRoutes(
       const replacement = await pickReplacementActiveAccount(remainingAccounts)
       if (!replacement) {
         await restoreActiveAuth(null)
+        runtimeReads.delete(appServer)
         appServer.dispose()
         await removeSnapshot(target.storageId)
         await writeStoredAccountsState({
@@ -1501,6 +1613,7 @@ export async function handleAccountRoutes(
       await writeFile(getActiveAuthPath(), replacementRaw, { encoding: 'utf8', mode: 0o600 })
 
       try {
+        runtimeReads.delete(appServer)
         appServer.dispose()
         const inspection = await validateSwitchedAccount(appServer)
         const activatedReplacement: StoredAccountEntry = {
@@ -1541,6 +1654,7 @@ export async function handleAccountRoutes(
         })
       } catch (error) {
         await restoreActiveAuth(previousRaw)
+        runtimeReads.delete(appServer)
         appServer.dispose()
         await replaceStoredAccount({
           ...replacement,

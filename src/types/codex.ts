@@ -301,6 +301,10 @@ export type UiAccountQuotaStatus = 'idle' | 'loading' | 'ready' | 'error'
 export type UiAccountUnavailableReason = 'payment_required'
 
 export type UiAccountEntry = {
+  credentialSource?: 'file' | 'runtime'
+  canSwitch?: boolean
+  canRemove?: boolean
+  managementReason?: string | null
   accountId: string
   storageId: string
   userId: string | null
