@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readChatgptFeatureAuth, readPublicAuthStatus } from './codexCredentials'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { readChatgptFeatureAuth, readPublicAuthStatus, type CredentialRpc } from './codexCredentials'
 
 const originalHome = process.env.CODEX_HOME
 let home: string
@@ -10,7 +10,7 @@ let store: string
 let methodSupported: boolean
 let account: Record<string, unknown> | null
 let token: string | null
-let appServer: { rpc: ReturnType<typeof vi.fn> }
+let appServer: { rpc: Mock<CredentialRpc['rpc']> }
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'codex-feature-auth-'))
@@ -20,7 +20,7 @@ beforeEach(async () => {
   account = { type: 'chatgpt', email: 'test@example.com' }
   token = `header.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-test' } })).toString('base64url')}.signature`
   appServer = {
-    rpc: vi.fn(async (method: string) => {
+    rpc: vi.fn<CredentialRpc['rpc']>(async (method) => {
       if (method === 'account/read') return { account, requiresOpenaiAuth: true }
       if (method === 'config/read') return { config: { cli_auth_credentials_store: store, mcp_oauth_credentials_store: 'keyring' } }
       if (method === 'getAuthStatus') {
@@ -117,9 +117,9 @@ describe('server-internal ChatGPT feature credentials', () => {
   it('does not mistake an unavailable storage configuration for file storage', async () => {
     methodSupported = false
     const rpc = appServer.rpc.getMockImplementation()!
-    appServer.rpc.mockImplementation(async (method: string) => {
+    appServer.rpc.mockImplementation(async (method, params) => {
       if (method === 'config/read') throw new Error('SECRET in config error')
-      return rpc(method)
+      return rpc(method, params)
     })
     await expect(readChatgptFeatureAuth(appServer)).rejects.toMatchObject({ statusCode: 503, code: 'credential_store_unavailable' })
   })

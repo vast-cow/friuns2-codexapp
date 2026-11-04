@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { handleAccountRoutes, readAccountsForRuntime } from './accountRoutes'
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }))
@@ -14,7 +14,8 @@ const originalHome = process.env.CODEX_HOME
 let home: string
 let backend: string
 let account: Record<string, unknown> | null
-let appServer: { rpc: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; listPendingServerRequests: () => unknown[] }
+type Rpc = (method: string, params: unknown) => Promise<unknown>
+let appServer: { rpc: Mock<Rpc>; dispose: Mock<() => void>; listPendingServerRequests: () => unknown[] }
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'codex-runtime-account-'))
@@ -39,13 +40,13 @@ beforeEach(async () => {
     })
   })
   appServer = {
-    rpc: vi.fn(async (method: string) => {
+    rpc: vi.fn<Rpc>(async (method) => {
       if (method === 'account/read') return { account, requiresOpenaiAuth: true }
       if (method === 'config/read') return { config: { cli_auth_credentials_store: backend } }
       if (method === 'account/rateLimits/read') return { rateLimits: { primary: { usedPercent: 12, windowDurationMins: 300 } } }
       throw new Error(`Unexpected RPC: ${method}`)
     }),
-    dispose: vi.fn(),
+    dispose: vi.fn<() => void>(),
     listPendingServerRequests: () => [],
   }
 })
@@ -169,9 +170,9 @@ describe('runtime account discovery', () => {
     const storageId = await saveAccount('file-account', 'person@example.com')
     const original = await readFile(join(home, 'auth.json'), 'utf8')
     const rpc = appServer.rpc.getMockImplementation()!
-    appServer.rpc.mockImplementation(async (method: string) => {
+    appServer.rpc.mockImplementation(async (method, params) => {
       if (method === 'config/read') throw new Error('Configuration unavailable')
-      return rpc(method)
+      return rpc(method, params)
     })
     expect((await route('/codex-api/accounts/switch', { storageId })).status).toBe(409)
     expect(await readFile(join(home, 'auth.json'), 'utf8')).toBe(original)
@@ -179,9 +180,9 @@ describe('runtime account discovery', () => {
 
   it('keeps the active account visible when quota retrieval fails', async () => {
     const rpc = appServer.rpc.getMockImplementation()!
-    appServer.rpc.mockImplementation(async (method: string) => {
+    appServer.rpc.mockImplementation(async (method, params) => {
       if (method === 'account/rateLimits/read') throw new Error('quota unavailable')
-      return rpc(method)
+      return rpc(method, params)
     })
     const state = await readAccountsForRuntime(appServer)
     expect(state.accounts[0]).toMatchObject({ isActive: true, quotaStatus: 'error', quotaError: 'quota unavailable' })
