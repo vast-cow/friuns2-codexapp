@@ -50,7 +50,7 @@ Runtime auth detection after starting without auth.
 #### Expected Results
 - Official CLI/app-server account status determines authentication for both credential stores; the absence of a file never suppresses rate-limit RPCs.
 - Concurrent bootstrap checks share one bounded asynchronous process and cached results. Account reads and account-change notifications update the cache immediately; external changes are rechecked after its 30-second TTL.
-- Keyring credentials stay managed by Codex. Legacy direct transcription/logo requests and importing file-backed accounts still require file tokens and are outside this change.
+- Keyring credentials stay managed by Codex. Transcription/logo requests use the official token interface when available; [remaining limitations](../../documentation/keyring-auth-compatibility.md) are reported separately from authentication. File snapshots remain specific to file credential storage.
 
 #### Rollback/Cleanup
 - Stop the temporary app and remove only the isolated test profiles. Restore the original profile environment; leave the user's credential storage configuration unchanged.

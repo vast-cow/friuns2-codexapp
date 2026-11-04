@@ -71,7 +71,7 @@ describe('ChatGPT auth token refresh', () => {
     const result = await refreshChatgptAuthTokensForExternalAuth({
       reason: 'unauthorized',
       previousAccountId: 'acct-old',
-    })
+    }, async () => 'file')
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0] ?? []
@@ -112,9 +112,41 @@ describe('ChatGPT auth token refresh', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(refreshChatgptAuthTokensForExternalAuth()).rejects.toThrow(
+    await expect(refreshChatgptAuthTokensForExternalAuth({}, async () => 'file')).rejects.toThrow(
       'No ChatGPT refresh token is available. Please sign in again.',
     )
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['keyring', 'auto', 'ephemeral', 'unknown'])('refuses file-token refresh under %s storage without reading or changing a stale file', async (store) => {
+    const codexHome = await createCodexHome({ tokens: { access_token: 'stale', refresh_token: 'must-not-send' } })
+    const original = await readFile(join(codexHome, 'auth.json'), 'utf8')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(refreshChatgptAuthTokensForExternalAuth({}, async () => store)).rejects.toMatchObject({
+      code: 'external_auth_refresh_unsupported', statusCode: 501,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(await readFile(join(codexHome, 'auth.json'), 'utf8')).toBe(original)
+  })
+
+  it('does not persist a refreshed token if storage changes to Keyring during the request', async () => {
+    const codexHome = await createCodexHome({ tokens: { access_token: 'old', refresh_token: 'old-refresh', account_id: 'acct-old' } })
+    const original = await readFile(join(codexHome, 'auth.json'), 'utf8')
+    const readStore = vi.fn().mockResolvedValueOnce('file').mockResolvedValue('keyring')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ access_token: 'new', refresh_token: 'new-refresh' }))))
+    await expect(refreshChatgptAuthTokensForExternalAuth({}, readStore)).rejects.toMatchObject({ code: 'external_auth_refresh_unsupported' })
+    expect(await readFile(join(codexHome, 'auth.json'), 'utf8')).toBe(original)
+  })
+
+  it('preserves a login changed concurrently with file-token refresh', async () => {
+    const codexHome = await createCodexHome({ tokens: { refresh_token: 'old-refresh', account_id: 'acct-old' } })
+    const replacement = JSON.stringify({ tokens: { access_token: 'another-login' } })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await writeFile(join(codexHome, 'auth.json'), replacement)
+      return new Response(JSON.stringify({ access_token: 'new' }))
+    }))
+    await expect(refreshChatgptAuthTokensForExternalAuth({}, async () => 'file')).rejects.toThrow('credentials changed during refresh')
+    expect(await readFile(join(codexHome, 'auth.json'), 'utf8')).toBe(replacement)
   })
 })

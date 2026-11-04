@@ -16,6 +16,7 @@ import { readCodexGlobalState, updateCodexGlobalState } from './codexGlobalState
 import { handleAccountRoutes } from './accountRoutes.js'
 import { buildAppServerArgs } from './appServerRuntimeConfig.js'
 import { checkCodexLoginStatus, getCachedCodexAuthStatus, recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
+import { CodexCredentialError, readChatgptFeatureAuth, readCodexCredentialStore, readPublicAuthStatus, requireFileCredentialStore } from './codexCredentials.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
 import { handleReviewRoutes } from './reviewGit.js'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
@@ -4679,19 +4680,6 @@ function extractChatgptTokenMetadata(accessToken: string | undefined): {
   }
 }
 
-function readTokenErrorMessage(payload: unknown, fallback: string): string {
-  const record = asRecord(payload)
-  const message = readNonEmptyString(record?.message)
-  if (message) return message
-  const error = record?.error
-  if (typeof error === 'string' && error.trim().length > 0) return error.trim()
-  const nestedError = asRecord(error)
-  return readNonEmptyString(nestedError?.message)
-    || readNonEmptyString(nestedError?.error_description)
-    || readNonEmptyString(record?.error_description)
-    || fallback
-}
-
 function readTokenResponseString(payload: Record<string, unknown> | null, ...keys: string[]): string | null {
   if (!payload) return null
   for (const key of keys) {
@@ -4703,10 +4691,19 @@ function readTokenResponseString(payload: Record<string, unknown> | null, ...key
 
 export async function refreshChatgptAuthTokensForExternalAuth(
   params: ChatgptAuthTokensRefreshParams = {},
+  readCredentialStore: () => Promise<string> = async () => 'unknown',
 ): Promise<ChatgptAuthTokensRefreshResponse> {
+  await requireFileCredentialStore(readCredentialStore)
   const authPath = getCodexAuthPath()
-  const raw = await readFile(authPath, 'utf8')
-  const auth = JSON.parse(raw) as CodexAuth
+  let raw: string
+  let auth: CodexAuth
+  try {
+    raw = await readFile(authPath, 'utf8')
+    auth = JSON.parse(raw) as CodexAuth
+    if (!auth || typeof auth !== 'object') throw new Error('Invalid auth file')
+  } catch {
+    throw new Error('Unable to read file-backed ChatGPT credentials. Reconnect through Codex and try again.')
+  }
   const currentRefreshToken = auth.tokens?.refresh_token?.trim() ?? ''
   if (!currentRefreshToken) {
     throw new Error('No ChatGPT refresh token is available. Please sign in again.')
@@ -4737,7 +4734,7 @@ export async function refreshChatgptAuthTokensForExternalAuth(
   }
 
   if (!response.ok) {
-    throw new Error(readTokenErrorMessage(payload, `ChatGPT token refresh failed with HTTP ${String(response.status)}`))
+    throw new Error(`ChatGPT token refresh failed with HTTP ${String(response.status)}. Retry through Codex.`)
   }
 
   const accessToken = readTokenResponseString(payload, 'access_token', 'accessToken')
@@ -4769,26 +4766,16 @@ export async function refreshChatgptAuthTokensForExternalAuth(
       ...(nextIdToken ? { id_token: nextIdToken } : {}),
     },
   }
+  await requireFileCredentialStore(readCredentialStore)
+  if (await readFile(authPath, 'utf8') !== raw) {
+    throw new Error('Codex credentials changed during refresh. Retry with the current login.')
+  }
   await writeFile(authPath, JSON.stringify(nextAuth, null, 2), { encoding: 'utf8', mode: 0o600 })
 
   return {
     accessToken,
     chatgptAccountId,
     chatgptPlanType: metadata.chatgptPlanType,
-  }
-}
-
-// Raw tokens are only used by legacy transcription/logo requests, never auth detection.
-// Keyring credentials stay in Codex; a missing file here does not imply a signed-out account.
-async function readCodexAuth(): Promise<{ accessToken: string; accountId?: string } | null> {
-  try {
-    const raw = await readFile(getCodexAuthPath(), 'utf8')
-    const auth = JSON.parse(raw) as CodexAuth
-    const token = auth.tokens?.access_token
-    if (!token) return null
-    return { accessToken: token, accountId: auth.tokens?.account_id ?? undefined }
-  } catch {
-    return null
   }
 }
 
@@ -6350,11 +6337,10 @@ function parseConnectorLogoUrl(rawUrl: string): { connectorId: string; theme: 'l
   return { connectorId, theme }
 }
 
-async function fetchConnectorLogo(rawUrl: string): Promise<{ contentType: string; body: Buffer }> {
+async function fetchConnectorLogo(appServer: RpcExecutor, rawUrl: string): Promise<{ contentType: string; body: Buffer }> {
   const parsed = parseConnectorLogoUrl(rawUrl)
   if (!parsed) throw new Error('Unsupported connector logo URL')
-  const auth = await readCodexAuth()
-  if (!auth) throw new Error('No auth token available for connector logo')
+  const auth = await readChatgptFeatureAuth(appServer)
 
   const endpoint = `https://chatgpt.com/backend-api/aip/connectors/${encodeURIComponent(parsed.connectorId)}/logo?theme=${parsed.theme}`
   const response = await fetch(endpoint, {
@@ -6816,7 +6802,11 @@ class AppServerProcess {
 
   private async refreshChatgptAuthTokens(params: ChatgptAuthTokensRefreshParams): Promise<ChatgptAuthTokensRefreshResponse> {
     if (!this.chatgptAuthRefreshPromise) {
-      this.chatgptAuthRefreshPromise = refreshChatgptAuthTokensForExternalAuth(params).finally(() => {
+      this.chatgptAuthRefreshPromise = refreshChatgptAuthTokensForExternalAuth(
+        params,
+        // Use config/read only: asking for auth refresh here would recurse into this request.
+        () => readCodexCredentialStore({ rpc: (method, rpcParams) => this.call(method, rpcParams) }),
+      ).finally(() => {
         this.chatgptAuthRefreshPromise = null
       })
     }
@@ -8041,6 +8031,11 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 	          return
 	        }
 
+        if (body.method === 'getAuthStatus') {
+          setJson(res, 200, { result: await readPublicAuthStatus(appServer, body.params) })
+          return
+        }
+
         let rpcResult: unknown
         try {
           rpcResult = await callRpcWithArchiveRecovery(appServer, body.method, body.params ?? null)
@@ -8401,11 +8396,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'POST' && url.pathname === '/codex-api/transcribe') {
-        const auth = await readCodexAuth()
-        if (!auth) {
-          setJson(res, 401, { error: 'No auth token available for transcription' })
-          return
-        }
+        const auth = await readChatgptFeatureAuth(appServer)
 
         const rawBody = await readRawBody(req)
         const incomingCt = req.headers['content-type'] ?? 'application/octet-stream'
@@ -8484,13 +8475,17 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
         try {
-          const logo = await fetchConnectorLogo(src)
+          const logo = await fetchConnectorLogo(appServer, src)
           res.statusCode = 200
           res.setHeader('Content-Type', logo.contentType)
           res.setHeader('Cache-Control', 'private, max-age=3600')
           res.end(logo.body)
         } catch (error) {
-          setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch connector logo') })
+          if (error instanceof CodexCredentialError) {
+            setJson(res, error.statusCode, { error: error.message, code: error.code })
+          } else {
+            setJson(res, 502, { error: getErrorMessage(error, 'Failed to fetch connector logo') })
+          }
         }
         return
       }
@@ -9754,6 +9749,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       next()
     } catch (error) {
+      if (error instanceof CodexCredentialError) {
+        setJson(res, error.statusCode, { error: error.message, code: error.code })
+        return
+      }
       const message = getErrorMessage(error, 'Unknown bridge error')
       setJson(res, 502, { error: message })
     }

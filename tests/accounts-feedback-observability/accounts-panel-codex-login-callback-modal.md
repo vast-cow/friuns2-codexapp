@@ -56,7 +56,7 @@ Accounts settings includes an always-available `Login` button that starts `codex
 - File snapshots retain multi-account functionality. Keyring credentials are never extracted, copied, deleted, or used to create plaintext auth files. An existing stale `auth.json` under Keyring is ignored.
 - Metadata matching deduplicates a unique email match; ambiguous matches retain separate rows rather than inventing a workspace identity.
 - Runtime reads are shared across list/active endpoints and cached for 30 seconds, including failures. Reload and successful login explicitly invalidate the cache. Account/config/quota reads each have a five-second response deadline. Existing background snapshot inspection excludes the active login.
-- Login success follows successful completion of `codex login`, and quota failure does not prevent account discovery or successful login completion.
+- Login success follows successful completion of `codex login`, and quota failure does not prevent account discovery or successful login completion. See the [credential compatibility audit](../../documentation/keyring-auth-compatibility.md) for transcription/logo support and external token-refresh limitations.
 
 #### Rollback/Cleanup
 - Stop the temporary app and discard only the isolated test profiles. Do not remove the active Keyring login through the app or change the user's credential storage configuration.

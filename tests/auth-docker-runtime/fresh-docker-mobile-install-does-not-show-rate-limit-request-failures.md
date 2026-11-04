@@ -19,13 +19,13 @@ Fresh unauthenticated install mobile home screen rate-limit handling.
 5. Switch to dark theme and reload the same mobile viewport.
 6. Repeat steps 2 through 4 in dark theme.
 7. Add an `auth.json` containing only `tokens.access_token` and confirm `account/rateLimits/read` is not short-circuited as unauthenticated.
-8. Replace `auth.json` with malformed JSON and confirm the server logs a `[codex-auth] Unable to read Codex auth state` warning while the home screen still renders.
+8. In this isolated file-storage profile, replace `auth.json` with malformed JSON and confirm the app still renders while authentication status comes from Codex. Do not require a file-reader warning or expose malformed credential contents in responses/logs.
 
 #### Expected Results
 - The fresh mobile home screen renders without a blank page.
 - `account/rateLimits/read` returns an empty result instead of a `502` when no Codex account is authenticated.
-- An access-token-only auth file is treated as authenticated enough to ask Codex for rate limits.
-- Malformed auth files are visible in server logs instead of being silently treated as a normal fresh install.
+- Rate-limit requests are forwarded to Codex independently of credential-file presence or token shape.
+- Malformed file credentials do not replace official account-status detection, and credential contents are not logged by the application.
 - The UI remains usable in light theme and dark theme.
 - No login or account import is required just to load the home screen.
 
