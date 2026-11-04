@@ -47,7 +47,6 @@ import {
 import { handleOpenRouterProxyRequest } from './openRouterProxy.js'
 import { handleZenProxyRequest } from './zenProxy.js'
 import { handleCustomEndpointProxyRequest } from './customEndpointProxy.js'
-import { ThreadTerminalManager } from './terminalManager.js'
 import { inheritForkTurnMetadata, SessionGenerationMetadataCache, TurnGenerationMetadataStore } from './turnGenerationMetadata.js'
 import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../turnGenerationMetadata.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
@@ -2644,140 +2643,6 @@ export async function callRpcWithArchiveRecovery(
     })
     return appServer.rpc(method, params ?? null)
   }
-}
-
-type TerminalQuickCommand = {
-  label: string
-  value: string
-  source: 'package' | 'script' | 'make'
-}
-
-async function listTerminalQuickCommands(cwd: string): Promise<TerminalQuickCommand[]> {
-  const normalizedCwd = isAbsolute(cwd) ? cwd : resolve(cwd)
-  const info = await stat(normalizedCwd)
-  if (!info.isDirectory()) {
-    throw new Error('Terminal cwd is not a directory')
-  }
-
-  const commands: TerminalQuickCommand[] = []
-  const seen = new Set<string>()
-  const addCommand = (command: TerminalQuickCommand) => {
-    if (!command.value || seen.has(command.value)) return
-    seen.add(command.value)
-    commands.push(command)
-  }
-
-  await addPackageJsonCommands(normalizedCwd, addCommand)
-  await addMakefileCommands(normalizedCwd, addCommand)
-  await addRootScriptCommands(normalizedCwd, addCommand)
-  await addScriptsDirectoryCommands(normalizedCwd, addCommand)
-  return commands
-}
-
-async function addPackageJsonCommands(
-  cwd: string,
-  addCommand: (command: TerminalQuickCommand) => void,
-): Promise<void> {
-  try {
-    const raw = await readFile(join(cwd, 'package.json'), 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    const record = asRecord(parsed)
-    const scripts = asRecord(record?.scripts)
-    if (!scripts) return
-    const packageManager = resolvePackageManager(cwd)
-    for (const scriptName of Object.keys(scripts)) {
-      if (typeof scripts[scriptName] !== 'string') continue
-      const value = formatPackageScriptCommand(packageManager, scriptName)
-      addCommand({
-        label: value,
-        value,
-        source: 'package',
-      })
-    }
-  } catch {
-    // A project without package.json simply has no package quick commands.
-  }
-}
-
-async function addMakefileCommands(
-  cwd: string,
-  addCommand: (command: TerminalQuickCommand) => void,
-): Promise<void> {
-  const makefilePath = existsSync(join(cwd, 'Makefile'))
-    ? join(cwd, 'Makefile')
-    : existsSync(join(cwd, 'makefile'))
-      ? join(cwd, 'makefile')
-      : ''
-  if (!makefilePath) return
-
-  try {
-    const raw = await readFile(makefilePath, 'utf8')
-    for (const line of raw.split(/\r?\n/)) {
-      const match = /^([A-Za-z0-9_.@%/+~-][A-Za-z0-9_.@%/+~-]*)\s*:(?![=])/.exec(line)
-      if (!match) continue
-      const target = match[1]
-      if (!target || target.startsWith('.')) continue
-      const value = `make ${quoteShellTokenIfNeeded(target)}`
-      addCommand({
-        label: value,
-        value,
-        source: 'make',
-      })
-    }
-  } catch {
-    // Ignore unreadable Makefiles for quick-command discovery.
-  }
-}
-
-async function addRootScriptCommands(
-  cwd: string,
-  addCommand: (command: TerminalQuickCommand) => void,
-): Promise<void> {
-  await addScriptFileCommands(cwd, '.', addCommand)
-}
-
-async function addScriptsDirectoryCommands(
-  cwd: string,
-  addCommand: (command: TerminalQuickCommand) => void,
-): Promise<void> {
-  await addScriptFileCommands(join(cwd, 'scripts'), './scripts', addCommand)
-}
-
-async function addScriptFileCommands(
-  directory: string,
-  commandPrefix: string,
-  addCommand: (command: TerminalQuickCommand) => void,
-): Promise<void> {
-  try {
-    const entries = await readdir(directory, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      if (!entry.name.endsWith('.sh') && !entry.name.endsWith('.cmd')) continue
-      const value = `${commandPrefix}/${quoteShellTokenIfNeeded(entry.name)}`
-      addCommand({
-        label: value,
-        value,
-        source: 'script',
-      })
-    }
-  } catch {
-    // A project without script files simply has no script-file quick commands.
-  }
-}
-
-function resolvePackageManager(cwd: string): 'npm' | 'pnpm' | 'yarn' | 'bun' {
-  if (existsSync(join(cwd, 'pnpm-lock.yaml'))) return 'pnpm'
-  if (existsSync(join(cwd, 'yarn.lock'))) return 'yarn'
-  if (existsSync(join(cwd, 'bun.lock')) || existsSync(join(cwd, 'bun.lockb'))) return 'bun'
-  return 'npm'
-}
-
-function formatPackageScriptCommand(packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun', scriptName: string): string {
-  const quoted = quoteShellTokenIfNeeded(scriptName)
-  if (packageManager === 'npm') return `npm run ${quoted}`
-  if (packageManager === 'pnpm') return `pnpm run ${quoted}`
-  if (packageManager === 'bun') return `bun run ${quoted}`
-  return `yarn ${quoted}`
 }
 
 function quoteShellTokenIfNeeded(value: string): string {
@@ -7419,14 +7284,13 @@ type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: 
 type SharedBridgeState = {
   version: string
   appServer: AppServerProcess
-  terminalManager: ThreadTerminalManager
   methodCatalog: MethodCatalog
   telegramBridge: TelegramThreadBridge
   backendQueueProcessor: BackendQueueProcessor
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'experimental-api-v2'
+const SHARED_BRIDGE_VERSION = 'experimental-api-v3'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -7435,21 +7299,18 @@ function getSharedBridgeState(): SharedBridgeState {
 
   const existing = globalScope[SHARED_BRIDGE_KEY]
   if (existing) {
-    if (existing.version === SHARED_BRIDGE_VERSION && existing.terminalManager) {
+    if (existing.version === SHARED_BRIDGE_VERSION) {
       return existing
     }
     existing.appServer.dispose()
     existing.backendQueueProcessor?.dispose()
-    existing.terminalManager?.dispose()
   }
 
   const appServer = new AppServerProcess()
-  const terminalManager = new ThreadTerminalManager()
   const backendQueueProcessor = new BackendQueueProcessor(appServer)
   const created: SharedBridgeState = {
     version: SHARED_BRIDGE_VERSION,
     appServer,
-    terminalManager,
     methodCatalog: new MethodCatalog(),
     backendQueueProcessor,
     telegramBridge: new TelegramThreadBridge(appServer, {
@@ -7551,7 +7412,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, terminalManager, methodCatalog, telegramBridge, backendQueueProcessor } = getSharedBridgeState()
+  const { appServer, methodCatalog, telegramBridge, backendQueueProcessor } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -7925,112 +7786,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (await handleReviewRoutes(req, res, url, { readJsonBody })) {
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal/status') {
-        setJson(res, 200, terminalManager.getAvailability())
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal/quick-commands') {
-        const cwd = url.searchParams.get('cwd')?.trim() ?? ''
-        if (!cwd) {
-          setJson(res, 400, { error: 'Missing cwd' })
-          return
-        }
-        try {
-          setJson(res, 200, { commands: await listTerminalQuickCommands(cwd) })
-        } catch (error) {
-          setJson(res, 500, { error: getErrorMessage(error, 'Failed to load terminal quick commands') })
-        }
-        return
-      }
-
-      if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/attach') {
-        const availability = terminalManager.getAvailability()
-        if (!availability.available) {
-          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
-          return
-        }
-        const body = asRecord(await readJsonBody(req))
-        const threadId = readNonEmptyString(body?.threadId)
-        const cwd = readNonEmptyString(body?.cwd)
-        if (!threadId || !cwd) {
-          setJson(res, 400, { error: 'Missing threadId or cwd' })
-          return
-        }
-        const session = terminalManager.attach({
-          threadId,
-          cwd,
-          sessionId: readNonEmptyString(body?.sessionId) || undefined,
-          cols: typeof body?.cols === 'number' ? body.cols : undefined,
-          rows: typeof body?.rows === 'number' ? body.rows : undefined,
-          newSession: body?.newSession === true,
-        })
-        setJson(res, 200, { session })
-        return
-      }
-
-      if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/input') {
-        const availability = terminalManager.getAvailability()
-        if (!availability.available) {
-          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
-          return
-        }
-        const body = asRecord(await readJsonBody(req))
-        const sessionId = readNonEmptyString(body?.sessionId)
-        const data = typeof body?.data === 'string' ? body.data : ''
-        if (!sessionId) {
-          setJson(res, 400, { error: 'Missing sessionId' })
-          return
-        }
-        terminalManager.write(sessionId, data)
-        setJson(res, 200, { ok: true })
-        return
-      }
-
-      if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/resize') {
-        const availability = terminalManager.getAvailability()
-        if (!availability.available) {
-          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
-          return
-        }
-        const body = asRecord(await readJsonBody(req))
-        const sessionId = readNonEmptyString(body?.sessionId)
-        if (!sessionId) {
-          setJson(res, 400, { error: 'Missing sessionId' })
-          return
-        }
-        terminalManager.resize(sessionId, body?.cols, body?.rows)
-        setJson(res, 200, { ok: true })
-        return
-      }
-
-      if (req.method === 'POST' && url.pathname === '/codex-api/thread-terminal/close') {
-        const availability = terminalManager.getAvailability()
-        if (!availability.available) {
-          setJson(res, 503, { error: availability.reason || 'Integrated terminal is unavailable on this host' })
-          return
-        }
-        const body = asRecord(await readJsonBody(req))
-        const sessionId = readNonEmptyString(body?.sessionId)
-        if (!sessionId) {
-          setJson(res, 400, { error: 'Missing sessionId' })
-          return
-        }
-        terminalManager.close(sessionId)
-        setJson(res, 200, { ok: true })
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/codex-api/thread-terminal-snapshot') {
-        const threadId = url.searchParams.get('threadId')?.trim() ?? ''
-        if (!threadId) {
-          setJson(res, 400, { error: 'Missing threadId' })
-          return
-        }
-        setJson(res, 200, { session: terminalManager.getSnapshotForThread(threadId) })
         return
       }
 
@@ -9788,7 +9543,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   middleware.dispose = () => {
     threadSearchIndex = null
     telegramBridge.stop()
-    terminalManager.dispose()
     backendQueueProcessor.dispose()
     appServer.dispose()
   }
@@ -9801,15 +9555,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         atIso: new Date().toISOString(),
       })
     })
-    const unsubscribeTerminal = terminalManager.subscribe((notification) => {
-      listener({
-        ...notification,
-        atIso: new Date().toISOString(),
-      })
-    })
     return () => {
       unsubscribeAppServer()
-      unsubscribeTerminal()
     }
   }
 

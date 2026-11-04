@@ -82,7 +82,6 @@ export function findAdjacentThreadId(threads: UiThread[], threadId: string): str
 const READ_STATE_STORAGE_KEY = 'codex-web-local.thread-read-state.v1'
 const UNREAD_CUTOFF_STORAGE_KEY = 'codex-web-local.thread-unread-cutoff.v1'
 const THREAD_TOKEN_USAGE_STORAGE_KEY = 'codex-web-local.thread-token-usage.v1'
-const THREAD_TERMINAL_OPEN_STORAGE_KEY = 'codex-web-local.thread-terminal-open.v1'
 const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY = 'codex-web-local.selected-model-by-context.v1'
 const REASONING_BY_MODEL_STORAGE_KEY = 'codex-web-local.reasoning-by-provider-model.v1'
@@ -468,33 +467,6 @@ function loadThreadTokenUsageMap(): Record<string, UiThreadTokenUsage> {
 function saveThreadTokenUsageMap(state: Record<string, UiThreadTokenUsage>): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(THREAD_TOKEN_USAGE_STORAGE_KEY, JSON.stringify(state))
-}
-
-function loadThreadTerminalOpenMap(): Record<string, boolean> {
-  if (typeof window === 'undefined') return {}
-
-  try {
-    const raw = window.localStorage.getItem(THREAD_TERMINAL_OPEN_STORAGE_KEY)
-    if (!raw) return {}
-
-    const parsed = JSON.parse(raw) as unknown
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-
-    const normalizedMap: Record<string, boolean> = {}
-    for (const [threadId, isOpen] of Object.entries(parsed as Record<string, unknown>)) {
-      if (threadId && typeof isOpen === 'boolean') {
-        normalizedMap[threadId] = isOpen
-      }
-    }
-    return normalizedMap
-  } catch {
-    return {}
-  }
-}
-
-function saveThreadTerminalOpenMap(state: Record<string, boolean>): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(THREAD_TERMINAL_OPEN_STORAGE_KEY, JSON.stringify(state))
 }
 
 function loadSelectedThreadId(): string {
@@ -1456,7 +1428,6 @@ export function useDesktopState() {
   const pendingTurnRequestByThreadId = ref<Record<string, PendingTurnRequest>>({})
   const codexRateLimit = ref<UiRateLimitSnapshot | null>(null)
   const threadTokenUsageByThreadId = ref<Record<string, UiThreadTokenUsage>>(loadThreadTokenUsageMap())
-  const terminalOpenByThreadId = ref<Record<string, boolean>>(loadThreadTerminalOpenMap())
   const threadModelProviderByThreadId = ref<Record<string, string>>({})
 
   const threadTitleById = ref<Record<string, string>>({})
@@ -1545,10 +1516,6 @@ export function useDesktopState() {
   const selectedThread = computed(() =>
     allThreads.value.find((thread) => thread.id === selectedThreadId.value) ?? null,
   )
-  const selectedThreadTerminalOpen = computed(() => {
-    const threadId = selectedThreadId.value
-    return Boolean(threadId && terminalOpenByThreadId.value[threadId] === true)
-  })
   const isSelectedThreadInterruptPending = computed(() => {
     const threadId = selectedThreadId.value
     if (!threadId) return false
@@ -2571,24 +2538,6 @@ export function useDesktopState() {
   function currentThreadVersion(threadId: string): string {
     const thread = flattenThreads(sourceGroups.value).find((row) => row.id === threadId)
     return thread?.updatedAtIso ?? ''
-  }
-
-  function setThreadTerminalOpen(threadId: string, isOpen: boolean): void {
-    if (!threadId) return
-    const next = { ...terminalOpenByThreadId.value }
-    if (isOpen) {
-      next[threadId] = true
-    } else {
-      delete next[threadId]
-    }
-    terminalOpenByThreadId.value = next
-    saveThreadTerminalOpenMap(next)
-  }
-
-  function toggleSelectedThreadTerminal(): void {
-    const threadId = selectedThreadId.value
-    if (!threadId) return
-    setThreadTerminalOpen(threadId, !selectedThreadTerminalOpen.value)
   }
 
   function setPersistedMessagesForThread(threadId: string, nextMessages: UiMessage[]): void {
@@ -5772,7 +5721,6 @@ export function useDesktopState() {
     projectDisplayNameById,
     selectedThread,
     selectedThreadTokenUsage,
-    selectedThreadTerminalOpen,
     isSelectedThreadInterruptPending,
     selectedThreadServerRequests,
     selectedLiveOverlay,
@@ -5807,8 +5755,6 @@ export function useDesktopState() {
     loadMessages,
     loadOlderMessages,
     ensureThreadMessagesLoaded,
-    setThreadTerminalOpen,
-    toggleSelectedThreadTerminal,
     archiveThreadById,
     renameThreadById,
     forkThreadById,
