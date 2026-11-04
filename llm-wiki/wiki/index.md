@@ -15,9 +15,10 @@
 - [concepts/skills-route-ui.md](./concepts/skills-route-ui.md): Skills route naming, first-launch Plugins card persistence, dark-theme fixes, and verification lessons.
 - [concepts/thread-heartbeat-automations.md](./concepts/thread-heartbeat-automations.md): removed thread automation management and preserved historical message rendering.
 - [concepts/project-cron-automations.md](./concepts/project-cron-automations.md): removed project automation management and preserved existing data.
-- [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): project ZIP export/import, chat JSONL portability, and local-only security posture.
+- [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): removed project ZIP management and preserved project/history infrastructure.
 
 ## Sources
+- [../raw/features/project-zip-removal.md](../raw/features/project-zip-removal.md): current archive removal boundary and retained historical listing/recovery.
 - [../raw/features/automation-management-removal.md](../raw/features/automation-management-removal.md): removed management layer and preserved local data, history, and shared queue processing.
 - [../raw/features/codex-only-client.md](../raw/features/codex-only-client.md): current official-only authentication, model catalog, runtime and legacy-data boundaries.
 - [../raw/features/single-active-codex-account.md](../raw/features/single-active-codex-account.md): current single-account authentication boundary and preservation of active credentials/Keyring.
@@ -29,7 +30,7 @@
 - [../raw/features/skills-route-ui-and-first-launch-card.md](../raw/features/skills-route-ui-and-first-launch-card.md): source facts for the Skills route rename, first-launch Plugins card, dark-theme fix, and dev-server workflow adjustment.
 - [../raw/features/thread-heartbeat-automations.md](../raw/features/thread-heartbeat-automations.md): source facts for thread heartbeat automations, multiple automations per thread, and Run now queue behavior.
 - [../raw/features/project-cron-automations.md](../raw/features/project-cron-automations.md): source facts for project cron automations in the sidebar.
-- [../raw/features/project-zip-portability.md](../raw/features/project-zip-portability.md): source facts for project ZIP export/import, chat JSONL import, and local-only review-bot security posture.
+- [../raw/features/project-zip-portability.md](../raw/features/project-zip-portability.md): historical source for removed project ZIP export/import and chat JSONL import.
 - [../raw/features/manual-test-domain-folders.md](../raw/features/manual-test-domain-folders.md): source facts for the manual test documentation split into domain folders.
 - [../raw/projects/codex-web-local.md](../raw/projects/codex-web-local.md): immutable source snapshot for project facts.
 - [../raw/fixes/codex-thread-link-pr174.md](../raw/fixes/codex-thread-link-pr174.md): source facts for PR #174 chat link parsing fixes, review-bot findings, and dynamic-origin thread URLs.

@@ -303,9 +303,6 @@
                       <button class="project-menu-item" type="button" @click="onBrowseProjectFiles(group.projectName)">
                         Browse files
                       </button>
-                      <button class="project-menu-item" type="button" @click="onSaveProject(group.projectName)">
-                        Export Project
-                      </button>
                       <button
                         v-if="projectGitRepoByName[group.projectName]"
                         class="project-menu-item"
@@ -564,9 +561,6 @@
         <button class="thread-menu-item" type="button" @click="onBrowseThreadFiles(openThreadMenuThread.id)">
           Browse files
         </button>
-        <button class="thread-menu-item" type="button" @click="onSaveThreadProject(openThreadMenuThread.id)">
-          Export Project
-        </button>
         <button class="thread-menu-item" type="button" @click="onCopyThreadPath(openThreadMenuThread.id)">
           Copy path
         </button>
@@ -679,9 +673,7 @@ const emit = defineEmits<{
   archive: [threadId: string]
   'start-new-thread': [projectName: string]
   'browse-thread-files': [threadId: string]
-  'save-thread-project': [threadId: string]
   'browse-project-files': [projectName: string]
-  'save-project': [projectName: string]
   'request-project-git-status': [projectName: string]
   'create-project-worktree': [projectName: string]
   'rename-project': [payload: { projectName: string; displayName: string }]
@@ -1204,11 +1196,6 @@ function onBrowseThreadFiles(threadId: string): void {
   closeThreadMenu()
 }
 
-function onSaveThreadProject(threadId: string): void {
-  emit('save-thread-project', threadId)
-  closeThreadMenu()
-}
-
 async function onCopyThreadPath(threadId: string): Promise<void> {
   const path = threadById.value.get(threadId)?.cwd?.trim() ?? ''
   closeThreadMenu()
@@ -1463,11 +1450,6 @@ function openRenameProjectMenu(group: UiProjectGroup): void {
 
 function onBrowseProjectFiles(projectName: string): void {
   emit('browse-project-files', projectName)
-  closeProjectMenu()
-}
-
-function onSaveProject(projectName: string): void {
-  emit('save-project', projectName)
   closeProjectMenu()
 }
 

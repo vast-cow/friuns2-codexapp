@@ -29,7 +29,7 @@
 - For PR update + review requests: push branch, update PR summary/verification notes when changed, then post a plain PR comment containing exactly `/review`.
 - Do not use draft reviews or batch review APIs to trigger Qodo.
 - Before applying a bot fix, inspect the current code path and classify the comment as real, stale/resolved, rejected, or docs-only.
-- This app server is local-user facing and is not intended to be exposed as a public internet service. Reject Qodo/CodeRabbit security hardening comments that assume a hostile remote caller for local project import/export, including saved-root allowlists, import parent restrictions, ZIP upload caps, or local path redaction, unless they identify a concrete path where this local-only server becomes remotely reachable or bypasses existing authentication.
+- This app server is local-user facing and is not intended to be exposed as a public internet service. Reject Qodo/CodeRabbit security hardening comments that assume a hostile remote caller for local filesystem access, unless they identify a concrete path where this local-only server becomes remotely reachable or bypasses existing authentication.
 - Prefer a focused regression test for accepted bugs. After fixing, run the narrow test plus relevant build/typecheck, push, and re-check PR comments/status.
 - Completion reports must distinguish confirmed fixes from stale or rejected bot comments.
 
@@ -95,7 +95,7 @@
 
 ## Fast Docker Feature Tests
 
-- Use this for local-only feature checks that do not need packaged install behavior, for example project import/export HTTP endpoints.
+- Use this for local-only feature checks that do not need packaged install behavior, for example project discovery HTTP endpoints.
 - Build the reusable base image once with `docker build -t codexapp-fast-test-base:latest -f scripts/docker-fast-test-base.Dockerfile .`.
 - For each test run, prefer `scripts/run-docker-fast-test.sh`; it runs `pnpm run build`, mounts the current repo read-only, reuses a Docker `CODEX_HOME` volume, and starts `node /repo/dist-cli/index.js` on `127.0.0.1:${PORT:-4191}`.
 - Do not rebuild a packed-image Docker artifact for these checks unless the task specifically needs package install, npm tarball contents, postinstall behavior, auth/provider startup, or published `npx` behavior.

@@ -6,14 +6,13 @@ RUN apt-get update \
     curl \
     git \
     sqlite3 \
-    unzip \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @openai/codex \
   && npm cache clean --force
 
 ENV CODEX_HOME=/codex-home
-RUN mkdir -p /codex-home /projects /imports
+RUN mkdir -p /codex-home /projects
 
 WORKDIR /repo
 EXPOSE 4191
