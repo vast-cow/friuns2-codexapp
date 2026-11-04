@@ -23,7 +23,7 @@ Legacy OpenCode Zen threads remain readable and provider-locked, while new threa
 #### Expected Results
 - App-server config passively registers `opencode_zen` even when usable Codex auth suppresses the community fallback as the global provider.
 - The route stays on the requested thread instead of redirecting home when the active provider's thread list omits the legacy thread.
-- The UI renders a chat error with feedback if thread loading fails; it does not show an empty thread silently.
+- The UI renders a visible chat error without a feedback link if thread loading fails; it does not show an empty thread silently.
 - After valid Codex auth promotion, the same thread remains on the Zen provider/model list, while a newly created thread uses Codex models.
 - Follow-up sends recover from a restarted app-server process by resuming the thread once before retrying `turn/start`.
 

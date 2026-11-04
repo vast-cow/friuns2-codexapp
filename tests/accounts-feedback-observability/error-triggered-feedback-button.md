@@ -1,32 +1,25 @@
-### Error-triggered feedback button
+### Legacy feedback removed; errors remain visible
 
-#### Feature/Change Name
-Feedback action appears in Settings and on visible error banners after captured UI/runtime/API failures, then opens prefilled email diagnostics.
+#### Prerequisites
+- Run the current app with a disposable home and a browser capable of request interception.
+- Use failed-request fixtures rather than live credentials.
 
-#### Prerequisites/Setup
-1. Dev server running (`pnpm run dev --host 127.0.0.1 --port 4173` or an alternate free port).
-2. Browser devtools available to inject a test error or failed fetch.
-3. Light theme and dark theme both available from the appearance switcher.
+#### Actions and expected results
+1. Open Settings in light/dark themes with missing authentication. Confirm the actionable provider error remains visible but there is no Send feedback row, link, button, or upstream mailto recipient.
+2. Trigger a provider configuration validation failure and a Skills Hub load failure. Their error messages remain visible and ordinary request rejection/catch behavior is preserved.
+3. Open a failed chat turn and a thread-loading error. The saved error text and live failure overlay remain visible without feedback links. Reload to confirm stored turn errors remain available.
+4. Capture the identity of `window.fetch` before app boot and compare it after boot/error handling: the app does not replace it. No dedicated feedback window-error/unhandled-rejection listeners, diagnostic buffer, storage snapshot, or page-text collection is installed.
+5. Verify browser console errors and normal application logging still work. Service-worker registration failures retain their existing console error handling.
 
-#### Steps
-1. In light theme, load the home screen, open Settings, and confirm no `Send feedback` row is visible during a clean state.
-2. Trigger a failure, for example run `fetch('/codex-api/rpc', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })` in the browser console or open a folder path that produces a visible load error.
-3. Reopen Settings and confirm a `Send feedback` row with `Issue detected` appears after the failed request is recorded.
-4. Trigger or view a visible error banner, such as the missing Codex CLI composer banner, a chat send/connection error in the live conversation overlay, a settings provider error, a folder picker error, a Skills Hub error, or a branch dropdown error, and confirm that error state includes a compact `Send feedback` action.
-5. Confirm no feedback action appears in the content header during normal use.
-6. Click `Send feedback` and confirm the mail client opens a draft to `brutalstrikedevs@gmail.com`.
-7. Confirm the draft body includes current URL, user agent, viewport, app/worktree version info, and recent diagnostics including the failed request or visible error.
-8. Switch to dark theme and repeat steps 1-7.
+#### Cleanup
+Close test pages and remove disposable fixtures only. No user data migration or cleanup is needed.
 
-#### Expected Results
-- The settings feedback action is absent during normal operation.
-- Runtime errors, unhandled rejections, failed fetches/API responses, and visible load failures make the Settings feedback action visible.
-- Visible error states, including chat send/connection failures, include a local `Send feedback` action so the user can report the error from the same context.
-- The generated `mailto:` draft is prefilled with useful diagnostics and does not submit anything automatically.
-- No feedback action is shown in the app header during normal use.
-- The Settings feedback row and visible-error feedback actions remain readable in light and dark themes.
+#### Performance audit
+Removed the global fetch wrapper, response/error buffering, visible-error watchers, and mailto snapshot generation. Normal fetch and error handling remain direct. No replacement telemetry, requests, polling, buffers, or caches are introduced. Live latency was not measured.
 
-#### Rollback/Cleanup
-- Close the generated email draft without sending if this was only a test.
-
----
+#### Verification
+- Production build including frontend typecheck passes. Full unit suite: 266 passed, 32 failed, two unhandled errors; remaining failure signatures match the pre-change suite. Removed seven feedback-only tests and added one startup regression test covering fetch identity, absence of feedback listeners, mounting, and preserved service-worker failure logging.
+- Server-only typecheck retains ten pre-existing browser-type errors in `codexRpcClient.ts`. Public ESM CLI smoke `node dist-cli/index.js --help` passes.
+- Playwright at `http://127.0.0.1:4173/`, viewport 1440x1000: asserts unchanged fetch identity after startup and provider validation failure, no feedback controls/mailto anchors, and preserved actionable error text in light/dark themes. Codex RPC/auth/model responses use fixtures because Codex CLI is unavailable; provider validation uses the real backend. Browser Use is unavailable; Playwright supports the required request interception.
+- Screenshot artifacts: `output/playwright/feedback-removal-light.png` and `output/playwright/feedback-removal-dark.png`.
+- Chat error, Docker, and live Codex checks were not rerun. No provider/auth backend behavior changed.

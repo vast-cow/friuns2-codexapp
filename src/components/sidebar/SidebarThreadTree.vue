@@ -903,7 +903,6 @@ import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
 import IconTablerBolt from '../icons/IconTablerBolt.vue'
 import IconTablerTrash from '../icons/IconTablerTrash.vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
-import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { getPathLeafName, getPathParent, isAbsoluteLikePath, isProjectlessChatPath } from '../../pathUtils.js'
 import ComposerDropdown from '../content/ComposerDropdown.vue'
 import SidebarMenuRow from './SidebarMenuRow.vue'
@@ -924,7 +923,6 @@ const props = defineProps<{
 }>()
 
 const { t } = useUiLanguage()
-const { recordVisibleFailure } = useFeedbackDiagnostics()
 
 const emit = defineEmits<{
   select: [threadId: string]
@@ -2331,7 +2329,7 @@ function onRemoveProject(projectName: string): void {
         automationByProjectName.value = previousAutomationByProjectName
         const message = error instanceof Error ? error.message : 'Failed to delete project automation'
         projectAutomationActionError.value = message
-        recordVisibleFailure(message)
+
         try {
           await reloadProjectAutomations()
         } catch {
