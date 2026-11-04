@@ -1,5 +1,8 @@
 ### Feature: Startup sync uses deterministic pull reconcile (`fetch + reset --hard`) before local replay
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync is logged in and targets `friuns2/codexskills`.
 - Local repo path is `~/.codex/skills`.

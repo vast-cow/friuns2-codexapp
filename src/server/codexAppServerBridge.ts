@@ -20,7 +20,7 @@ import { buildAppServerArgs } from './appServerRuntimeConfig.js'
 import { checkCodexLoginStatus, getCachedCodexAuthStatus, recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
 import { CodexCredentialError, readChatgptFeatureAuth, readCodexCredentialStore, readPublicAuthStatus, requireFileCredentialStore } from './codexCredentials.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
-import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
+import { handleSkillsRoutes } from './skillsRoutes.js'
 import { TelegramThreadBridge } from './telegramThreadBridge.js'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig.js'
 import {
@@ -7257,7 +7257,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     }
     return threadSearchIndexPromise
   }
-  void initializeSkillsSyncOnStartup(appServer)
   void readTelegramBridgeConfig()
     .then((config) => {
       if (!config.botToken) return

@@ -1,5 +1,8 @@
 ### Feature: Startup sync preserves local skill edits when remote is ahead
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync configured to a private GitHub fork.
 - Local skills repo has a tracked edit in an existing skill file.

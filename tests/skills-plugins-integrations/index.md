@@ -37,3 +37,4 @@ Return to the [manual test index](../../tests.md).
 | [Composer prompts inside Skills dropdown](composer-prompts-inside-skills-dropdown.md) |
 
 | [Telegram notification test and status](telegram-notification-test-and-status.md) |
+| [Local Skills without automatic GitHub synchronization](local-skills-without-automatic-github-sync.md) |

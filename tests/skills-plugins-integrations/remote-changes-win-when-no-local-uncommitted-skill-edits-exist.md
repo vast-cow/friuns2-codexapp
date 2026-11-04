@@ -1,5 +1,8 @@
 ### Feature: Remote changes win when no local uncommitted skill edits exist
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync configured with GitHub.
 - Local skills repo working tree is clean (`git status --porcelain` empty under skills dir).

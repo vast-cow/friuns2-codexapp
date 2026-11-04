@@ -1,5 +1,8 @@
 ### Skills sync idempotent commits and nested shared skills handling
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Feature/Change Name
 Skills Sync skips unchanged manifest writes and does not fail parent commits when only nested `shared_skills` content is dirty.
 

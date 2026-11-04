@@ -1,5 +1,8 @@
 ### Feature: Startup sync conflict fallback when one side is missing
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync repo contains a conflict candidate where only one side exists for a path (for example delete/modify scenario).
 - Skills Hub is accessible.

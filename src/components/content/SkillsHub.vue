@@ -351,7 +351,6 @@ async function handleToggleEnabled(skill: HubSkill, enabled: boolean): Promise<v
       body: JSON.stringify({ method: 'skills/config/write', params: { path: skill.path, enabled } }),
     })
     if (!resp.ok) throw new Error('Failed to update skill')
-    await fetch('/codex-api/skills-sync/push', { method: 'POST' })
     showToast(`${skill.displayName || skill.name} skill ${enabled ? 'enabled' : 'disabled'}`)
     await fetchSkills()
   } catch (e) {

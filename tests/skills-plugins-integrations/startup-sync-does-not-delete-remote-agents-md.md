@@ -1,5 +1,8 @@
 ### Feature: Startup sync does not delete remote AGENTS.md
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync configured to `friuns2/codexskills`.
 - Remote `main` contains `AGENTS.md`.

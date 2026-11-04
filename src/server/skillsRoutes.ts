@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm, mkdir, stat, lstat, readlink, symlink } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, mkdir, stat, lstat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
@@ -551,7 +551,6 @@ const SYNC_UPSTREAM_SKILLS_REPO = 'skills'
 const PRIVATE_SYNC_BRANCH = 'main'
 const PUBLIC_UPSTREAM_BRANCH_ANDROID = 'android'
 const PUBLIC_UPSTREAM_BRANCH_DEFAULT = 'main'
-let startupSkillsSyncInitialized = false
 
 type StartupSyncStatus = {
   inProgress: boolean
@@ -1261,7 +1260,7 @@ async function collectLocalSyncedSkills(appServer: AppServerLike): Promise<Synce
   return synced
 }
 
-async function autoPushSyncedSkills(appServer: AppServerLike): Promise<void> {
+async function pushChangedSyncedSkills(appServer: AppServerLike): Promise<void> {
   const state = await readSkillsSyncState()
   if (!state.githubToken || !state.repoOwner || !state.repoName) return
   if (isUpstreamSkillsRepo(state.repoOwner, state.repoName)) {
@@ -1281,45 +1280,6 @@ async function autoPushSyncedSkills(appServer: AppServerLike): Promise<void> {
   await syncInstalledSkillsFolderToRepo(state.githubToken, state.repoOwner, state.repoName, installedMap)
 }
 
-async function ensureCodexAgentsSymlinkToSkillsAgents(): Promise<void> {
-  const codexHomeDir = getCodexHomeDir()
-  const skillsAgentsPath = join(codexHomeDir, 'skills', 'AGENTS.md')
-  const codexAgentsPath = join(codexHomeDir, 'AGENTS.md')
-  await mkdir(join(codexHomeDir, 'skills'), { recursive: true })
-  let copiedFromCodex = false
-  try {
-    const codexAgentsStat = await lstat(codexAgentsPath)
-    if (codexAgentsStat.isFile() || codexAgentsStat.isSymbolicLink()) {
-      const content = await readFile(codexAgentsPath, 'utf8')
-      await writeFile(skillsAgentsPath, content, 'utf8')
-      copiedFromCodex = true
-    } else {
-      await rm(codexAgentsPath, { force: true, recursive: true })
-    }
-  } catch {}
-  if (!copiedFromCodex) {
-    try {
-      const skillsAgentsStat = await stat(skillsAgentsPath)
-      if (!skillsAgentsStat.isFile()) {
-        await rm(skillsAgentsPath, { force: true, recursive: true })
-        await writeFile(skillsAgentsPath, '', 'utf8')
-      }
-    } catch {
-      await writeFile(skillsAgentsPath, '', 'utf8')
-    }
-  }
-  const relativeTarget = join('skills', 'AGENTS.md')
-  try {
-    const current = await lstat(codexAgentsPath)
-    if (current.isSymbolicLink()) {
-      const existingTarget = await readlink(codexAgentsPath)
-      if (existingTarget === relativeTarget) return
-    }
-    await rm(codexAgentsPath, { force: true, recursive: true })
-  } catch {}
-  await symlink(relativeTarget, codexAgentsPath)
-}
-
 async function runSkillsSyncStartup(appServer: AppServerLike): Promise<void> {
   if (startupSyncStatus.inProgress) return
   startupSyncStatus.inProgress = true
@@ -1329,7 +1289,6 @@ async function runSkillsSyncStartup(appServer: AppServerLike): Promise<void> {
   try {
     const state = await readSkillsSyncState()
     if (!state.githubToken) {
-      await ensureCodexAgentsSymlinkToSkillsAgents()
       if (!isAndroidLikeRuntime()) {
         startupSyncStatus.mode = 'idle'
         startupSyncStatus.lastAction = 'skip-upstream-non-android'
@@ -1356,7 +1315,7 @@ async function runSkillsSyncStartup(appServer: AppServerLike): Promise<void> {
     await pullInstalledSkillsFolderFromRepo(state.githubToken, username, repoName)
     try { await appServer.rpc('skills/list', { forceReload: true }) } catch {}
     startupSyncStatus.lastAction = 'push-private-fork'
-    await autoPushSyncedSkills(appServer)
+    await pushChangedSyncedSkills(appServer)
     startupSyncStatus.lastSuccessAtIso = new Date().toISOString()
     startupSyncStatus.lastAction = 'startup-sync-complete'
   } catch (error) {
@@ -1367,12 +1326,6 @@ async function runSkillsSyncStartup(appServer: AppServerLike): Promise<void> {
   }
 }
 
-export async function initializeSkillsSyncOnStartup(appServer: AppServerLike): Promise<void> {
-  if (startupSkillsSyncInitialized) return
-  startupSkillsSyncInitialized = true
-  await runSkillsSyncStartup(appServer)
-}
-
 async function finalizeGithubLoginAndSync(token: string, username: string, appServer: AppServerLike): Promise<void> {
   const repoName = DEFAULT_SKILLS_SYNC_REPO_NAME
   await ensurePrivateForkFromUpstream(token, username, repoName)
@@ -1380,7 +1333,7 @@ async function finalizeGithubLoginAndSync(token: string, username: string, appSe
   await writeSkillsSyncState({ ...current, githubToken: token, githubUsername: username, repoOwner: username, repoName })
   await pullInstalledSkillsFolderFromRepo(token, username, repoName)
   try { await appServer.rpc('skills/list', { forceReload: true }) } catch {}
-  await autoPushSyncedSkills(appServer)
+  await pushChangedSyncedSkills(appServer)
 }
 
 export async function handleSkillsRoutes(
@@ -1667,7 +1620,6 @@ export async function handleSkillsRoutes(
         throw new Error(`Skill install completed but ${installSource} was not found in local installed skills`)
       }
       await ensureInstalledSkillIsValid(appServer, installed.path)
-      autoPushSyncedSkills(appServer).catch(() => {})
       setJson(res, 200, { ok: true, path: installed.path })
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, 'Failed to install skill') })
@@ -1693,7 +1645,6 @@ export async function handleSkillsRoutes(
         delete nextOwners[name]
         await writeSkillsSyncState({ ...syncState, installedOwners: nextOwners })
       }
-      autoPushSyncedSkills(appServer).catch(() => {})
       try { await withTimeout(appServer.rpc('skills/list', { forceReload: true }), 10_000, 'skills/list reload') } catch {}
       setJson(res, 200, { ok: true, deletedPath: target })
     } catch (error) {

@@ -1,5 +1,8 @@
 ### Feature: Bidirectional AGENTS.md sync via Startup Sync
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync configured to `friuns2/codexskills`.
 - `~/.codex/skills` is a clean git working tree before each sub-test.

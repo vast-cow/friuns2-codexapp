@@ -1,5 +1,8 @@
 ### Feature: Mixed local+remote AGENTS edits do not stall Startup Sync
 
+This test covers explicitly initiated manual synchronization. Application startup and local Skills changes never invoke it; `CODEX_HOME/AGENTS.md` is not replaced or linked automatically.
+
+
 #### Prerequisites
 - Skills sync configured and working.
 - Local skills repo clean before test start.
