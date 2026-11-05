@@ -5,7 +5,7 @@
 - Note the current appearance and Telegram settings so they can be restored.
 
 #### Steps
-1. Set Appearance to Dark. Inspect the UI language, Provider, and Dictation language controls; open each menu and search for a dictation language. Check selected, hovered, keyboard-focused, and disabled states when available.
+1. Set Appearance to Dark. Inspect the UI language and appearance controls; open each menu and search where supported. Check selected, hovered, keyboard-focused, and disabled states when available.
 2. Expand Telegram. Inspect all labels, inputs, placeholders, help and status text, the notification checkbox, and both action buttons. Tab through the controls and hover the buttons; check disabled and validation error states when available.
 3. Repeat at desktop and mobile widths, checking for clipping or overflow.
 4. Switch Appearance to Light and repeat the checks. Set Appearance to System and switch the operating system between light and dark preferences.

@@ -144,13 +144,12 @@ This setup worked well in practice for:
 
 - iPhone Safari access
 - Add to Home Screen
-- the built-in dictation / transcription feature in the app
 - viewing the same projects and conversations from the Windows host
 
 Notes:
 
 - Tailscale Serve keeps access private to your tailnet
-- on iOS, HTTPS / secure context appears to be important for mobile browser access and dictation
+- on iOS, HTTPS / secure context appears to be important for mobile browser access
 - some minor mobile Safari CSS issues may still exist, but they do not prevent normal use
 - depending on proxying details, authentication behavior may differ from direct remote access
 - if conversations created in the web UI do not immediately appear in the Windows app, restarting the Windows app may refresh them
@@ -174,7 +173,6 @@ Notes:
 - 🧪 Remote/headless-friendly setup for server-based Codex usage
 - 🔌 Works with reverse proxies and tunneling setups
 - ⚡ No global install required for quick experimentation
-- 🎙️ Built-in hold-to-dictate voice input with transcription to composer draft
 - 🤖 Optional Telegram bot bridge: send messages to bot, forward into mapped thread, send assistant reply back to Telegram
 
 ### Telegram Bot Bridge (Optional)
@@ -265,7 +263,6 @@ Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatt
 - 🎛️ Skills Hub mobile-friendly spacing/toolbar layout improvements
 - 🪟 Skill detail modal tuned for mobile sheet-style behavior
 - 🧪 Skills Hub event typing fix for `SkillCard` select emit compatibility
-- 🎙️ Voice dictation flow in composer (`hold to dictate` -> transcribe -> append text)
 
 ---
 
@@ -329,7 +326,6 @@ validate explicit efforts before submission.
 - ✅ Node.js `18+`
 - ✅ Codex app-server environment available
 - ✅ Browser access to host/port
-- ✅ Microphone permission (only for voice dictation)
 
 ---
 

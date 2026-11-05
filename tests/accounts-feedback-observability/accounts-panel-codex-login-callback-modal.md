@@ -10,7 +10,7 @@
 3. Explicitly click Logout: the app calls standard `account/logout` and shows Login. Legacy saved-account files remain untouched; there is no replacement-account selection.
 4. Click Login. The existing `codex login` flow opens the authorization URL and callback modal. Complete the browser login, paste its localhost callback URL, and submit. Successful CLI exit establishes login for the configured file or Keyring backend without creating account registry/snapshot files. Invalid callbacks and failed logins must not invalidate existing credentials.
 5. Repeat in light/dark themes. During active turns or pending approvals, login/logout are blocked to preserve the active workflow.
-6. Check transcription/connector credential access, metadata-only public auth, and token refresh with their focused tests. Never export Keyring secrets or use snapshot fallback.
+6. Check private connector credential access, metadata-only public auth, and token refresh with their focused tests. Never export Keyring secrets or use snapshot fallback.
 
 #### Cleanup
 Stop disposable processes and remove only test fixtures. Existing credential files, legacy account archives and current login must not be migrated, deleted, or invalidated by app startup.

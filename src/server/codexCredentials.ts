@@ -57,7 +57,7 @@ function tokenAccountId(token: string): string | undefined {
 }
 
 function unsupported(): CodexCredentialError {
-  return new CodexCredentialError(501, 'chatgpt_feature_credentials_unsupported', 'This Codex version or login does not expose the credentials required for transcription and private connector logos. Manage authentication through Codex.')
+  return new CodexCredentialError(501, 'chatgpt_feature_credentials_unsupported', 'This Codex version or login does not expose the credentials required for private connector logos. Manage authentication through Codex.')
 }
 
 function methodUnavailable(error: unknown): boolean {

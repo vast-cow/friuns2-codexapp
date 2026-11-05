@@ -12,7 +12,7 @@ Build with `pnpm run build`. Use a disposable `CODEX_HOME` for runtime checks. N
 6. Stop the CLI with SIGTERM and confirm it exits normally. For development, `pnpm run dev --host 127.0.0.1 --port 4173` retains the normal Vite host/port controls.
 
 #### Expected
-The app runs directly with existing HTTP/WebSocket/auth behavior and port selection. It does not probe, download, install, start, stop or print connection QR codes for Cloudflare Tunnel. The dedicated QR dependencies are absent. Previously installed binaries/markers and other user files remain untouched. Cloudflare Skills/plugins, unrelated CDN resources, external proxies, and transcription error handling remain independent features.
+The app runs directly with existing HTTP/WebSocket/auth behavior and port selection. It does not probe, download, install, start, stop or print connection QR codes for Cloudflare Tunnel. The dedicated QR dependencies are absent. Previously installed binaries/markers and other user files remain untouched. Cloudflare Skills/plugins, unrelated CDN resources, and external proxies remain independent features.
 
 #### Cleanup
 The smoke scripts stop only their child servers/proxy and remove their own temporary homes. Remove any manually created disposable fixtures. Leave existing user binaries, credentials, config and persistent dev servers unchanged.

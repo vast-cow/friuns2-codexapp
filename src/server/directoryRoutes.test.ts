@@ -89,3 +89,10 @@ it.each([
   expect(await readFile(join(root, 'automation.toml'), 'utf8')).toBe(contents)
   expect(await readFile(join(root, 'memory.md'), 'utf8')).toBe('Existing automation memory')
 })
+
+it('does not handle retired speech transcription requests or acquire credentials', async () => {
+  const { next, body } = await request('/codex-api/transcribe', 'POST')
+  expect(next).toHaveBeenCalledOnce()
+  expect(body).toBe('')
+  expect(rpc).not.toHaveBeenCalled()
+})

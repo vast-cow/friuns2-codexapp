@@ -34,7 +34,7 @@ Codex app-server `account/chatgptAuthTokens/refresh` requests are handled from `
 
 #### Steps
 1. Start the app under Keyring with no `auth.json`. Confirm Accounts, quotas, and chat work; restart and confirm the account remains available.
-2. Request transcription and a private connector logo. If Codex releases a token through its supported legacy interface, confirm the feature works without creating a credential file. Otherwise expect a clear HTTP 501 feature limitation, not a signed-out message.
+2. Request a private connector logo. If Codex releases a token through its supported legacy interface, confirm the feature works without creating a credential file. Otherwise expect a clear HTTP 501 feature limitation, not a signed-out message.
 3. Request browser RPC `getAuthStatus` with `includeToken: true`. Confirm the forwarded request disables token inclusion and the HTTP response contains metadata with `authToken: null` and no extra credential fields.
 4. Exercise a legacy external-host token-refresh request with Keyring configured, including a leftover stale file. Confirm no file token is used, no refresh endpoint is called, and the unsupported-operation response explains that Codex owns the credentials.
 5. Repeat file-backed external refresh. Confirm refreshed tokens persist only while file storage remains selected and the original file has not changed concurrently.
