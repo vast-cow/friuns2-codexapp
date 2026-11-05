@@ -1,17 +1,21 @@
-# Telegram notification test and status
+# Telegram completion notifications
 
-## Setup
+Prerequisites: running backend, a bot token and destination chat ID, and a backup of
+`<CODEX_HOME>/telegram-bridge.json` and `telegram-notification-outbox.json`.
 
-Configure a Telegram bot and a private chat ID. Keep access to the destination chat and, for the failure case, a way to temporarily block Telegram network access. Use light and dark themes.
+1. Open Settings → Telegram in light and dark themes. Check only notification
+   enablement, token, destination, optional URL, test, save, and delivery feedback appear.
+2. Save a token, destination and URL; send a test. Expect one message with no startup message.
+3. Complete a browser turn and a backend queued turn. Close the browser while the
+   latter runs. Expect one alert per successful turn with title, completed status and link.
+4. Fail or interrupt a turn. Expect no alert. Send bot commands or text to Telegram;
+   expect no conversation activity and no incoming Telegram API requests.
+5. Disable alerts and finish a turn. Expect no Telegram requests. Explicit tests still work.
+6. Restart the backend. Reopen settings; expect saved values and pending completion
+   deliveries to survive. Load a legacy configuration with completion settings;
+   expect the same destination and enabled state, no allowlist control, and no loss
+   of legacy fields on disk when saving.
+7. Replay a completion event; expect no duplicate. Simulate a temporary send failure;
+   expect a retry with backoff. Permanent failures surface in settings.
 
-## Actions and expected results
-
-1. Open Telegram settings. Confirm the current status refreshes and testing is unavailable with an explanation when the token or private chat ID is missing or an edit is unsaved.
-2. Save valid settings and send a test notification. Confirm a message arrives in the private chat, the success and timestamp appear, and repeated clicks cannot start another request while it is sending. Reopen settings and restart the application; confirm the result and timestamp remain.
-3. Block Telegram connectivity and retry. Confirm the failure, troubleshooting guidance, and technical details appear. Restore connectivity and retry after the rate limit. Confirm success replaces the test failure.
-4. With a normal notification awaiting retry, send a successful test. Confirm the pending/retrying count remains visible. Restore normal delivery and confirm its success timestamp updates and the resolved error disappears.
-5. Change the token or destination and save. Confirm the old verification result does not appear for the changed configuration. Check the same flows in both themes.
-
-## Cleanup
-
-Restore network access and the original bot configuration. Remove test messages from the chat if desired.
+Cleanup: restore the backed-up files with the backend stopped. Remove test messages.

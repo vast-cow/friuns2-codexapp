@@ -1,21 +1,21 @@
-### Feature: Telegram bot token stored in dedicated global file
+# Telegram completion notifications
 
-#### Prerequisites
-- App server is running from this repository.
-- A valid Telegram bot token is available.
-- At least one Telegram user ID is available for allowlisting.
-- Access to `~/.codex/` on the host machine.
+Prerequisites: running backend, a bot token and destination chat ID, and a backup of
+`<CODEX_HOME>/telegram-bridge.json` and `telegram-notification-outbox.json`.
 
-#### Steps
-1. In the app UI, open Telegram connection and submit a bot token plus one or more allowed Telegram user IDs.
-2. Verify file `~/.codex/telegram-bridge.json` exists.
-3. Open `~/.codex/telegram-bridge.json` and confirm it contains `botToken` and `allowedUserIds` fields.
-4. Restart the app server and call Telegram status endpoint from UI to confirm it still reports configured.
+1. Open Settings → Telegram in light and dark themes. Check only notification
+   enablement, token, destination, optional URL, test, save, and delivery feedback appear.
+2. Save a token, destination and URL; send a test. Expect one message with no startup message.
+3. Complete a browser turn and a backend queued turn. Close the browser while the
+   latter runs. Expect one alert per successful turn with title, completed status and link.
+4. Fail or interrupt a turn. Expect no alert. Send bot commands or text to Telegram;
+   expect no conversation activity and no incoming Telegram API requests.
+5. Disable alerts and finish a turn. Expect no Telegram requests. Explicit tests still work.
+6. Restart the backend. Reopen settings; expect saved values and pending completion
+   deliveries to survive. Load a legacy configuration with completion settings;
+   expect the same destination and enabled state, no allowlist control, and no loss
+   of legacy fields on disk when saving.
+7. Replay a completion event; expect no duplicate. Simulate a temporary send failure;
+   expect a retry with backoff. Permanent failures surface in settings.
 
-#### Expected Results
-- Telegram token is persisted in `~/.codex/telegram-bridge.json`.
-- Telegram allowlisted user IDs are persisted in `~/.codex/telegram-bridge.json`.
-- Telegram bridge remains configured after restart.
-
-#### Rollback/Cleanup
-- Remove `~/.codex/telegram-bridge.json` to clear saved Telegram token.
+Cleanup: restore the backed-up files with the backend stopped. Remove test messages.

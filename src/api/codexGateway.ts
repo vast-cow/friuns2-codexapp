@@ -222,17 +222,12 @@ export type TelegramStatus = {
   notification?: { lastSuccessAt?: number; lastFailureAt?: number; lastError?: string; lastTestAt?: number; lastTestResult?: 'success' | 'failure'; lastTestError?: string; pendingCount: number; retryingCount: number }
   configured: boolean
   active: boolean
-  mappedChats: number
-  mappedThreads: number
-  allowedUsers: number
-  allowAllUsers: boolean
   lastError: string
 }
 
 export type TelegramConfig = {
   completionNotifications: TelegramCompletionConfig
   botToken: string
-  allowedUserIds: Array<number | '*'>
 }
 
 export type LocalDirectoryEntry = {
@@ -2078,7 +2073,6 @@ export async function searchThreads(
 
 export async function configureTelegramBot(
   botToken: string,
-  allowedUserIds: Array<number | '*'>,
   completionNotifications?: TelegramCompletionConfig,
 ): Promise<void> {
   const response = await fetch('/codex-api/telegram/configure-bot', {
@@ -2086,7 +2080,6 @@ export async function configureTelegramBot(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       botToken,
-      allowedUserIds,
       completionNotifications,
     }),
   })
@@ -2112,21 +2105,9 @@ export async function getTelegramConfig(): Promise<TelegramConfig> {
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)
       : {}
-  const rawAllowedUserIds = Array.isArray(data.allowedUserIds) ? data.allowedUserIds : []
-  const allowedUserIds: Array<number | '*'> = []
-  for (const value of rawAllowedUserIds) {
-    if (value === '*') {
-      allowedUserIds.push('*')
-      continue
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      allowedUserIds.push(Math.trunc(value))
-    }
-  }
   return {
     botToken: typeof data.botToken === 'string' ? data.botToken : '',
     completionNotifications: normalizeTelegramCompletionConfig(data.completionNotifications),
-    allowedUserIds,
   }
 }
 
@@ -2154,10 +2135,6 @@ export async function getTelegramStatus(): Promise<TelegramStatus> {
   return {
     configured: data.configured === true,
     active: data.active === true,
-    mappedChats: typeof data.mappedChats === 'number' ? data.mappedChats : 0,
-    mappedThreads: typeof data.mappedThreads === 'number' ? data.mappedThreads : 0,
-    allowedUsers: typeof data.allowedUsers === 'number' ? data.allowedUsers : 0,
-    allowAllUsers: data.allowAllUsers === true,
     lastError: typeof data.lastError === 'string' ? data.lastError : '',
     notification: data.notification && typeof data.notification === 'object' ? data.notification as TelegramStatus['notification'] : undefined,
   }

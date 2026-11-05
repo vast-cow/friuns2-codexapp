@@ -147,80 +147,44 @@ Notes:
 - 🧪 Remote/headless-friendly setup for server-based Codex usage
 - 🔌 Works with reverse proxies and tunneling setups
 - ⚡ No global install required for quick experimentation
-- 🤖 Optional Telegram bot bridge: send messages to bot, forward into mapped thread, send assistant reply back to Telegram
+- 🤖 Optional [Telegram completion notifications](#telegram-completion-notifications-optional)
 
-### Telegram Bot Bridge (Optional)
+### Telegram Completion Notifications (Optional)
 
-Telegram requests use a dedicated connection pool with a 3-second IPv4/IPv6
-connection-attempt delay by default; this does not change other network requests.
-Explicit Node.js network family auto-selection flags (including those in
-`NODE_OPTIONS`) take precedence. Node.js 18.18 or newer is required for the
-connection-attempt setting; earlier supported Node.js 18 releases ignore it.
-The existing Telegram API request timeout and notification retry policy are unchanged.
-Connection failure logs include available error codes and IP/port details without
-request URLs or bot tokens.
+In Settings → Telegram, enter a bot token and one destination chat ID, enable
+completion notifications, and save. Use **Send Test Notification** to check delivery.
+The optional application URL adds a conversation link; use an address reachable
+from your phone. Negative group chat IDs are also supported.
 
-In Settings → Telegram, save your bot token and allowed user IDs. To receive alerts
-for all successful runs, send `/notify on` in a private chat with the bot, or enable
-**All completed tasks** and enter that private chat ID in settings. `/notify off`
-unsubscribes that chat. This supports one private notification destination; enabling
-another replaces it. Selecting a conversation with `/thread` does not change the
-subscription. Set **App URL reachable from your phone** to include conversation links
-(use your reachable private app URL, not your phone's localhost).
+The running backend observes successful `turn/completed` events, including browser
+and backend-queued turns, even after the browser closes. A completed turn does not
+guarantee the whole requested task succeeded. Failed and interrupted turns do not
+notify. Telegram cannot create, select, read, or modify conversations, and incoming
+messages and bot commands are not processed.
 
-“Run finished” means one successful Codex turn observed by this running backend,
-including browser and queued turns. It does not certify that the entire requested
-job succeeded. The browser can be closed; the backend must stay running. Other CLI,
-desktop, or machine instances are not covered. Failed/interrupted turns do not
-produce all-run alerts; existing mapped-thread replies remain separate behavior.
+Existing tokens and completion settings remain in `<CODEX_HOME>/telegram-bridge.json`.
+Legacy fields are ignored and preserved on disk when saving; stored files are not
+deleted. Existing notification destinations and enabled state are retained. Legacy
+chat lists and allowlists do not automatically become notification subscriptions.
+Only the first explicitly configured notification destination is used.
 
-Subscriptions are saved in `<CODEX_HOME>/telegram-bridge.json`. Pending deliveries
-survive restart in `telegram-notification-outbox.json`, retry temporary failures
-with timeout/backoff and Telegram's retry-after delay, and expose the last delivery
-error in Telegram settings (reopen settings to refresh). Permanent API failures
-stop retrying. Overlapping subscriptions and thread mappings produce one combined
-message, using the exact completed turn for the excerpt. Completion alerts still
-send without an excerpt when the thread cannot be read.
+The persistent `telegram-notification-outbox.json` retains pending completion alerts
+and the last 2,000 settled delivery keys across restarts. Legacy conversation-forwarding
+jobs are ineligible and never sent. Requests time out after 15 seconds; temporary
+failures retry with exponential backoff and Telegram retry-after delays, up to ten
+attempts within 24 hours. Permanent API failures stop retrying. The queue holds up
+to 1,000 pending alerts and exposes delivery errors in settings.
 
-The outbox holds up to 1,000 pending messages and remembers the last 2,000 settled
-delivery keys. A full queue is reported as a notification error. Very old replayed
-events outside that deduplication window can notify again. If Telegram accepts a
-message but its response is lost, a retry can also duplicate it. Disabling a
-subscription cancels its pending alerts when the queue next processes them.
+Duplicate events are suppressed within the receipt window. Telegram can still
+receive a duplicate if it accepts a message but its response is lost before the
+backend records delivery. Disabling notifications stops the worker and all
+background Telegram requests; pending alerts are rechecked when enabled again.
+A test notification is an explicit request and works while completion alerts are disabled.
+No events are monitored while the backend is stopped.
 
-
-Set these environment variables before starting `codexapp`:
-
-```bash
-export TELEGRAM_BOT_TOKEN="<your-telegram-bot-token>"
-export TELEGRAM_ALLOWED_USER_IDS="<your-telegram-user-id>,<optional-second-id>"
-export TELEGRAM_DEFAULT_CWD="$PWD" # optional, defaults to current working directory
-pnpm install
-pnpm run build
-node dist-cli/index.js
-```
-
-`TELEGRAM_ALLOWED_USER_IDS` is required for safe access. Only allowlisted Telegram user IDs can use the bridge. If no allowed user IDs are configured, incoming Telegram messages are rejected.
-
-To find your Telegram user ID:
-
-1. Send a message to your bot.
-2. Run `curl "https://api.telegram.org/bot<your-telegram-bot-token>/getUpdates"`.
-3. Read `message.from.id` from the returned update payload.
-
-Bot commands:
-
-- `/start` show quick help and thread picker
-- `/threads` list recent threads and pick one
-- `/newthread` create and map a new Codex thread for this Telegram chat
-- `/thread <threadId>` map current Telegram chat to an existing thread
-- `/current` show currently connected thread for this chat
-- `/history` show recent history for current thread
-- `/status` show bridge/mapping status
-- `/whoami` show your Telegram user/chat IDs and authorization state
-- `/help` show command reference
-
-Outgoing assistant messages are sent with Telegram `parse_mode=HTML` for formatting, with automatic plain-text fallback for HTML formatting errors.
+Telegram uses a dedicated connection pool with a 3-second IPv4/IPv6 connection
+attempt delay (Node.js 18.18+). Explicit Node network family flags take precedence.
+Connection logs redact bot tokens.
 
 ---
 

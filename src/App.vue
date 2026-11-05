@@ -150,30 +150,17 @@
                   >
                 </label>
                 <label class="sidebar-settings-field">
-                  <span class="sidebar-settings-field-label">{{ t('Allowed Telegram user IDs') }}</span>
-                  <textarea
-                    v-model="telegramAllowedUserIdsDraft"
-                    class="sidebar-settings-textarea"
-                    rows="3"
-                    placeholder="123456789&#10;987654321"
-                    spellcheck="false"
-                  />
-                </label>
-                <div class="sidebar-settings-field-help">
-                  {{ t('Put one Telegram user ID per line or separate them with commas. Use `*` to allow all Telegram users. Unauthorized users will see their own ID in the rejection message so they can copy it here.') }}
-                </div>
-                <label class="sidebar-settings-field">
-                  <span class="sidebar-settings-field-label inline-flex items-center gap-1"><input v-model="telegramNotifyEnabledDraft" type="checkbox" />{{ t('All completed tasks') }}</span>
+                  <span class="sidebar-settings-field-label inline-flex items-center gap-1"><input v-model="telegramNotifyEnabledDraft" type="checkbox" />{{ t('Enable completion notifications') }}</span>
                 </label>
                 <label class="sidebar-settings-field">
-                  <span class="sidebar-settings-field-label">{{ t('Private notification chat ID') }}</span>
+                  <span class="sidebar-settings-field-label">{{ t('Destination chat ID') }}</span>
                   <input v-model="telegramNotifyChatIdDraft" class="sidebar-settings-input" type="text" inputmode="numeric" placeholder="123456789" />
                 </label>
                 <label class="sidebar-settings-field">
                   <span class="sidebar-settings-field-label">{{ t('App URL reachable from your phone') }}</span>
                   <input v-model="telegramAppUrlDraft" class="sidebar-settings-input" type="url" placeholder="https://your-app.example" />
                 </label>
-                <p class="sidebar-settings-field-help">{{ t('Notifies successful turns observed by this running backend. Use /notify on or /notify off in a private bot chat. A finished turn does not guarantee the whole task succeeded.') }}</p>
+                <p class="sidebar-settings-field-help">{{ t('Notifies successful turns observed by this running backend. A finished turn does not guarantee the whole task succeeded.') }}</p>
                 <div class="sidebar-settings-field-help" role="status">
                   <p>{{ t('Notification status') }}: {{ telegramNotificationStatusText }}</p>
                   <p v-if="telegramStatus.notification?.lastTestAt">{{ t('Last test') }}: {{ new Date(telegramStatus.notification.lastTestAt).toLocaleString() }}</p>
@@ -954,7 +941,6 @@ const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
 const chatWidth = ref<ChatWidthMode>(loadChatWidthPref())
 const isTelegramConfigOpen = ref(false)
 const telegramBotTokenDraft = ref('')
-const telegramAllowedUserIdsDraft = ref('')
 const telegramNotifyEnabledDraft = ref(false)
 const telegramNotifyChatIdDraft = ref('')
 const telegramAppUrlDraft = ref('')
@@ -963,13 +949,13 @@ const isTelegramSaving = ref(false)
 const isTelegramTesting = ref(false)
 const telegramTestError = ref('')
 const savedTelegramDraft = ref('')
-const telegramDraftSnapshot = () => JSON.stringify([telegramBotTokenDraft.value, telegramAllowedUserIdsDraft.value, telegramNotifyEnabledDraft.value, telegramNotifyChatIdDraft.value, telegramAppUrlDraft.value])
+const telegramDraftSnapshot = () => JSON.stringify([telegramBotTokenDraft.value, telegramNotifyEnabledDraft.value, telegramNotifyChatIdDraft.value, telegramAppUrlDraft.value])
 const telegramTestUnavailable = computed(() => {
   if (isTelegramTesting.value) return t('Sending test notification…')
   if (isTelegramSaving.value) return t('Wait until settings are saved.')
   if (!telegramBotTokenDraft.value.trim()) return t('Configure a bot token before testing.')
   const id = telegramNotifyChatIdDraft.value.trim()
-  if (!/^\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) <= 0) return t('Configure a valid private notification chat ID before testing.')
+  if (!/^-?\d+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) === 0) return t('Configure a valid destination chat ID before testing.')
   if (!savedTelegramDraft.value || telegramDraftSnapshot() !== savedTelegramDraft.value) return t('Save configuration changes before testing.')
   return ''
 })
@@ -1008,10 +994,6 @@ const existingFolderFilter = ref('')
 const telegramStatus = ref<TelegramStatus>({
   configured: false,
   active: false,
-  mappedChats: 0,
-  mappedThreads: 0,
-  allowedUsers: 0,
-  allowAllUsers: false,
   lastError: '',
 })
 let workspaceRootsResumeTimer: ReturnType<typeof setTimeout> | null = null
@@ -1343,12 +1325,7 @@ const contentStyle = computed(() => {
 const telegramStatusText = computed(() => {
   if (!telegramStatus.value.configured) return t('Not configured')
   const base = telegramStatus.value.active ? t('Online') : t('Configured (offline)')
-  const allowlist = telegramStatus.value.allowAllUsers
-    ? t('allow all users')
-    : `${telegramStatus.value.allowedUsers} ${t('allowed user(s)')}`
-  const mapped = `${telegramStatus.value.mappedChats} ${t('chat(s)')}, ${telegramStatus.value.mappedThreads} ${t('thread(s)')}, ${allowlist}`
-  const error = telegramStatus.value.lastError ? `, ${t('error')}: ${telegramStatus.value.lastError}` : ''
-  return `${base}, ${mapped}${error}`
+  return base
 })
 
 onMounted(() => {
@@ -1438,10 +1415,6 @@ async function refreshTelegramStatus(): Promise<void> {
     telegramStatus.value = {
       configured: false,
       active: false,
-      mappedChats: 0,
-      mappedThreads: 0,
-      allowedUsers: 0,
-      allowAllUsers: false,
       lastError: message,
     }
   }
@@ -1454,7 +1427,6 @@ async function refreshTelegramConfig(): Promise<void> {
     telegramNotifyEnabledDraft.value = config.completionNotifications.enabled
     telegramNotifyChatIdDraft.value = config.completionNotifications.chatIds.join('')
     telegramAppUrlDraft.value = config.completionNotifications.appUrl
-    telegramAllowedUserIdsDraft.value = config.allowedUserIds.map((value) => String(value)).join('\n')
     savedTelegramDraft.value = telegramDraftSnapshot()
     telegramConfigError.value = ''
   } catch (error) {
@@ -1486,34 +1458,16 @@ async function sendTelegramTest(): Promise<void> {
   }
 }
 
-function parseTelegramAllowedUserIdsInput(value: string): Array<number | '*'> {
-  const rawEntries = value
-    .split(/[\n,]/)
-    .map((entry) => entry.trim().replace(/^(telegram|tg):/i, '').trim())
-    .filter(Boolean)
-  const allowAllUsers = rawEntries.includes('*')
-  const normalizedUserIds = Array.from(new Set(rawEntries
-    .filter((entry) => /^-?\d+$/.test(entry))
-    .map((entry) => Number.parseInt(entry, 10))))
-  return allowAllUsers ? ['*', ...normalizedUserIds] : normalizedUserIds
-}
-
 async function saveTelegramConfig(): Promise<void> {
   const botToken = telegramBotTokenDraft.value.trim()
-  const allowedUserIds = parseTelegramAllowedUserIdsInput(telegramAllowedUserIdsDraft.value)
   if (!botToken) {
     telegramConfigError.value = t('Telegram bot token is required.')
     return
   }
-  if (allowedUserIds.length === 0) {
-    telegramConfigError.value = t('At least one allowed Telegram user ID or * is required.')
-    return
-  }
-
   const chatIdText = telegramNotifyChatIdDraft.value.trim()
   const chatId = Number(chatIdText)
-  if ((chatIdText || telegramNotifyEnabledDraft.value) && (!/^\d+$/.test(chatIdText) || !Number.isSafeInteger(chatId) || chatId <= 0)) {
-    telegramConfigError.value = t('Enter a positive private Telegram chat ID, or use /notify on in your bot chat.')
+  if ((chatIdText || telegramNotifyEnabledDraft.value) && (!/^-?\d+$/.test(chatIdText) || !Number.isSafeInteger(chatId) || chatId === 0)) {
+    telegramConfigError.value = t('Enter a nonzero destination Telegram chat ID.')
     return
   }
   const appUrl = telegramAppUrlDraft.value.trim()
@@ -1529,18 +1483,15 @@ async function saveTelegramConfig(): Promise<void> {
   isTelegramSaving.value = true
   telegramConfigError.value = ''
   try {
-    await configureTelegramBot(botToken, allowedUserIds, {
+    await configureTelegramBot(botToken, {
       enabled: telegramNotifyEnabledDraft.value,
       chatIds: chatIdText ? [chatId] : [],
-      statuses: ['completed'],
       appUrl,
     })
-    telegramAllowedUserIdsDraft.value = allowedUserIds.map((value) => String(value)).join('\n')
     await Promise.all([
       refreshTelegramConfig(),
       refreshTelegramStatus(),
     ])
-    window.alert(t('Telegram bot configured. Only allowlisted Telegram users can use the bridge.'))
   } catch (error) {
     telegramConfigError.value = error instanceof Error ? error.message : t('Failed to connect Telegram bot')
     void refreshTelegramStatus()

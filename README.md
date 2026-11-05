@@ -30,3 +30,5 @@ and configure a private network or external reverse proxy for remote access.
 - [Manual tests](tests.md)
 
 Forked from [pavel-voronin/codex-web-local](https://github.com/pavel-voronin/codex-web-local).
+
+Optional [Telegram completion notifications](docs/usage.md#telegram-completion-notifications-optional) notify successful turns while the backend is running.

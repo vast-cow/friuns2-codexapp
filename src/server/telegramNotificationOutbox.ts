@@ -10,7 +10,6 @@ export class TelegramApiError extends Error {
     super(message)
   }
   get temporary(): boolean { return this.code === 429 || this.code >= 500 }
-  get formatting(): boolean { return this.code === 400 && /parse entities|unsupported start tag|can't find end tag/i.test(this.message) }
 }
 
 export type CompletionJob = {

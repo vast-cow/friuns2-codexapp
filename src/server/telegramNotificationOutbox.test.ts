@@ -94,3 +94,16 @@ describe('Telegram notification status', () => {
     expect(await second.status()).toMatchObject({ lastTestResult: 'success', pendingCount: 1, retryingCount: 1 })
   })
 })
+
+it('persists backoff after a temporary API failure and retries successfully', async () => {
+  const path = await setup()
+  const send = vi.fn().mockRejectedValueOnce(new TelegramApiError('rate limited', 429, 1)).mockResolvedValue(undefined)
+  const outbox = worker(path, send)
+  await outbox.add([job()])
+  outbox.start()
+  await waitFor(async () => (await state(path)).pending[0]?.attempts === 1)
+  const pending = (await state(path)).pending[0]
+  expect(pending.nextAttempt - pending.lastAttemptAt).toBeGreaterThanOrEqual(1000)
+  await waitFor(async () => (await state(path)).settled.length === 1)
+  expect(send).toHaveBeenCalledTimes(2)
+})

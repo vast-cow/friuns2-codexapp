@@ -9,7 +9,7 @@ afterEach(() => { vi.resetModules(); vi.clearAllMocks(); vi.unstubAllEnvs() })
 describe('Telegram network', () => {
   it('uses a Telegram-only dispatcher with a 3000ms attempt timeout', async () => {
     const { telegramFetch } = await import('./telegramNetwork.js')
-    telegramFetch('https://api.telegram.org/botsecret/getUpdates', { method: 'POST' })
+    telegramFetch('https://api.telegram.org/botsecret/sendMessage', { method: 'POST' })
     expect(agent).toHaveBeenCalledWith({ connect: { autoSelectFamily: true, autoSelectFamilyAttemptTimeout: 3000 } })
     expect(request).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'POST', dispatcher: expect.anything() }))
   })
