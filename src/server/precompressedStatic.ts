@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import type { Request, Response, NextFunction } from 'express'
@@ -34,7 +35,9 @@ async function isFile(file: string) {
   }
 }
 
-export async function sendPrecompressed(req: Request, res: Response, next: NextFunction, file: string) {
+export async function sendPrecompressed(req: Request, res: Response, next: NextFunction, file: string, immutable = false) {
+  if (extname(file) === '.html') res.setHeader('Cache-Control', 'no-cache')
+  else if (immutable) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
   res.vary('Accept-Encoding')
   for (const encoding of encodingPreferences(req.headers['accept-encoding'])) {
     const candidate = file + (encoding === 'zstd' ? '.zst' : encoding === 'gzip' ? '.gz' : '')
@@ -57,6 +60,17 @@ export async function sendPrecompressed(req: Request, res: Response, next: NextF
 
 export function precompressedStatic(root: string) {
   const base = resolve(root)
+  // Only build-manifest entries qualify; public/unversioned files never opt in.
+  // Read once at startup, with a safe revalidation fallback for older builds.
+  const immutableFiles = new Set<string>()
+  try {
+    const manifest = JSON.parse(readFileSync(resolve(base, '.vite/manifest.json'), 'utf8'))
+    for (const entry of Object.values(manifest) as { file?: unknown }[]) {
+      if (typeof entry?.file === 'string' && /^assets\/[^/]+-[A-Za-z0-9_-]{8}\.js$/.test(entry.file)) {
+        immutableFiles.add(resolve(base, entry.file))
+      }
+    }
+  } catch { /* Missing or invalid manifest: retain default revalidation. */ }
   return async (req: Request, res: Response, next: NextFunction) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next()
     let pathname: string
@@ -64,6 +78,6 @@ export function precompressedStatic(root: string) {
     if (pathname.includes('\0') || pathname.split(/[\\/]/).some(part => part.startsWith('.'))) return next()
     const file = resolve(base, '.' + pathname, pathname.endsWith('/') ? 'index.html' : '')
     if (!file.startsWith(base + sep) || !(await isFile(file))) return next()
-    return sendPrecompressed(req, res, next, file)
+    return sendPrecompressed(req, res, next, file, immutableFiles.has(file))
   }
 }
