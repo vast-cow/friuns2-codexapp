@@ -96,25 +96,6 @@ export type UiFileChange = {
   removedLineCount: number
 }
 
-export type UiReviewScope = 'workspace' | 'baseBranch' | 'commit'
-export type UiReviewWorkspaceView = 'unstaged' | 'staged'
-export type UiReviewFinding = {
-  id: string
-  title: string
-  body: string
-  path: string | null
-  absolutePath: string | null
-  startLine: number | null
-  endLine: number | null
-  rawText: string
-}
-
-export type UiReviewResult = {
-  reviewText: string
-  summary: string
-  findings: UiReviewFinding[]
-}
-
 export type UiPlanStepStatus = 'pending' | 'inProgress' | 'completed'
 
 export type UiPlanStep = {

@@ -13,7 +13,7 @@
 1. Leave tab A showing the original roots. In tab B, register `extra`.
 2. Without refreshing A, rename only `a/demo`, move it below `b/demo`, then remove `b/demo`. Also exercise each action with a deliberately delayed roots GET response.
 3. Return to tab B, then reload both tabs.
-4. While repeating these actions, change a thread title and pin, queue a message, dismiss the initial plugins card, and register another folder through the CLI using the same temporary `CODEX_HOME`.
+4. While repeating these actions, change a thread title and pin, queue a message, change a sidebar setting, and register another folder through the CLI using the same temporary `CODEX_HOME`.
 
 Expected: `extra` and the CLI registration survive every operation. Only the selected canonical path is renamed or removed. An omitted project retains its relative order after the requested reorder. Remote metadata, unrelated keys, and unrelated settings survive. Aliases do not create duplicate registrations. Project operations do not modify existing conversation files. History-derived project visibility retains its existing rules, including when no registered roots remain.
 

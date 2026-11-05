@@ -104,31 +104,6 @@ export async function fetchRpcMethodCatalog(): Promise<string[]> {
   return Array.isArray(catalog.data) ? catalog.data : []
 }
 
-export async function fetchRpcNotificationCatalog(): Promise<string[]> {
-  const response = await fetch('/codex-api/meta/notifications')
-
-  let payload: unknown = null
-  try {
-    payload = await response.json()
-  } catch {
-    payload = null
-  }
-
-  if (!response.ok) {
-    throw new CodexApiError(
-      extractErrorMessage(payload, `Notification catalog failed with HTTP ${response.status}`),
-      {
-        code: 'http_error',
-        method: 'meta/notifications',
-        status: response.status,
-      },
-    )
-  }
-
-  const catalog = payload as RpcMethodCatalog
-  return Array.isArray(catalog.data) ? catalog.data : []
-}
-
 function toNotification(value: unknown): RpcNotification | null {
   const record = asRecord(value)
   if (!record) return null

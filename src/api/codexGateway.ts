@@ -6,7 +6,6 @@ export type { WorkspaceRootsOperation } from '../types/workspaceRoots'
 import { ref } from 'vue'
 import {
   fetchRpcMethodCatalog,
-  fetchRpcNotificationCatalog,
   fetchPendingServerRequests,
   rpcCall,
   respondServerRequest,
@@ -43,10 +42,6 @@ import type {
   UiMessage,
   UiProjectGroup,
   UiThread,
-  UiReviewFinding,
-  UiReviewResult,
-  UiReviewScope,
-  UiReviewWorkspaceView,
   UiRateLimitSnapshot,
   UiRateLimitWindow,
 } from '../types/codex'
@@ -539,14 +534,6 @@ async function getThreadGroupsPageV2(cursor: string | null, limit: number): Prom
   }
 }
 
-async function getThreadMessagesV2(threadId: string): Promise<UiMessage[]> {
-  const payload = await callRpc<ThreadReadResponse>('thread/read', {
-    threadId,
-    includeTurns: true,
-  })
-  return normalizeThreadMessagesV2(payload, readThreadTurnStartIndex(payload))
-}
-
 async function getThreadSummaryV2(threadId: string): Promise<UiThread> {
   const payload = await callRpc<ThreadReadResponse>('thread/read', {
     threadId,
@@ -611,14 +598,6 @@ async function getOlderThreadMessagesV2(threadId: string, beforeTurnId: string, 
   }
 }
 
-export async function getThreadGroups(): Promise<UiProjectGroup[]> {
-  try {
-    return (await getThreadGroupsPageV2(null, INITIAL_THREAD_LIST_LIMIT)).groups
-  } catch (error) {
-    throw normalizeCodexApiError(error, 'Failed to load thread groups', 'thread/list')
-  }
-}
-
 export async function getThreadGroupsPage(
   cursor: string | null = null,
   limit = INITIAL_THREAD_LIST_LIMIT,
@@ -632,14 +611,6 @@ export async function getThreadGroupsPage(
 
 export function getBackgroundThreadListLimit(): number {
   return BACKGROUND_THREAD_LIST_LIMIT
-}
-
-export async function getThreadMessages(threadId: string): Promise<UiMessage[]> {
-  try {
-    return await getThreadMessagesV2(threadId)
-  } catch (error) {
-    throw normalizeCodexApiError(error, `Failed to load thread ${threadId}`, 'thread/read')
-  }
 }
 
 export async function getThreadSummary(threadId: string): Promise<UiThread> {
@@ -674,113 +645,8 @@ export async function getOlderThreadMessages(threadId: string, beforeTurnId: str
   }
 }
 
-function parseReviewLocation(value: string): {
-  absolutePath: string | null
-  startLine: number | null
-  endLine: number | null
-} {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return { absolutePath: null, startLine: null, endLine: null }
-  }
-
-  const match = trimmed.match(/^(.*?):(\d+)-(\d+)$/u)
-  if (!match) {
-    return { absolutePath: trimmed || null, startLine: null, endLine: null }
-  }
-
-  return {
-    absolutePath: match[1]?.trim() || null,
-    startLine: Number(match[2]),
-    endLine: Number(match[3]),
-  }
-}
-
-function parseReviewText(reviewText: string): UiReviewResult {
-  const normalized = reviewText.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return { reviewText: '', summary: '', findings: [] }
-  }
-
-  const markerIndex = normalized.search(/\n(?:Full review comments|Review comment):\n/iu)
-  const summary = markerIndex >= 0 ? normalized.slice(0, markerIndex).trim() : normalized
-  const findingsSection = markerIndex >= 0 ? normalized.slice(markerIndex).trim() : ''
-  const findings: UiReviewFinding[] = []
-
-  if (findingsSection) {
-    const body = findingsSection
-      .replace(/^(?:Full review comments|Review comment):\n*/iu, '')
-      .trim()
-    const matches = body.matchAll(/^- (.+?) — (.+)\n?((?:  .*(?:\n|$))*)/gmu)
-    let index = 0
-    for (const match of matches) {
-      const title = match[1]?.trim() ?? ''
-      const location = parseReviewLocation(match[2] ?? '')
-      const block = (match[0] ?? '').trim()
-      const findingBody = (match[3] ?? '')
-        .split('\n')
-        .map((line) => line.replace(/^  /u, ''))
-        .join('\n')
-        .trim()
-
-      findings.push({
-        id: `finding:${index}`,
-        title: title || `Finding ${index + 1}`,
-        body: findingBody,
-        path: location.absolutePath ? location.absolutePath.split('/').filter(Boolean).slice(-1)[0] ?? location.absolutePath : null,
-        absolutePath: location.absolutePath,
-        startLine: location.startLine,
-        endLine: location.endLine,
-        rawText: block,
-      })
-      index += 1
-    }
-  }
-
-  return {
-    reviewText: normalized,
-    summary,
-    findings,
-  }
-}
-
-function readLatestReviewItem(payload: ThreadReadResponse, type: 'enteredReviewMode' | 'exitedReviewMode'): string | null {
-  const turns = Array.isArray(payload.thread.turns) ? payload.thread.turns : []
-  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = turns[turnIndex]
-    const items = Array.isArray(turn?.items) ? turn.items : []
-    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-      const item = items[itemIndex]
-      if (item?.type !== type) continue
-      const review = typeof item.review === 'string' ? item.review.trim() : ''
-      if (review) return review
-    }
-  }
-  return null
-}
-
-export async function getThreadReviewResult(threadId: string): Promise<{
-  enteredReviewLabel: string | null
-  result: UiReviewResult | null
-}> {
-  const payload = await callRpc<ThreadReadResponse>('thread/read', {
-    threadId,
-    includeTurns: true,
-  })
-
-  const exitedReview = readLatestReviewItem(payload, 'exitedReviewMode')
-  return {
-    enteredReviewLabel: readLatestReviewItem(payload, 'enteredReviewMode'),
-    result: exitedReview ? parseReviewText(exitedReview) : null,
-  }
-}
-
 export async function getMethodCatalog(): Promise<string[]> {
   return fetchRpcMethodCatalog()
-}
-
-export async function getNotificationCatalog(): Promise<string[]> {
-  return fetchRpcNotificationCatalog()
 }
 
 export function subscribeCodexNotifications(onNotification: (value: RpcNotification) => void): () => void {
@@ -1945,25 +1811,6 @@ export async function getGitRepositoryStatus(cwd: string): Promise<GitRepository
     isGitRepo: record.isGitRepo === true,
     gitRoot: typeof record.gitRoot === 'string' ? normalizePathForUi(record.gitRoot) : '',
   }
-}
-
-export async function startThreadReview(
-  threadId: string,
-  scope: UiReviewScope,
-  workspaceView: UiReviewWorkspaceView,
-  baseBranch?: string | null,
-): Promise<void> {
-  const target = scope === 'baseBranch'
-    ? { type: 'baseBranch' as const, branch: (baseBranch ?? '').trim() }
-    : { type: 'uncommittedChanges' as const }
-  if (target.type === 'baseBranch' && !target.branch) {
-    throw new Error('Base branch is unavailable')
-  }
-  await callRpc('review/start', {
-    threadId,
-    target,
-    delivery: 'inline',
-  })
 }
 
 export async function getHomeDirectory(): Promise<string> {
