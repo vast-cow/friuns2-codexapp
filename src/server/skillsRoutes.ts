@@ -112,8 +112,6 @@ function getSkillsInstallDir(): string {
 }
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
-const SKILL_SEARCH_METADATA_LIMIT = 20
-const SKILL_SEARCH_METADATA_CONCURRENCY = 4
 
 async function runCommand(command: string, args: string[], options: { cwd?: string; timeoutMs?: number } = {}): Promise<void> {
   const timeout = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
@@ -300,113 +298,6 @@ function parseNpxSkillsFindOutput(output: string, installedMap: Map<string, Inst
   return results
 }
 
-function parseGithubSkillSource(source: string): { ownerRepo: string; skillName: string } | null {
-  const atIndex = source.lastIndexOf('@')
-  if (atIndex <= 0 || atIndex >= source.length - 1) return null
-  const ownerRepo = source.slice(0, atIndex).trim()
-  const skillName = source.slice(atIndex + 1).trim()
-  const ownerRepoParts = ownerRepo.split('/').filter(Boolean)
-  if (ownerRepoParts.length !== 2 || skillName.length === 0) return null
-  if (ownerRepoParts.some((part) => part.includes(':') || part.includes(' '))) return null
-  return { ownerRepo, skillName }
-}
-
-function getGithubOwnerAvatarUrl(source: string): string {
-  const parsed = parseGithubSkillSource(source)
-  if (!parsed) return ''
-  const owner = parsed.ownerRepo.split('/')[0] ?? ''
-  return owner ? `https://github.com/${encodeURIComponent(owner)}.png?size=64` : ''
-}
-
-function buildGithubSkillRawCandidates(source: string): string[] {
-  const parsed = parseGithubSkillSource(source)
-  if (!parsed) return []
-  const ownerRepo = parsed.ownerRepo.split('/').map(encodeURIComponent).join('/')
-  const skillName = encodeURIComponent(parsed.skillName)
-  const branches = ['main', 'master']
-  const paths = [
-    `skills/${skillName}/SKILL.md`,
-    `${skillName}/SKILL.md`,
-    'SKILL.md',
-  ]
-  return branches.flatMap((branch) => paths.map((path) => `https://raw.githubusercontent.com/${ownerRepo}/${branch}/${path}`))
-}
-
-async function fetchTextWithTimeout(url: string, timeoutMs: number): Promise<string> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': 'codex-web-local' },
-      signal: controller.signal,
-    })
-    if (!resp.ok) return ''
-    return await resp.text()
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-function resolveSkillIconUrl(icon: string, markdownUrl: string): string {
-  const value = icon.trim().replace(/^['"]|['"]$/gu, '')
-  if (!value) return ''
-  if (/^https?:\/\//iu.test(value)) return value
-  try {
-    return new URL(value, markdownUrl).toString()
-  } catch {
-    return ''
-  }
-}
-
-async function fetchGithubSkillMetadata(source: string): Promise<Partial<Pick<SkillHubEntry, 'avatarUrl' | 'description'>>> {
-  for (const candidate of buildGithubSkillRawCandidates(source)) {
-    try {
-      const markdown = await fetchTextWithTimeout(candidate, 4_000)
-      if (!markdown) continue
-      const description = extractSkillDescriptionFromMarkdown(markdown)
-      const icon = extractSkillFrontmatterField(markdown, 'icon')
-      const avatarUrl = icon ? resolveSkillIconUrl(icon, candidate) : getGithubOwnerAvatarUrl(source)
-      if (description || avatarUrl) return { description, avatarUrl }
-    } catch {}
-  }
-  return { avatarUrl: getGithubOwnerAvatarUrl(source) }
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let nextIndex = 0
-  const workerCount = Math.max(1, Math.min(concurrency, items.length))
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex
-      nextIndex += 1
-      results[index] = await mapper(items[index] as T, index)
-    }
-  }))
-  return results
-}
-
-async function enrichSkillSearchDescriptions(results: SkillHubEntry[]): Promise<SkillHubEntry[]> {
-  const enrichedHead = await mapWithConcurrency(
-    results.slice(0, SKILL_SEARCH_METADATA_LIMIT),
-    SKILL_SEARCH_METADATA_CONCURRENCY,
-    async (result) => {
-    if (!result.source) return result
-    const metadata = await fetchGithubSkillMetadata(result.source)
-    return {
-      ...result,
-      description: metadata.description || result.description,
-      avatarUrl: metadata.avatarUrl || result.avatarUrl,
-    }
-    },
-  )
-  return [...enrichedHead, ...results.slice(SKILL_SEARCH_METADATA_LIMIT)]
-}
-
 type RpcSkillRecord = {
   name?: string
   description?: string
@@ -580,7 +471,7 @@ export async function handleSkillsRoutes(
       }
       const installedMap = await collectInstalledSkillsMap(appServer)
       const output = await runCommandWithOutput('npx', ['--yes', 'skills', 'find', query], { timeoutMs: 60_000 })
-      const results = await enrichSkillSearchDescriptions(parseNpxSkillsFindOutput(output, installedMap))
+      const results = parseNpxSkillsFindOutput(output, installedMap)
       setJson(res, 200, { results })
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, 'Failed to search skills') })

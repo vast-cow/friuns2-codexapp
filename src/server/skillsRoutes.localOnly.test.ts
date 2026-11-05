@@ -101,3 +101,51 @@ it.each([false, true])('installs locally without GitHub authentication or sync (
   if (!configured) await expect(lstat(join(home, 'skills-sync.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect(fetch).not.toHaveBeenCalled()
 })
+
+it('returns all registry search results without GitHub metadata requests', async () => {
+  const skillPath = join(home, 'skills', 'sample', 'SKILL.md')
+  const rpc = vi.fn(async () => ({ data: [{ skills: [{ name: 'sample', path: skillPath, enabled: true }] }] }))
+  const rows = Array.from({ length: 22 }, (_, index) => index === 0
+    ? 'example/skills@sample 1.2K installs\n└ https://skills.sh/example/skills/sample'
+    : `example/skills@sample-${index} 5 installs`)
+  spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: vi.fn() })
+    queueMicrotask(() => {
+      child.stdout.emit('data', Buffer.from(rows.join('\n')))
+      child.emit('close', 0)
+    })
+    return child
+  })
+  const end = vi.fn()
+  const res = { setHeader: vi.fn(), end } as unknown as ServerResponse
+  expect(await handleSkillsRoutes({ method: 'GET' } as IncomingMessage, res,
+    new URL('http://localhost/codex-api/skills-hub/search?q=sample'),
+    { appServer: { rpc }, readJsonBody: async () => ({}) })).toBe(true)
+  expect(res.statusCode).toBe(200)
+  const { results } = JSON.parse(end.mock.calls[0]![0])
+  expect(results).toHaveLength(22)
+  expect(results[0]).toMatchObject({
+    name: 'sample', source: 'example/skills@sample', description: '1.2K installs',
+    installCountLabel: '1.2K installs', avatarUrl: '', installed: true, path: skillPath,
+    url: 'https://skills.sh/example/skills/sample',
+  })
+  expect(results[21]).toMatchObject({ name: 'sample-21', url: '', installed: false })
+  expect(spawn).toHaveBeenCalledOnce()
+  expect(fetch).not.toHaveBeenCalled()
+})
+
+it('reads installed SKILL.md content locally without metadata requests', async () => {
+  const path = join(home, 'skills', 'sample', 'SKILL.md')
+  const content = '---\nname: sample\ndescription: Local description\n---\nLocal instructions'
+  await mkdir(join(home, 'skills', 'sample'), { recursive: true })
+  await writeFile(path, content)
+  const end = vi.fn()
+  const res = { setHeader: vi.fn(), end } as unknown as ServerResponse
+  expect(await handleSkillsRoutes({ method: 'GET' } as IncomingMessage, res,
+    new URL('http://localhost/codex-api/skills-hub/readme?owner=example/skills&name=sample&installed=true'),
+    { appServer: { rpc: vi.fn() }, readJsonBody: async () => ({}) })).toBe(true)
+  expect(res.statusCode).toBe(200)
+  expect(JSON.parse(end.mock.calls[0]![0])).toMatchObject({ content, description: 'Local description', source: 'local' })
+  expect(fetch).not.toHaveBeenCalled()
+  expect(spawn).not.toHaveBeenCalled()
+})

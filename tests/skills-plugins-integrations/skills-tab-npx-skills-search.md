@@ -17,8 +17,8 @@ The Skills tab includes a registry search panel backed by `npx skills find`, sho
 5. Click `Search`
 6. Verify the app calls `/codex-api/skills-hub/search?q=browser`, which runs `npx --yes skills find browser`
 7. Verify `Search results (count)` appears above `Installed skills (count)`
-8. Verify each registry result card shows its install count metadata, such as `1.2K installs`, even when a GitHub `SKILL.md` description is shown
-9. Open one GitHub-backed result and verify the detail modal shows the skill name, owner/repository, parsed `SKILL.md` description, GitHub-backed icon/avatar, and external link
+8. Verify each registry result card shows its install count metadata, such as `1.2K installs`, without fetching GitHub metadata
+9. Open one GitHub-backed result and verify the detail modal shows the skill name, owner/repository, registry install count, fallback icon, and external link
 10. Click `Install` for a result and verify the backend runs `npx --yes skills add <owner/repo@skill> --yes --global`
 11. After install, verify the result becomes installed and the installed skills list refreshes from local installed skill data rather than appending the remote registry card
 12. Switch to dark theme and repeat the search visibility check
@@ -38,10 +38,9 @@ The Skills tab includes a registry search panel backed by `npx skills find`, sho
 - Registry installs run noninteractively with `--yes --global`, so the process cannot stop at the agent-selection prompt and falsely report success
 - Registry install responses only return `ok: true` when the local installed `SKILL.md` path is found and validates successfully
 - The UI treats a missing returned path or missing post-refresh local skill as an install failure instead of showing the remote registry card as installed
-- GitHub-backed results fetch the repository `SKILL.md` and show its `description` frontmatter when available, falling back to the install count when unavailable
-- GitHub metadata enrichment is bounded to the first 20 results with limited concurrency, so broad searches still return without unbounded raw GitHub fetch fanout
-- Search result cards keep the registry install count visible as card metadata even when GitHub enrichment replaces the fallback description
-- GitHub-backed results show an explicit frontmatter `icon` when provided, otherwise they show the GitHub repository owner avatar instead of a generic letter fallback
+- Search uses registry names, sources, install counts, and links without probing raw GitHub paths or branches.
+- Search result descriptions use the install count and icons use the existing fallback; installed descriptions and SKILL.md viewing remain local.
+- Block raw.githubusercontent.com and github.com metadata requests while allowing registry search; results still appear.
 - The search UI does not replace or hide local installed skills
 - Installed matching results show the existing `Installed` badge and can be opened like local skills
 - Installed detection uses the same installed skills source as the Skills Hub list, including RPC/plugin/shared skills and not only the base skills directory
