@@ -11,12 +11,12 @@ The `#/skills` route shows a full Skills & Apps directory with Plugins, Apps, an
 #### Steps
 4. Open `http://127.0.0.1:4173/#/skills`
 5. Verify the page title is `Skills & Apps` and the tab row contains `Plugins`, `Apps`, and `Skills`
-6. On `Plugins`, verify plugin cards load, the default sort is `Popular`, and `A-Z`, `Date`, and search controls work
+6. On `Plugins`, verify plugin cards load, the default sort is `A-Z`, and `Installed first` and search controls work
 7. Open a plugin card when one is available and verify description, capabilities, included apps/skills/MCPs, and install/uninstall or enable/disable actions are visible
 8. For an installed plugin with bundled MCP servers, such as Cloudflare, verify each MCP row shows auth status (`Logged in`, `Bearer token`, `Login required`, `Auth unsupported`, or `Status unknown`)
 9. If a bundled MCP server shows `Login required`, click `Authenticate` and verify the browser opens the returned MCP OAuth authorization URL
 10. Switch to `Apps` and verify app cards load, or the unavailable/empty state appears without breaking the page
-11. On `Apps`, verify the default sort control is `Popular`, app icons render, connected apps show `Manage`, and disconnected apps show `Login`
+11. On `Apps`, verify the default sort control is `A-Z` with a `Connected first` option, app icons render, connected apps show `Manage`, and disconnected apps show `Login`
 12. Click a disconnected app `Login` button and verify it opens the app login/manage URL
 13. Click `Try it!` for a connected and enabled app and verify a new thread opens with an auto-submitted prompt asking what the app can do
 14. While the app `Try it!` request is starting, click the button repeatedly and verify only one new thread is created
@@ -24,8 +24,8 @@ The `#/skills` route shows a full Skills & Apps directory with Plugins, Apps, an
 16. Open an installed/enabled skill detail, click `Try it!`, and verify a new thread opens with an auto-submitted skill test prompt and the skill attached
 17. Install a plugin whose install response includes `appsNeedingAuth`, and verify the first required app login/manage URL opens automatically
 18. Open a plugin whose detail lists a required app that is absent from the Apps catalog for the current account, such as Gmail on an account without Gmail app access, and verify the footer shows a disabled `ChatGPT Plus` action instead of `Install`
-19. Switch Apps sorting to `A-Z` and verify apps reorder alphabetically; switch to `Date` and verify app-server catalog order is restored; switch back to `Popular` and verify casual-user relevant apps are prioritized and capped to 100 when no search is active
-20. Search Apps and verify matching results are not capped to the Popular top 100 list
+19. Switch Apps sorting to `Connected first`: accessible apps appear first, with alphabetical order within each group. Switch to `A-Z`: all apps sort alphabetically, including duplicate names with distinct IDs.
+20. Search Apps and verify matching results remain searchable in either sort mode, without a top-100 cap.
 21. Switch to `Skills` and verify the view shows an `MCPs(count)` collapsible section immediately before the `Installed skills (count)` section
 22. Expand `MCPs(count)` and verify server cards show auth status and tool/resource counts, or the unavailable/empty state appears without breaking the page
 23. Click header `Refresh` while on `Skills` and verify MCP state reloads (it should perform MCP reload behavior on this tab instead of using a separate `Reload MCPs` button)
@@ -46,10 +46,10 @@ The `#/skills` route shows a full Skills & Apps directory with Plugins, Apps, an
 - Plugin install is blocked with `ChatGPT Plus` when the plugin requires an app that is absent from the Apps catalog for the current account
 - Connected and enabled apps, plus installed/enabled plugins/skills, expose `Try it!`, creating a new chat with an auto-submitted test prompt
 - Repeated `Try it!` clicks during startup are ignored until the first request resolves, so duplicate threads are not created
-- Plugins, Apps, and the Skills-tab MCP section default to local popularity-style ordering because app-server does not expose numeric popularity fields
+- Plugins and Apps default to A-Z, breaking equal names by ID. Installed first groups installed plugins first; Connected first groups accessible apps first. Each group sorts alphabetically. MCP servers sort alphabetically.
 - The Skills tab presents MCPs in the same section style as Installed skills, just above Installed skills, instead of using a separate top-level MCP tab
-- `Date` uses the app-server/catalog order as the available freshness proxy because app/plugin/MCP APIs do not expose created or published timestamps
-- Popular views show only the top 100 when no search is active; search results can show all matches
+- No Popular or Date option is shown because reliable popularity and publication timestamps are unavailable.
+- All matching directory entries remain available, without ranking caps or name deduplication.
 
 #### Rollback/Cleanup
 - Re-enable any app or plugin disabled during testing

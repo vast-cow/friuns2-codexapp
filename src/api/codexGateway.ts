@@ -131,7 +131,6 @@ export type DirectoryAppInfo = {
   website: string
   privacyPolicy: string
   termsOfService: string
-  catalogRank: number
 }
 
 export type DirectoryMcpServerStatus = {
@@ -1263,7 +1262,7 @@ function normalizeDirectoryPluginSummary(
   }
 }
 
-function normalizeDirectoryApp(value: unknown, catalogRank = 0): DirectoryAppInfo | null {
+function normalizeDirectoryApp(value: unknown): DirectoryAppInfo | null {
   const record = asRecord(value)
   if (!record) return null
   const id = readString(record.id)
@@ -1287,7 +1286,6 @@ function normalizeDirectoryApp(value: unknown, catalogRank = 0): DirectoryAppInf
     website: readString(branding?.website) ?? '',
     privacyPolicy: readString(branding?.privacyPolicy ?? branding?.privacy_policy) ?? '',
     termsOfService: readString(branding?.termsOfService ?? branding?.terms_of_service) ?? '',
-    catalogRank,
   }
 }
 
@@ -1414,16 +1412,14 @@ export async function setDirectoryPluginEnabled(pluginId: string, enabled: boole
 export async function listDirectoryApps(threadId?: string): Promise<DirectoryAppInfo[]> {
   const apps: DirectoryAppInfo[] = []
   let cursor: string | null = null
-  let catalogRank = 0
   do {
     const params: Record<string, unknown> = { limit: 100 }
     if (cursor) params.cursor = cursor
     if (threadId) params.threadId = threadId
     const payload = await callRpc<{ data?: unknown[]; nextCursor?: string | null; next_cursor?: string | null }>('app/list', params)
     for (const item of payload.data ?? []) {
-      const app = normalizeDirectoryApp(item, catalogRank)
+      const app = normalizeDirectoryApp(item)
       if (app) apps.push(app)
-      catalogRank += 1
     }
     cursor = readString(payload.nextCursor ?? payload.next_cursor)
   } while (cursor)
