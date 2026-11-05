@@ -12,17 +12,11 @@ The route previously surfaced a generic `Directory` label in the sidebar and con
 - Sidebar support copy: `Plugins, apps, MCPs`
 - Header label on the route: `Skills`
 - Inner directory page title: `Skills & Apps`
-- First-launch plugin/app discovery is introduced from the home route through a dedicated card.
+- The former first-launch discovery card has been removed; use the sidebar to access Plugins and Apps.
 
 ## Persistence model
 
-The first-launch Plugins card is server-backed, not browser-backed.
-
-- Read endpoint: `/codex-api/preferences/first-launch-plugins-card`
-- Write endpoint: `/codex-api/preferences/first-launch-plugins-card`
-- Global-state key: `first-launch-plugins-card-dismissed`
-
-This means dismissal should follow Codex server/profile state instead of one browser profile.
+The historical source below describes the former server-backed first-launch card. The card and its GET/PUT preference handlers are now removed (see [cleanup boundaries](../../../docs/api-wrapper-cleanup.md)). Existing `first-launch-plugins-card-dismissed` data is left untouched. Shared global-state persistence remains active for other features.
 
 ## UI implementation lessons
 

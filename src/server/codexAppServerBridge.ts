@@ -2887,7 +2887,6 @@ async function writePinnedThreadIds(threadIds: string[]): Promise<void> {
   })
 }
 
-const FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY = 'first-launch-plugins-card-dismissed'
 const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
 
 type StoredQueuedMessage = {
@@ -3059,17 +3058,6 @@ function extractThreadIdFromNotificationParams(params: unknown): string {
 
 function isTurnCompletedNotification(notification: { method: string; params: unknown }): boolean {
   return notification.method === 'turn/completed'
-}
-
-async function readFirstLaunchPluginsCardDismissed(): Promise<boolean> {
-  const payload = await readCodexGlobalState()
-  return payload[FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY] === true
-}
-
-async function writeFirstLaunchPluginsCardDismissed(dismissed: boolean): Promise<void> {
-  await updateCodexGlobalState((payload) => {
-    payload[FIRST_LAUNCH_PLUGINS_CARD_DISMISSED_KEY] = dismissed === true
-  })
 }
 
 function getSessionIndexFileSignature(stats: { mtimeMs: number; size: number }): string {
@@ -5769,12 +5757,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
-      if (req.method === 'GET' && url.pathname === '/codex-api/preferences/first-launch-plugins-card') {
-        const dismissed = await readFirstLaunchPluginsCardDismissed()
-        setJson(res, 200, { data: { dismissed } })
-        return
-      }
-
       if (req.method === 'POST' && url.pathname === '/codex-api/thread-search') {
         const payload = asRecord(await readJsonBody(req))
         const query = typeof payload?.query === 'string' ? payload.query.trim() : ''
@@ -5814,14 +5796,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const payload = asRecord(await readJsonBody(req))
         const threadIds = normalizePinnedThreadIds(payload?.threadIds)
         await writePinnedThreadIds(threadIds)
-        setJson(res, 200, { ok: true })
-        return
-      }
-
-      if (req.method === 'PUT' && url.pathname === '/codex-api/preferences/first-launch-plugins-card') {
-        const payload = asRecord(await readJsonBody(req))
-        const dismissed = payload?.dismissed === true
-        await writeFirstLaunchPluginsCardDismissed(dismissed)
         setJson(res, 200, { ok: true })
         return
       }
