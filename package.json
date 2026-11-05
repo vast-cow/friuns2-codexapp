@@ -40,7 +40,7 @@
     "dev": "node scripts/dev.cjs",
     "dev2": "node scripts/dev-random-home.cjs",
     "dev:open": "pnpm run build:cli && sh -c 'pnpm run dev & VPID=$!; node dist-cli/index.js --open-project \"${1:-.}\"; wait $VPID' --",
-    "build:frontend": "vue-tsc --noEmit && vite build",
+    "build:frontend": "vue-tsc --noEmit && vite build && node scripts/precompress-assets.cjs",
     "build:cli": "tsup",
     "build": "pnpm run build:frontend && pnpm run build:cli",
     "test:unit": "vitest run",
@@ -58,6 +58,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
     "@tailwindcss/vite": "^4.1.18",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.2",

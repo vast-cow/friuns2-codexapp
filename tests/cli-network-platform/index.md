@@ -25,3 +25,4 @@ Return to the [manual test index](../../tests.md).
 | [Startup welcome log uses repository GitHub URL](startup-welcome-log-uses-repository-github-url.md) |
 | [Home route no longer crashes on dev startup](home-route-no-longer-crashes-on-dev-startup.md) |
 | [Local connectivity without built-in tunnels](local-connectivity-without-built-in-tunnels.md) |
+| [Precompressed frontend assets](precompressed-frontend-assets.md) |

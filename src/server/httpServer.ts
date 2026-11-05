@@ -1,3 +1,4 @@
+import { precompressedStatic, sendPrecompressed } from './precompressedStatic.js'
 import { fileURLToPath } from 'node:url'
 import { dirname, extname, isAbsolute, join } from 'node:path'
 import type { Server as HttpServer, IncomingMessage } from 'node:http'
@@ -222,11 +223,11 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   // 8. Static files from Vue build
   if (hasFrontendAssets) {
-    app.use(express.static(distDir))
+    app.use(precompressedStatic(distDir))
   }
 
   // 9. SPA fallback
-  app.use((_req, res) => {
+  app.use((req, res, next) => {
     if (!hasFrontendAssets) {
       res
         .status(503)
@@ -241,12 +242,8 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       return
     }
 
-    res.sendFile(spaEntryFile, (error) => {
-      if (!error) return
-      if (!res.headersSent) {
-        res.status(404).type('text/html; charset=utf-8').send(renderFrontendMissingHtml('Frontend entry file not found.'))
-      }
-    })
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
+    return sendPrecompressed(req, res, next, spaEntryFile)
   })
 
   return {
