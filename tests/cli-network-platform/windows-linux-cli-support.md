@@ -17,7 +17,7 @@
 - Installation failures surface clearly; no third-party CLI package is installed.
 - CLI help reports default port 5900; explicit ports are honored.
 - Windows command wrappers and Linux executable resolution work.
-- Mobile browser access, responsive layout, and PWA behavior remain available.
+- Mobile browser access and responsive layout remain available.
 
 #### Cleanup
 Stop only the test processes. Remove disposable npm installations/accounts and restore PATH if manually changed. Leave the persistent 5173 development server running.

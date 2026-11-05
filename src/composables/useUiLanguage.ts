@@ -91,7 +91,6 @@ const zhCN: Record<string, string> = {
   'No Git branches found for this folder.': '此文件夹未找到 Git 分支。',
   'Local project': '本地项目',
   'New worktree': '新工作树',
-  'Service worker registration failed.': 'Service Worker 注册失败。',
   'No matching files': '没有匹配的文件',
   'Add photos & files': '添加图片和文件',
   'Add attachments and settings': '添加附件和设置',

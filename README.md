@@ -2,7 +2,7 @@
 
 A browser interface for the official Codex app-server, hosted on Windows or Linux.
 Desktop and mobile browsers (including Android and iOS) can connect to the host;
-responsive UI and PWA functionality are available.
+responsive UI is available in desktop and mobile browsers.
 
 ## Quick start
 

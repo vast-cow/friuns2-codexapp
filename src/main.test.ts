@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { expect, it, vi } from 'vitest'
 
-it('mounts without intercepting fetch or collecting global errors and preserves service-worker failure logging', async () => {
+it('mounts without intercepting fetch or collecting global errors or registering a service worker', async () => {
   const source = readFileSync(new URL('./main.ts', import.meta.url), 'utf8')
   const ast = ts.createSourceFile('main.ts', source, ts.ScriptTarget.Latest, true)
   let script = source
@@ -14,8 +14,7 @@ it('mounts without intercepting fetch or collecting global errors and preserves 
   const fetch = vi.fn()
   const addEventListener = vi.fn()
   const window = { fetch, addEventListener }
-  const failure = new Error('registration fixture')
-  const register = vi.fn(async () => { throw failure })
+  const register = vi.fn()
   const console = { log: vi.fn(), error: vi.fn() }
   const mount = vi.fn()
   const use = vi.fn(() => ({ mount }))
@@ -25,9 +24,6 @@ it('mounts without intercepting fetch or collecting global errors and preserves 
   expect(mount).toHaveBeenCalledExactlyOnceWith('#app')
   expect(window.fetch).toBe(fetch)
   expect(fetch).not.toHaveBeenCalled()
-  expect(addEventListener).toHaveBeenCalledOnce()
-  expect(addEventListener.mock.calls[0]?.[0]).toBe('load')
-  addEventListener.mock.calls[0]![1]()
-  await Promise.resolve()
-  expect(console.error).toHaveBeenCalledExactlyOnceWith('Service worker registration failed.', failure)
+  expect(addEventListener).not.toHaveBeenCalled()
+  expect(register).not.toHaveBeenCalled()
 })
