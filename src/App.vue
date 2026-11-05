@@ -257,8 +257,6 @@
         <section class="content-body">
           <template v-if="isSkillsRoute">
             <DirectoryHub
-              :cwd="directoryCwd"
-              :thread-id="routeThreadId"
               :try-in-flight-key="directoryTryInFlightKey"
               @skills-changed="onSkillsChanged"
               @try-item="onTryDirectoryItem"
@@ -782,7 +780,7 @@ const SETTINGS_HELP = {
 type ChatWidthMode = 'standard' | 'wide' | 'extra-wide'
 
 type DirectoryTryItemPayload = {
-  kind: 'app' | 'plugin' | 'skill'
+  kind: 'skill'
   name: string
   displayName: string
   skillPath?: string
@@ -2873,12 +2871,7 @@ async function submitFirstMessageForNewThread(
 
 function buildDirectoryTryPrompt(payload: DirectoryTryItemPayload): string {
   const label = payload.displayName.trim() || payload.name.trim()
-  const itemType = payload.kind === 'skill'
-    ? 'skill'
-    : payload.kind === 'plugin'
-      ? 'plugin'
-      : 'app'
-  return `Test ${label} ${itemType}. Give me a list of what it can do and one useful example.`
+  return `Test ${label} skill. Give me a list of what it can do and one useful example.`
 }
 
 function getDirectoryTryItemKey(payload: DirectoryTryItemPayload): string {

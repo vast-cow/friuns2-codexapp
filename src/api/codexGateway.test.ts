@@ -228,3 +228,32 @@ describe('official Codex model catalog', () => {
     expect(calls).toEqual([{ method: 'model/list', params: {} }, { method: 'model/list', params: { cursor: 'page2' } }])
   })
 })
+
+describe('MCP directory transport', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('preserves status, inspection, reload and OAuth through generic RPC', async () => {
+    const { listDirectoryMcpServers, reloadDirectoryMcpServers, startDirectoryMcpLogin } = await import('./codexGateway')
+    const requests: Array<{ method: string; params: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn(async (_input: unknown, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      requests.push(body)
+      const result = body.method === 'mcpServerStatus/list'
+        ? { data: [{ name: 'example', authStatus: 'notLoggedIn', tools: { inspect: { title: 'Inspect' } }, resources: [{ uri: 'example://resource' }] }] }
+        : { authorizationUrl: 'https://example.com/oauth' }
+      return new Response(JSON.stringify({ result }))
+    }))
+    expect(await listDirectoryMcpServers()).toEqual([expect.objectContaining({
+      name: 'example', authStatus: 'notLoggedIn',
+      tools: [expect.objectContaining({ name: 'inspect', title: 'Inspect' })],
+      resources: [expect.objectContaining({ uri: 'example://resource' })],
+    })])
+    await reloadDirectoryMcpServers()
+    expect(await startDirectoryMcpLogin('example')).toEqual({ authorizationUrl: 'https://example.com/oauth' })
+    expect(requests).toEqual([
+      { method: 'mcpServerStatus/list', params: {} },
+      { method: 'config/mcpServer/reload', params: {} },
+      { method: 'mcpServer/oauth/login', params: { name: 'example' } },
+    ])
+  })
+})

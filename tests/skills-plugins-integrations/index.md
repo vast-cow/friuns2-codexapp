@@ -1,6 +1,6 @@
-# Skills, Plugins, and Integrations
+# Skills and Integrations
 
-Skills Hub, local Skills management, plugin/app directory surfaces, prompts, Telegram, and installed skill behavior.
+Skills Hub, local Skills management, MCP directory surfaces, prompts, Telegram, and installed skill behavior.
 
 Return to the [manual test index](../../tests.md).
 
@@ -16,7 +16,7 @@ Return to the [manual test index](../../tests.md).
 | [Session skill recovery cache and multi-message placement](session-skill-recovery-cache-and-multi-message-placement.md) |
 | [Feature: Skills list request scoped to active thread cwd](skills-list-request-scoped-to-active-thread-cwd.md) |
 | [Feature: SkillHub shows detailed skill load errors](skillhub-shows-detailed-skill-load-errors.md) |
-| [Codex.app-style Plugins Directory](codex-app-style-plugins-directory.md) |
+| [Skills and MCP directory](codex-app-style-plugins-directory.md) |
 | [Skills tab npx skills search](skills-tab-npx-skills-search.md) |
 | [Feature: Nested skill bundles are grouped in discovery](nested-skill-bundles-are-grouped-in-discovery.md) |
 | [First-launch home card for Plugins and Apps](first-launch-home-card-for-plugins-and-apps.md) |

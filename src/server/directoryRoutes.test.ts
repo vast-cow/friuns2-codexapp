@@ -96,3 +96,10 @@ it('does not handle retired speech transcription requests or acquire credentials
   expect(body).toBe('')
   expect(rpc).not.toHaveBeenCalled()
 })
+
+it('does not proxy retired connector logos or request credentials', async () => {
+  const { next, body } = await request('/codex-api/connector-logo?src=connectors://sample')
+  expect(next).toHaveBeenCalledOnce()
+  expect(body).toBe('')
+  expect(rpc).not.toHaveBeenCalled()
+})

@@ -15,13 +15,13 @@ The home/new-thread route no longer displays the Plugins and Apps announcement c
 4. Inspect network requests for `/codex-api/preferences/first-launch-plugins-card`.
 5. Confirm the server no longer handles GET/PUT requests to that path (normal unknown-route handling applies).
 6. If a disposable profile has an existing dismissal key, exercise thread pinning and confirm the key remains unchanged in `.codex-global-state.json`.
-7. Open Skills & Apps from the sidebar and select Plugins.
+7. Open Skills from the sidebar.
 
 #### Expected Results
 - No `Plugins are here` announcement, integration pills, or announcement action buttons appear, including after reload.
 - No GET or PUT request is made for the removed card preference.
 - The obsolete preference route has no handler; unrelated global-state writes preserve existing dismissal data.
-- The existing Plugins directory remains accessible from the sidebar.
+- The Skills and MCP interface remains accessible from the sidebar.
 
 #### Rollback/Cleanup
 - Restore the previous theme and any global-state preference changed during setup.

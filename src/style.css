@@ -1412,3 +1412,21 @@
   border-color: #92400e;
   color: #fde68a;
 }
+
+:root.dark .directory-hub .mcp-skill-card,
+:root.dark .directory-hub .directory-empty,
+:root.dark .directory-hub .directory-loading,
+:root.dark .directory-hub .directory-action,
+:root.dark .directory-hub .directory-refresh { background: #18181b; border-color: #3f3f46; color: #d4d4d8; }
+:root.dark .directory-hub .directory-title,
+:root.dark .directory-hub .mcp-skill-name,
+:root.dark .directory-hub .directory-mini-heading { color: #f4f4f5; }
+:root.dark .directory-hub .directory-subtitle,
+:root.dark .directory-hub .mcp-skill-meta,
+:root.dark .directory-hub .directory-mini-list,
+:root.dark .directory-hub .skills-embedded-toggle { color: #a1a1aa; }
+:root.dark .directory-hub .mcp-skill-avatar-fallback { background: #3f3f46; color: #d4d4d8; }
+:root.dark .directory-hub .directory-mcp-detail { border-color: #3f3f46; }
+:root.dark .directory-hub .directory-toast { background: #052e16; border-color: #166534; color: #bbf7d0; }
+:root.dark .directory-hub .directory-error,
+:root.dark .directory-hub .directory-toast.is-error { background: #4c0519; border-color: #9f1239; color: #fecdd3; }
