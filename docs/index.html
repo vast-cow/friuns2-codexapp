@@ -4,21 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex App UI</title>
-  <meta name="description" content="A browser interface for Codex app-server on Linux, Windows, and Termux on Android.">
+  <meta name="description" content="A browser interface for Codex app-server on Windows and Linux.">
 </head>
 <body>
   <main>
     <h1>Codex App UI</h1>
     <p>A browser interface for Codex app-server workflows, with conversations, local files, Skills, Plugins, and Apps.</p>
-    <p>The application runs a Node.js server. Android support uses Termux and a browser; this repository does not build a native Android APK.</p>
+    <p>The application runs a Node.js server on Windows or Linux. Desktop and mobile browsers can connect to that host.</p>
     <h2>Run from source</h2>
     <p>Install Node.js 18 or newer, pnpm, and a supported Codex CLI, then run these commands from the repository root:</p>
     <pre><code>pnpm install
 pnpm run build
 node dist-cli/index.js --no-open</code></pre>
     <p>Open the URL printed by the server and configure Codex authentication in the application.</p>
-    <h2>Android with Termux</h2>
-    <p>Install Node.js in Termux with <code>pkg install nodejs</code>, then use the same source build commands. Keep the Termux session running, disable battery optimization for Termux, and optionally use <code>termux-wake-lock</code>.</p>
+    <p>The default port is 5900. Use <code>--port</code> to choose another port.</p>
     <h2>Documentation</h2>
     <ul>
       <li><a href="https://github.com/vast-cow/friuns2-codexapp#readme">Setup and usage</a></li>

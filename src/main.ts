@@ -4,7 +4,7 @@ import router from './router'
 import './style.css'
 import { t } from './composables/useUiLanguage'
 
-console.log('Welcome to codexui. github: https://github.com/friuns2/codexUI')
+console.log('Welcome to codexui. github: https://github.com/vast-cow/friuns2-codexapp')
 
 createApp(App).use(router).mount('#app')
 

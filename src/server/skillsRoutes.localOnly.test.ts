@@ -15,7 +15,6 @@ const shared = globalThis as typeof globalThis & { __codexRemoteSharedBridge__?:
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'skills-local-only-'))
   vi.stubEnv('CODEX_HOME', home)
-  vi.stubEnv('TERMUX_VERSION', 'test')
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected network request') }))
   originalShared = shared.__codexRemoteSharedBridge__
   spawn.mockReset()

@@ -1,13 +1,11 @@
 # Maintenance scope
 
-The application is a Node.js CLI server and browser UI for Codex app-server. Android support uses Termux; this repository does not build native Android APKs.
+The application is a Node.js CLI server and browser UI for Codex app-server. Supported hosts are Windows and Linux; mobile browsers can connect to those hosts.
 
 ## Supported workflows
 
 - `package.json` defines frontend/CLI builds, unit tests, and development commands.
 - `publish.sh` publishes the package named in `package.json`.
-- `publish-android.sh` is retained as an optional publisher for the legacy `codexui-android` npm alias. It builds the same CLI application and is not an APK build. It is not invoked by package scripts or CI.
-- `scripts/dev.cjs` and `src/cli/index.ts` retain Android/Termux runtime handling.
 - From the repository root, run `bash scripts/run-codex-unpacked-debug.sh`. The parity skill still contains older machine-specific command examples; its `.agents/` source is read-only in this workspace.
 - `scripts/run-codex-unpacked-debug.sh` supports the explicitly invoked Codex.app parity workflow documented under `.agents/skills/codex-app-parity/`.
 

@@ -7,11 +7,11 @@
   "author": "Pavel Voronin, Igor Levochkin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/friuns2/codexui.git"
+    "url": "git+https://github.com/vast-cow/friuns2-codexapp.git"
   },
-  "homepage": "https://github.com/friuns2/codexui#readme",
+  "homepage": "https://github.com/vast-cow/friuns2-codexapp#readme",
   "bugs": {
-    "url": "https://github.com/friuns2/codexui/issues"
+    "url": "https://github.com/vast-cow/friuns2-codexapp/issues"
   },
   "publishConfig": {
     "access": "public"

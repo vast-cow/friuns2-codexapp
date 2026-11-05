@@ -6,12 +6,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { Command } from 'commander'
-import {
-  getNpmGlobalBinDir,
-  getUserNpmPrefix,
-  prependPathEntry,
-  resolveCodexCommand,
-} from '../commandResolution.js'
+import { ensureCodexInstalled } from './ensureCodexInstalled.js'
 import {
   parseApprovalPolicy,
   parseSandboxMode,
@@ -35,77 +30,11 @@ async function readCliVersion(): Promise<string> {
   }
 }
 
-function isTermuxRuntime(): boolean {
-  return Boolean(process.env.TERMUX_VERSION || process.env.PREFIX?.includes('/com.termux/'))
-}
-
 function runOrFail(command: string, args: string[], label: string): void {
   const result = spawnSyncCommand(command, args, { stdio: 'inherit' })
   if (result.status !== 0) {
     throw new Error(`${label} failed with exit code ${String(result.status ?? -1)}`)
   }
-}
-
-function runWithStatus(command: string, args: string[]): number {
-  const result = spawnSyncCommand(command, args, { stdio: 'inherit' })
-  return result.status ?? -1
-}
-
-function ensureCodexInstalled(): string | null {
-  let codexCommand = resolveCodexCommand()
-  if (!codexCommand) {
-    const installWithFallback = (pkg: string, label: string): void => {
-      const status = runWithStatus('npm', ['install', '-g', pkg])
-      if (status === 0) {
-        return
-      }
-      if (isTermuxRuntime()) {
-        throw new Error(`${label} failed with exit code ${String(status)}`)
-      }
-      const userPrefix = getUserNpmPrefix()
-      console.log(`\nGlobal npm install requires elevated permissions. Retrying with --prefix ${userPrefix}...\n`)
-      runOrFail('npm', ['install', '-g', '--prefix', userPrefix, pkg], `${label} (user prefix)`)
-      process.env.PATH = prependPathEntry(process.env.PATH ?? '', getNpmGlobalBinDir(userPrefix))
-    }
-
-    if (isTermuxRuntime()) {
-      console.log('\nCodex CLI not found. Installing Termux-compatible Codex CLI from npm...\n')
-      installWithFallback('@mmmbuto/codex-cli-termux', 'Codex CLI install')
-      codexCommand = resolveCodexCommand()
-      if (!codexCommand) {
-        console.log('\nTermux npm package did not expose `codex`. Installing official CLI fallback...\n')
-        installWithFallback('@openai/codex', 'Codex CLI fallback install')
-      }
-    } else {
-      console.log('\nCodex CLI not found. Installing official Codex CLI from npm...\n')
-      installWithFallback('@openai/codex', 'Codex CLI install')
-    }
-
-    codexCommand = resolveCodexCommand()
-    if (!codexCommand && !isTermuxRuntime()) {
-      // Non-Termux path should resolve after official package install.
-      throw new Error('Official Codex CLI install completed but binary is still not available in PATH')
-    }
-    if (!codexCommand && isTermuxRuntime()) {
-      codexCommand = resolveCodexCommand()
-    }
-    if (!codexCommand) {
-      throw new Error('Codex CLI install completed but binary is still not available in PATH')
-    }
-    console.log('\nCodex CLI installed.\n')
-  }
-  return codexCommand
-}
-
-function printTermuxKeepAlive(lines: string[]): void {
-  if (!isTermuxRuntime()) {
-    return
-  }
-  lines.push('')
-  lines.push('  Android/Termux keep-alive:')
-  lines.push('  1) Keep this Termux session open (do not swipe it away).')
-  lines.push('  2) Disable battery optimization for Termux in Android settings.')
-  lines.push('  3) Optional: run `termux-wake-lock` in another shell.')
 }
 
 function openBrowser(url: string): void {
@@ -223,7 +152,7 @@ async function startServer(options: {
       console.warn(`\n[project] Could not open launch project: ${message}\n`)
     }
   }
-  const codexCommand = ensureCodexInstalled() ?? resolveCodexCommand()
+  const codexCommand = ensureCodexInstalled()
   if (codexCommand) {
     process.env.CODEXUI_CODEX_COMMAND = codexCommand
   }
@@ -268,7 +197,6 @@ async function startServer(options: {
     lines.push(`  Requested port ${String(requestedPort)} was unavailable; using ${String(port)}.`)
   }
 
-  printTermuxKeepAlive(lines)
   lines.push('')
   console.log(lines.join('\n'))
   if (options.open) openBrowser(`http://localhost:${String(port)}`)

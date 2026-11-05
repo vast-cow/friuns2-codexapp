@@ -21,7 +21,7 @@ This file is the manual test index. Detailed regression and feature verification
 | [Thread Loading, Streaming, and State](tests/thread-loading-state/index.md) | 27 | Thread list/detail loading, pagination, selected-thread stability, streaming scroll behavior, live-state reads, and missing-thread handling. |
 | [Codex Models](tests/providers-models/index.md) | 4 | Official Codex models, reasoning preferences, per-thread model selection, and catalog behavior. |
 | [Auth and Docker Runtime](tests/auth-docker-runtime/index.md) | 9 | Codex auth, Docker-packaged runtime cases, copied auth behavior, invalid auth errors, and official-only Codex runtime behavior. |
-| [CLI, Network, and Platform](tests/cli-network-platform/index.md) | 17 | CLI startup, dev scripts, npx, private networks, external proxies, Windows, Android, Termux, and platform packaging behavior. |
+| [CLI, Network, and Platform](tests/cli-network-platform/index.md) | 16 | CLI startup, dev scripts, npx, private networks, external proxies, Windows, Linux, and platform packaging behavior. |
 | [Git, Worktrees, and Rollback](tests/git-worktrees-rollback/index.md) | 25 | Branch controls, worktree creation, rollback commits, changed-files panels, file browser links, and rollback debug behavior. |
 | [Accounts and Observability](tests/accounts-feedback-observability/index.md) | 7 | Active Codex login, active-account quotas, visible errors, Sentry, browser profiling, API perf logs, and Qodo diagnostic fixes. |
 | [Theme and Layout](tests/theme-layout-terminal/index.md) | 12 | Light/dark theme regressions, responsive layout, mobile keyboard behavior, dialog sizing, and visual alignment. |
