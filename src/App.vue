@@ -598,8 +598,6 @@
                   :selected-speed-mode="selectedSpeedMode"
                   :is-updating-speed-mode="isUpdatingSpeedMode"
                   :skills="installedSkills"
-                  :thread-token-usage="selectedThreadTokenUsage"
-                  :codex-quota="codexQuota"
                   :is-turn-in-progress="false"
                   :is-stop-pending="false"
                   :is-interrupting-turn="false" :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
@@ -665,8 +663,6 @@
                   :selected-speed-mode="selectedSpeedMode"
                   :is-updating-speed-mode="isUpdatingSpeedMode"
                   :skills="installedSkills"
-                  :thread-token-usage="selectedThreadTokenUsage"
-                  :codex-quota="codexQuota"
                   :is-turn-in-progress="isSelectedThreadInProgress"
                   :is-stop-pending="isSelectedThreadInterruptPending"
                   :is-interrupting-turn="isInterruptingTurn"
@@ -968,7 +964,6 @@ const {
   selectedThreadTokenUsage,
   selectedThreadServerRequests,
   selectedLiveOverlay,
-  codexQuota,
   selectedThreadId,
   availableCollaborationModes,
   availableModelIds,

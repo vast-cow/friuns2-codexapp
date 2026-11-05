@@ -8,6 +8,7 @@ Return to the [manual test index](../../tests.md).
 
 | Section |
 | --- |
+| [Composer cleanup preserves sidebar usage indicators](composer-usage-cleanup.md) |
 | [Attachment-only thread persistence](attachment-only-thread-persistence.md) |
 | [Copy individual user messages](copy-user-messages.md) |
 | [Per-response model and reasoning effort](per-response-model-and-reasoning-effort.md) |

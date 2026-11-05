@@ -418,10 +418,6 @@ import type {
   CollaborationModeOption,
   ReasoningEffort,
   SpeedMode,
-  UiRateLimitSnapshot,
-  UiRateLimitWindow,
-  UiThreadTokenUsage,
-  UiTokenUsageBreakdown,
 } from '../../types/codex'
 import { useDictation } from '../../composables/useDictation'
 import { useMobile } from '../../composables/useMobile'
@@ -465,8 +461,6 @@ const props = defineProps<{
   reasoningEffortOptions?: Array<{ value: ReasoningEffort; label: string; description?: string }>
   selectedSpeedMode: SpeedMode
   skills?: SkillItem[]
-  threadTokenUsage?: UiThreadTokenUsage | null
-  codexQuota?: UiRateLimitSnapshot | null
   isTurnInProgress?: boolean
   isStopPending?: boolean
   isInterruptingTurn?: boolean
@@ -535,7 +529,6 @@ type AttachmentBatchStats = {
   failed: number
 }
 
-const CONTEXT_WINDOW_BASELINE_TOKENS = 12000
 const PASTED_TEXT_FILE_THRESHOLD = 2000
 const PROMPT_OPTION_PREFIX = 'prompt:'
 
@@ -786,230 +779,6 @@ const draftLineCount = computed(() => draft.value.split('\n').length)
 const hasExpandedComposerToggle = computed(() =>
   isComposerExpanded.value || draftLineCount.value >= 6 || isDraftOverflowing.value,
 )
-const quotaSummaryText = computed(() => buildQuotaSummaryText(props.codexQuota ?? null))
-const quotaWeeklyRefreshText = computed(() => '')
-const quotaTooltipText = computed(() => buildQuotaTooltipText(props.codexQuota ?? null))
-const contextUsageView = computed(() => buildContextUsageView(props.threadTokenUsage ?? null))
-const contextUsageSummaryText = computed(() => contextUsageView.value?.summaryText ?? '')
-const contextUsageTooltipText = computed(() => contextUsageView.value?.tooltipText ?? '')
-const contextUsageRemainingPercent = computed(() => contextUsageView.value?.percentRemaining ?? 0)
-const contextUsageTone = computed(() => contextUsageView.value?.tone ?? 'healthy')
-
-function formatPlanType(planType: string | null | undefined): string {
-  if (!planType || planType === 'unknown') return ''
-  if (planType === 'edu') return 'Education'
-  return `${planType.slice(0, 1).toUpperCase()}${planType.slice(1)}`
-}
-
-function formatWindowSpan(windowMinutes: number | null): string {
-  if (typeof windowMinutes !== 'number' || !Number.isFinite(windowMinutes) || windowMinutes <= 0) return ''
-  if (windowMinutes % 1440 === 0) return `${windowMinutes / 1440}d`
-  if (windowMinutes % 60 === 0) return `${windowMinutes / 60}h`
-  return `${windowMinutes}m`
-}
-
-function formatResetTime(resetsAt: number | null): string {
-  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return ''
-  const resetMs = resetsAt * 1000
-  const diffMs = resetMs - Date.now()
-  if (diffMs <= 0) return 'resetting now'
-
-  const totalMinutes = Math.round(diffMs / 60000)
-  if (totalMinutes < 60) return `resets in ${Math.max(1, totalMinutes)}m`
-
-  const totalHours = Math.round(totalMinutes / 60)
-  if (totalHours < 48) return `resets in ${Math.max(1, totalHours)}h`
-
-  const totalDays = Math.round(totalHours / 24)
-  return `resets in ${Math.max(1, totalDays)}d`
-}
-
-function formatResetDate(resetsAt: number | null): string {
-  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return ''
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(resetsAt * 1000))
-}
-
-function formatResetDateCompact(resetsAt: number | null): string {
-  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return ''
-  const date = new Date(resetsAt * 1000)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
-}
-
-function pickWeeklyQuotaWindow(quota: UiRateLimitSnapshot): UiRateLimitWindow | null {
-  const windows = [quota.primary, quota.secondary].filter((window): window is UiRateLimitWindow => window !== null)
-  const exactWeekly = windows.find((window) => window.windowMinutes === 7 * 24 * 60)
-  if (exactWeekly) return exactWeekly
-
-  const longerWindows = windows
-    .filter((window) => typeof window.windowMinutes === 'number' && window.windowMinutes >= 7 * 24 * 60)
-    .sort((first, second) => (first.windowMinutes ?? 0) - (second.windowMinutes ?? 0))
-
-  if (longerWindows[0]) return longerWindows[0]
-  return quota.secondary ?? null
-}
-
-function formatWindowSummary(window: UiRateLimitWindow): string {
-  const remainingPercent = Math.max(0, Math.min(100, 100 - Math.round(window.usedPercent)))
-  const span = formatWindowSpan(window.windowMinutes)
-  return span ? `${remainingPercent}% / ${span}` : `${remainingPercent}%`
-}
-
-function buildQuotaSummaryText(quota: UiRateLimitSnapshot | null): string {
-  if (!quota) return ''
-
-  const segments: string[] = []
-  const plan = formatPlanType(quota.planType)
-  if (plan) segments.push(plan)
-  if (quota.primary) segments.push(formatWindowSummary(quota.primary))
-  if (quota.secondary) segments.push(formatWindowSummary(quota.secondary))
-
-  const weeklyWindow = pickWeeklyQuotaWindow(quota)
-  const weeklyRefreshDate = formatResetDateCompact(weeklyWindow?.resetsAt ?? null)
-  if (weeklyRefreshDate) {
-    segments.push(weeklyRefreshDate)
-  }
-
-  if (segments.length === 0 && quota.credits?.unlimited) {
-    segments.push('Unlimited credits')
-  } else if (segments.length === 0 && quota.credits?.hasCredits && quota.credits.balance) {
-    segments.push(`${quota.credits.balance} credits`)
-  }
-
-  return segments.join(' · ')
-}
-
-function buildQuotaTooltipText(quota: UiRateLimitSnapshot | null): string {
-  if (!quota) return ''
-
-  const lines: string[] = []
-  const plan = formatPlanType(quota.planType)
-  if (plan) {
-    lines.push(`Plan: ${plan}`)
-  }
-
-  if (quota.primary) {
-    const reset = formatResetTime(quota.primary.resetsAt)
-    lines.push(`Primary window: ${formatWindowSummary(quota.primary)}${reset ? `, ${reset}` : ''}`)
-  }
-
-  if (quota.secondary) {
-    const reset = formatResetTime(quota.secondary.resetsAt)
-    lines.push(`Secondary window: ${formatWindowSummary(quota.secondary)}${reset ? `, ${reset}` : ''}`)
-  }
-
-  if (quota.credits?.unlimited) {
-    lines.push('Credits: unlimited')
-  } else if (quota.credits?.hasCredits && quota.credits.balance) {
-    lines.push(`Credits: ${quota.credits.balance}`)
-  }
-
-  const weeklyWindow = pickWeeklyQuotaWindow(quota)
-  if (weeklyWindow) {
-    const weeklyRefreshDate = formatResetDate(weeklyWindow.resetsAt)
-    if (weeklyRefreshDate) {
-      lines.push(`Weekly refresh: ${weeklyRefreshDate}`)
-    }
-  }
-
-  return lines.join('\n')
-}
-
-function buildQuotaWeeklyRefreshText(quota: UiRateLimitSnapshot | null): string {
-  if (!quota) return ''
-  const weeklyWindow = pickWeeklyQuotaWindow(quota)
-  if (!weeklyWindow) return ''
-  const weeklyRefreshDate = formatResetDate(weeklyWindow.resetsAt)
-  return weeklyRefreshDate ? `Weekly refresh ${weeklyRefreshDate}` : ''
-}
-
-function formatCompactTokenCount(value: number): string {
-  if (!Number.isFinite(value)) return '0'
-  const absValue = Math.abs(value)
-  if (absValue >= 1_000_000) {
-    const compact = absValue >= 10_000_000 ? (value / 1_000_000).toFixed(0) : (value / 1_000_000).toFixed(1)
-    return `${compact.replace(/\.0$/, '')}M`
-  }
-  if (absValue >= 1_000) {
-    const compact = absValue >= 100_000 ? (value / 1_000).toFixed(0) : (value / 1_000).toFixed(1)
-    return `${compact.replace(/\.0$/, '')}k`
-  }
-  return String(Math.round(value))
-}
-
-function formatBreakdownSummary(breakdown: UiTokenUsageBreakdown): string {
-  const nonCachedInput = Math.max(0, breakdown.inputTokens - breakdown.cachedInputTokens)
-  const parts = [
-    `${formatCompactTokenCount(breakdown.totalTokens)} total`,
-    `${formatCompactTokenCount(nonCachedInput)} input`,
-  ]
-  if (breakdown.cachedInputTokens > 0) {
-    parts.push(`${formatCompactTokenCount(breakdown.cachedInputTokens)} cached`)
-  }
-  if (breakdown.outputTokens > 0) {
-    parts.push(`${formatCompactTokenCount(breakdown.outputTokens)} output`)
-  }
-  if (breakdown.reasoningOutputTokens > 0) {
-    parts.push(`${formatCompactTokenCount(breakdown.reasoningOutputTokens)} reasoning`)
-  }
-  return parts.join(' · ')
-}
-
-function calculateContextPercentRemaining(tokensInContext: number, contextWindow: number): number {
-  // Mirror official Codex normalization so the first prompt does not look artificially "used".
-  if (!Number.isFinite(tokensInContext) || !Number.isFinite(contextWindow) || contextWindow <= 0) {
-    return 0
-  }
-  if (contextWindow <= CONTEXT_WINDOW_BASELINE_TOKENS) {
-    const remaining = Math.max(0, contextWindow - Math.max(0, tokensInContext))
-    return Math.max(0, Math.min(100, Math.round((remaining / contextWindow) * 100)))
-  }
-  const effectiveWindow = contextWindow - CONTEXT_WINDOW_BASELINE_TOKENS
-  const used = Math.max(0, tokensInContext - CONTEXT_WINDOW_BASELINE_TOKENS)
-  const remaining = Math.max(0, effectiveWindow - used)
-  return Math.max(0, Math.min(100, Math.round((remaining / effectiveWindow) * 100)))
-}
-
-function buildContextUsageView(
-  usage: UiThreadTokenUsage | null,
-): {
-    summaryText: string
-    tooltipText: string
-    percentRemaining: number
-    tone: 'healthy' | 'warning' | 'danger'
-  } | null {
-  if (!usage) return null
-
-  const contextWindow = usage.modelContextWindow ?? null
-  if (typeof contextWindow !== 'number' || !Number.isFinite(contextWindow) || contextWindow <= 0) return null
-
-  const tokensInContext = Math.max(0, usage.last.totalTokens)
-  const percentRemaining = calculateContextPercentRemaining(tokensInContext, contextWindow)
-  const percentUsed = Math.max(0, Math.min(100, 100 - percentRemaining))
-  const tone: 'healthy' | 'warning' | 'danger' = percentRemaining <= 15
-    ? 'danger'
-    : percentRemaining <= 35
-      ? 'warning'
-      : 'healthy'
-
-  return {
-    summaryText: `${percentRemaining}% · ${formatCompactTokenCount(tokensInContext)} / ${formatCompactTokenCount(contextWindow)}`,
-    tooltipText: [
-      `Context window: ${percentRemaining}% left (${percentUsed}% used)`,
-      `In context: ${tokensInContext.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`,
-      `Last turn: ${formatBreakdownSummary(usage.last)}`,
-      `Session total: ${formatBreakdownSummary(usage.total)}`,
-    ].join('\n'),
-    percentRemaining,
-    tone,
-  }
-}
-
 function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
@@ -2075,45 +1844,6 @@ watch(
 
 .thread-composer-skill-chip-remove {
   @apply ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border-0 bg-transparent text-emerald-500 transition hover:bg-emerald-200 hover:text-emerald-700 text-xs leading-none p-0;
-}
-
-.thread-composer-rate-limit {
-  @apply mb-1.5 px-1 text-[11px] leading-5 text-zinc-500;
-}
-
-.thread-composer-rate-limit-row {
-  @apply flex min-w-0 items-center gap-x-1.5 gap-y-1;
-}
-
-.thread-composer-rate-limit-value {
-  @apply min-w-0 flex-1 truncate;
-}
-
-.thread-composer-context-usage-inline {
-  --context-usage-accent: rgb(34 197 94);
-  @apply ml-auto inline-flex min-w-0 max-w-[56%] items-center gap-2 text-right;
-}
-
-.thread-composer-context-usage-inline.is-warning {
-  --context-usage-accent: rgb(245 158 11);
-}
-
-.thread-composer-context-usage-inline.is-danger {
-  --context-usage-accent: rgb(239 68 68);
-}
-
-.thread-composer-context-usage-inline-value {
-  @apply min-w-0 truncate font-medium tabular-nums;
-  color: var(--context-usage-accent);
-}
-
-.thread-composer-context-usage-inline-bar {
-  @apply block h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-zinc-200/80;
-}
-
-.thread-composer-context-usage-inline-bar-fill {
-  @apply block h-full rounded-full transition-[width] duration-200 ease-out;
-  background: var(--context-usage-accent);
 }
 
 .thread-composer-input-wrap {
