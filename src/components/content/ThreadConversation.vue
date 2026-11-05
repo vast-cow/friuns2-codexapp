@@ -4224,6 +4224,10 @@ onBeforeUnmount(() => {
   @apply mt-1 self-start flex items-center gap-1 opacity-[0.01] transition-opacity duration-200;
 }
 
+.message-toolbar[data-role='user'] {
+  align-self: flex-end;
+}
+
 .message-row:hover .message-toolbar,
 .message-toolbar:focus-within {
   @apply opacity-100;

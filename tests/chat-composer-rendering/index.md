@@ -49,3 +49,4 @@ Return to the [manual test index](../../tests.md).
 | [Bold URL trailing punctuation parsing](bold-url-trailing-punctuation-parsing.md) |
 | [Thread goals and slash commands](thread-goals-and-slash-commands.md) |
 | [Prompt and answer timestamps](message-timestamps.md) |
+| [User message toolbar alignment](user-message-toolbar-alignment.md) |
