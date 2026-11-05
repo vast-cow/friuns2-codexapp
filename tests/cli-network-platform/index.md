@@ -21,7 +21,6 @@ Return to the [manual test index](../../tests.md).
 | [Feature: npm run dev exports unrestricted runtime defaults](npm-run-dev-exports-unrestricted-runtime-defaults.md) |
 | [Feature: npm run dev2 uses a random Codex home](npm-run-dev2-uses-random-codex-home.md) |
 | [Feature: npm run dev uses CLI server on Android](npm-run-dev-uses-cli-server-on-android.md) |
-| [Feature: CLI auto-stars friuns2/codexui on startup (best-effort)](cli-auto-stars-friuns2-codexui-on-startup-best-effort.md) |
 | [Startup welcome log uses repository GitHub URL](startup-welcome-log-uses-repository-github-url.md) |
 | [Home route no longer crashes on dev startup](home-route-no-longer-crashes-on-dev-startup.md) |
 | [Local connectivity without built-in tunnels](local-connectivity-without-built-in-tunnels.md) |

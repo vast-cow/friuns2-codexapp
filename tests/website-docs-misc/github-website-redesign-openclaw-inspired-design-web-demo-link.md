@@ -1,30 +1,18 @@
-### Feature: GitHub Website Redesign — OpenClaw-Inspired Design + Web Demo Link
+### Feature: Website describes the current Codex web application
 
 #### Prerequisites
-- The `docs/index.html` file has been updated with the new design.
-- A browser is available to view the page locally or via GitHub Pages.
+- Open `docs/index.html` locally or from the repository documentation site.
 
 #### Steps
-1. Open `docs/index.html` in a browser (local file or via GitHub Pages).
-2. Verify the fixed **navigation bar** at top with brand logo, section links, and "Get the App" CTA.
-3. Verify the **announcement banner** below nav shows the XCodex WASM link.
-4. Verify **hero section** displays lobster emoji, "AnyClaw" title with gradient, tagline, and four CTA buttons: "Try Web Demo", "Google Play", "Download APK", "GitHub".
-5. Click **"Try Web Demo"** button — confirm it navigates to `https://xcodex.slrv.md/#/`.
-6. Verify the **stats bar** shows key metrics (2 AI Agents, 1 APK, 0 Root Required, 73MB, infinity).
-7. Scroll to **Live Demo** section — verify embedded iframe loads `https://xcodex.slrv.md/#/` with mock browser chrome.
-8. Scroll to **Screenshots** section — verify four images render (2 desktop, 2 mobile).
-9. Scroll to **Features** section — verify 6 feature cards in a 3-column grid.
-10. Scroll to **Testimonials** section — verify two rows of auto-scrolling marquee cards (row 2 scrolls reverse). Hover to pause.
-11. In **Quick Start**, verify the commands clone `vast-cow/friuns2-codexapp`, install dependencies, build, and run `node dist-cli/index.js --no-open`. Confirm there are no Gradle, bootstrap-download, APK install, or native boot instructions. The page must state that external Android app links refer to a separate project and this repository does not publish APKs. Verify the Termux setup link remains available.
-12. Verify the **footer** includes a "Web Demo" link to `https://xcodex.slrv.md/#/`.
-13. Test responsive at 768px and 480px — nav links collapse, grids single-column, buttons stack vertically.
+1. Confirm the page describes a browser UI backed by a Node.js Codex app-server bridge.
+2. Check the source build commands against `package.json` and the README.
+3. Confirm Android instructions use Termux and a browser, without APK downloads, Google Play claims, or OpenClaw packaging instructions.
+4. Follow the setup and source repository links.
 
 #### Expected Results
-- Page has a dark, premium feel with gradient accents, grain overlay, and smooth animations.
-- All links to `https://xcodex.slrv.md/#/` work (announcement, hero CTA, demo section, quick start text, footer).
-- Marquee testimonials scroll continuously and pause on hover.
-- Embedded iframe demo loads successfully.
-- Mobile responsive layout works at all breakpoints.
+- The page describes the application in this repository and links to its setup instructions.
+- Source builds and Termux instructions use the current CLI entry point.
+- No separate product demo or native Android packaging is presented as this application.
 
 #### Rollback/Cleanup
-- Revert `docs/index.html` to previous commit if needed.
+- No cleanup required.

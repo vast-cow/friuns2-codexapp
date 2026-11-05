@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Optional legacy npm alias publisher for codexui-android.
+# This does not build an Android APK. Normal releases use publish.sh and the
+# package name in package.json; Termux uses the same application/build workflow.
 set -euo pipefail
 
 if ! command -v pnpm >/dev/null 2>&1; then
