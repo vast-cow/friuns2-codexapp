@@ -24,3 +24,4 @@ Return to the [manual test index](../../tests.md).
 | [Local connectivity without built-in tunnels](local-connectivity-without-built-in-tunnels.md) |
 | [Precompressed frontend assets](precompressed-frontend-assets.md) |
 | [Windows and Linux CLI support](windows-linux-cli-support.md) |
+| [Local development TLS credentials](local-development-tls.md) |

@@ -13,3 +13,12 @@ pnpm-lock.yaml
 
 package.json
 .omx/
+
+# Local development TLS material (including custom certificate paths).
+.cert/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx

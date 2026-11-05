@@ -25,6 +25,7 @@ and configure a private network or external reverse proxy for remote access.
 ## Documentation
 
 - [Usage, configuration, mobile access, and troubleshooting](docs/usage.md)
+- [Local development and optional HTTPS](docs/development.md)
 - [Maintenance and publishing](docs/maintenance-scope.md)
 - [Manual tests](tests.md)
 
