@@ -25,7 +25,7 @@ Return to the [manual test index](../../tests.md).
 | [Feature: Restore composer drag-and-drop file attach on input field](restore-composer-drag-and-drop-file-attach-on-input-field.md) |
 | [Feature: Restore clipboard image paste attachments in composer](restore-clipboard-image-paste-attachments-in-composer.md) |
 | [Feature: Show user file attachments as visible chips in chat](show-user-file-attachments-as-visible-chips-in-chat.md) |
-| [Feature: Approval request uses legacy in-conversation request card only](approval-request-uses-legacy-in-conversation-request-card-only.md) |
+| [Feature: Pending requests use the composer panel](pending-requests-use-composer-panel.md) |
 | [Feature: Thread RPC strips inline image/file payloads into links](thread-rpc-strips-inline-image-file-payloads-into-links.md) |
 | [Feature: Inline thread image payloads are rewritten to renderable local file URLs](inline-thread-image-payloads-are-rewritten-to-renderable-local-file-urls.md) |
 | [Feature: Markdown file links with spaces and parentheses in path](markdown-file-links-with-spaces-and-parentheses-in-path.md) |

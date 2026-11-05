@@ -852,34 +852,6 @@
   @apply bg-zinc-700;
 }
 
-:root.dark .request-card {
-  @apply border-amber-700 bg-amber-900/30;
-}
-
-:root.dark .request-title {
-  @apply text-amber-200;
-}
-
-:root.dark .request-meta {
-  @apply text-amber-400;
-}
-
-:root.dark .request-reason {
-  @apply text-amber-200;
-}
-
-:root.dark .request-button {
-  @apply border-amber-700 bg-zinc-800 text-amber-200 hover:bg-zinc-700;
-}
-
-:root.dark .request-button-primary {
-  @apply border-amber-600 bg-amber-600 text-white hover:bg-amber-700;
-}
-
-:root.dark .request-question-option-description {
-  @apply text-amber-400;
-}
-
 :root.dark .plan-card {
   @apply border-sky-700/70 bg-slate-900/78;
 }
