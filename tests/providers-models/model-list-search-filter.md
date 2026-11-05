@@ -51,3 +51,29 @@ Search/filter input in the model selection dropdown.
 
 #### Rollback/Cleanup
 - Restore the original provider/model configuration and remove any test threads.
+
+---
+
+### Most recently used model ordering
+
+#### Prerequisites/Setup
+- Make at least three models available (A, B, C in catalog order).
+- Back up and clear `codex-web-local.model-usage-order.v1` in localStorage.
+
+#### Steps
+1. In a new chat, select C, then A; open the model dropdown.
+2. Search for a model, then clear the search.
+3. Switch to an existing thread using C without changing its model; inspect the dropdown, then send a message.
+4. Reload the page and restart the app; inspect both new and existing thread dropdowns.
+5. Refresh the catalog and switch threads without selecting models or sending.
+6. Repeat in light and dark themes. Repeat reload with malformed JSON, an object, and an array containing duplicate IDs, non-strings, and unavailable model IDs in the usage key.
+
+#### Expected Results
+- Step 1 shows A, C, B; search continues filtering and clearing restores that order.
+- Switching threads alone leaves ordering unchanged; sending with C moves C first.
+- Reload/restart preserves usage order; catalog refresh and state restoration do not record usage.
+- Unused models retain catalog order. Invalid stored data does not prevent opening the dropdown; unavailable IDs are hidden.
+- Selected model and reasoning effort remain unchanged by sorting; existing dropdown styling works in both themes.
+
+#### Rollback/Cleanup
+- Restore the backed-up localStorage value and model selections; remove test threads.

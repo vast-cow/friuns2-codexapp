@@ -105,3 +105,47 @@ it('updates the displayed model when the Codex catalog arrives after the compose
   await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
   expect(displayed.value).toBe('A')
 })
+
+const usageKey = 'codex-web-local.model-usage-order.v1'
+
+it('orders explicit selections across contexts and persists without changing selection or efforts', async () => {
+  const state = useDesktopState()
+  await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+  state.setSelectedModelIdForThread('', 'B')
+  state.setSelectedReasoningEffort('high', '')
+  state.setSelectedModelIdForThread('existing', 'A')
+  expect(state.availableModelIds.value).toEqual(['A', 'B'])
+  state.setSelectedModelIdForThread('existing', 'B')
+  expect(state.availableModelIds.value).toEqual(['B', 'A'])
+  const reopened = useDesktopState()
+  await reopened.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+  expect(reopened.availableModelIds.value).toEqual(['B', 'A'])
+  expect(reopened.readReasoningEffortForThread('')).toBe('high')
+  const stored = store.get(usageKey)
+  reopened.primeSelectedThread('existing')
+  await reopened.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+  expect(store.get(usageKey)).toBe(stored)
+})
+
+it.each(['{invalid', '{}', 'null', '[1,null,"", "B", "B", "missing"]'])('handles stored usage %s and preserves unused catalog order', async (raw) => {
+  store.set(usageKey, raw)
+  const state = useDesktopState()
+  await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+  expect(state.availableModelIds.value).toEqual(raw.includes('"B"') ? ['B', 'A'] : ['A', 'B'])
+  expect(store.get(usageKey)).toBe(raw)
+})
+
+it('records the model actually submitted in an existing thread', async () => {
+  const gateway = await import('../api/codexGateway')
+  const resume = vi.spyOn(gateway, 'resumeThread').mockResolvedValue({ model: 'A' } as Awaited<ReturnType<typeof gateway.resumeThread>>)
+  const start = vi.spyOn(gateway, 'startThreadTurn').mockRejectedValue(new Error('test submission'))
+  const state = useDesktopState()
+  state.setSelectedModelIdForThread('existing', 'A')
+  state.setSelectedModelIdForThread('', 'B')
+  state.primeSelectedThread('existing')
+  await expect(state.sendMessageToSelectedThread('MRU test')).rejects.toThrow('test submission')
+  expect(JSON.parse(store.get(usageKey)!)).toEqual(['A', 'B'])
+  expect(start).toHaveBeenCalled()
+  resume.mockRestore()
+  start.mockRestore()
+})

@@ -84,6 +84,20 @@ const UNREAD_CUTOFF_STORAGE_KEY = 'codex-web-local.thread-unread-cutoff.v1'
 const THREAD_TOKEN_USAGE_STORAGE_KEY = 'codex-web-local.thread-token-usage.v1'
 const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_BY_CONTEXT_STORAGE_KEY = 'codex-web-local.selected-model-by-context.v1'
+const MODEL_USAGE_STORAGE_KEY = 'codex-web-local.model-usage-order.v1'
+
+function loadModelUsageOrder(): string[] {
+  try {
+    if (typeof window === 'undefined') return []
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(MODEL_USAGE_STORAGE_KEY) || '[]')
+    return Array.isArray(parsed)
+      ? [...new Set(parsed.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))]
+      : []
+  } catch {
+    return []
+  }
+}
+
 const REASONING_BY_MODEL_STORAGE_KEY = 'codex-web-local.reasoning-by-provider-model.v1'
 const LEGACY_SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
@@ -1372,6 +1386,26 @@ export function useDesktopState() {
   let hasLoadedPersistedQueueState = false
   const eventUnreadByThreadId = ref<Record<string, boolean>>({})
   const availableModelIds = ref<string[]>([])
+  const modelUsageOrder = ref(loadModelUsageOrder())
+  const orderedModelIds = computed(() => {
+    const available = new Set(availableModelIds.value)
+    const recent = modelUsageOrder.value.filter((id) => available.has(id))
+    const used = new Set(recent)
+    return [...recent, ...availableModelIds.value.filter((id) => !used.has(id))]
+  })
+
+  function recordModelUsage(modelId: string): void {
+    const model = modelId.trim()
+    if (!model || modelUsageOrder.value[0] === model) return
+    modelUsageOrder.value = [model, ...modelUsageOrder.value.filter((id) => id !== model)]
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(MODEL_USAGE_STORAGE_KEY, JSON.stringify(modelUsageOrder.value))
+      }
+    } catch {
+      // Keep in-memory ordering working when storage is unavailable.
+    }
+  }
   const availableCollaborationModes = ref<CollaborationModeOption[]>([
     { value: 'default', label: 'Default' },
     { value: 'plan', label: 'Plan' },
@@ -1656,6 +1690,7 @@ export function useDesktopState() {
     if (threadId.trim() === selectedThreadId.value) selectedModelId.value = readModelIdForThread(threadId)
     ensureAvailableModelIds(model)
     saveSelectedModelMap(next)
+    recordModelUsage(model)
   }
 
   function setSelectedModelId(modelId: string): void {
@@ -5048,6 +5083,7 @@ export function useDesktopState() {
       }
       const modelId = generationSettings?.model ?? readModelIdForThread(threadId)
 
+      recordModelUsage(modelId)
       let startedTurnId = ''
       try {
         startedTurnId = await startThreadTurn(
@@ -5566,7 +5602,7 @@ export function useDesktopState() {
     codexQuota,
     selectedThreadId,
     availableCollaborationModes,
-    availableModelIds,
+    availableModelIds: orderedModelIds,
     selectedCollaborationMode,
     selectedModelId,
     selectedReasoningEffort,
