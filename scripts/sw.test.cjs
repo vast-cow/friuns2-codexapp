@@ -88,7 +88,7 @@ test('HTML navigation stays network first with shell fallback', async () => {
 
 test('API, local endpoints, cross-origin and non-GET requests bypass worker caching', async () => {
   const sw = worker()
-  for (const path of ['/codex-api/x', '/codex-local-image/x', '/codex-local-file/x', '/codex-local-browse/x', '/codex-local-edit/x', 'https://other.test/assets/index-Beh94Zfe.js']) {
+  for (const path of ['/codex-api/x', '/codex-local-image/x', '/codex-local-browse/x', '/codex-local-edit/x', 'https://other.test/assets/index-Beh94Zfe.js']) {
     assert.equal(await sw.request(path), undefined)
   }
   assert.equal(await sw.request('/assets/index-Beh94Zfe.js', { method: 'POST' }), undefined)

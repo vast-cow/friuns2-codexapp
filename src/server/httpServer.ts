@@ -109,24 +109,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     })
   })
 
-  // 4. Serve local files inline for direct file open.
-  app.get('/codex-local-file', (req, res) => {
-    const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
-    const localPath = normalizeLocalPath(rawPath)
-    if (!localPath || !isAbsolute(localPath)) {
-      res.status(400).json({ error: 'Expected absolute local file path.' })
-      return
-    }
-
-    res.setHeader('Cache-Control', 'private, no-store')
-    res.setHeader('Content-Disposition', 'inline')
-    res.sendFile(localPath, { dotfiles: 'allow' }, (error) => {
-      if (!error) return
-      if (!res.headersSent) res.status(404).json({ error: 'File not found.' })
-    })
-  })
-
-  // 5. Return JSON directory listings for the integrated folder picker.
+  // 4. Return JSON directory listings for the integrated folder picker.
   app.get('/codex-local-directories', async (req, res) => {
     const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
     const showHidden = typeof req.query.showHidden === 'string'
@@ -150,7 +133,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     }
   })
 
-  // 6. Serve local files by path to preserve relative asset loading for HTML.
+  // 5. Serve local files by path to preserve relative asset loading for HTML.
   app.get('/codex-local-browse/*path', async (req, res) => {
     const rawPath = readWildcardPathParam(req.params.path)
     const localPath = decodeBrowsePath(`/${rawPath}`)
@@ -178,7 +161,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     }
   })
 
-  // 7. Edit text-like local files.
+  // 6. Edit text-like local files.
   app.get('/codex-local-edit/*path', async (req, res) => {
     const rawPath = readWildcardPathParam(req.params.path)
     const localPath = decodeBrowsePath(`/${rawPath}`)
@@ -221,12 +204,12 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   const hasFrontendAssets = existsSync(spaEntryFile)
 
-  // 8. Static files from Vue build
+  // 7. Static files from Vue build
   if (hasFrontendAssets) {
     app.use(precompressedStatic(distDir))
   }
 
-  // 9. SPA fallback
+  // 8. SPA fallback
   app.use((req, res, next) => {
     if (!hasFrontendAssets) {
       res

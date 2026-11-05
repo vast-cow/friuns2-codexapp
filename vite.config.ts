@@ -6,7 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { spawnSync } from "node:child_process";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
-import { basename, extname, isAbsolute } from "node:path";
+import { extname, isAbsolute } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import pkg from "./package.json";
 
@@ -205,32 +205,6 @@ export default defineConfig({
             res.statusCode = 404;
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({ error: "Image file not found." }));
-          });
-          stream.pipe(res);
-        });
-        server.middlewares.use((req, res, next) => {
-          if (!req.url || (req.method !== "GET" && req.method !== "HEAD")) return next();
-          const url = new URL(req.url, "http://localhost");
-          if (url.pathname !== "/codex-local-file") return next();
-
-          const localPath = normalizeLocalPath(url.searchParams.get("path") ?? "");
-          if (!localPath || !isAbsolute(localPath)) {
-            res.statusCode = 400;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "Expected absolute local file path." }));
-            return;
-          }
-
-          res.statusCode = 200;
-          res.setHeader("Cache-Control", "private, no-store");
-          res.setHeader("Content-Disposition", `inline; filename="${basename(localPath)}"`);
-
-          const stream = createReadStream(localPath);
-          stream.on("error", () => {
-            if (res.headersSent) return;
-            res.statusCode = 404;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: "File not found." }));
           });
           stream.pipe(res);
         });

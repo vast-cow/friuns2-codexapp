@@ -17,3 +17,21 @@
 
 #### Rollback/Cleanup
 - Revert the test file edit and resolve any outstanding runtime request.
+
+### Feature: Legacy direct-file endpoint retirement
+
+#### Prerequisites
+- Run production and development servers separately with a temporary project containing a text file, a subdirectory, and an image.
+
+#### Steps
+1. Select the project using the folder picker and navigate into its subdirectory.
+2. Open a conversation file link; browse the directory, open the text file, choose Edit file, change its contents, save, and reopen it.
+3. Render a local image in conversation markdown and attach both an image and a text file; send the message and reopen the thread.
+4. Request `/codex-local-file?path=<absolute-text-file-path>` with GET and HEAD against each server.
+
+#### Expected Results
+- Folder selection, conversation navigation, editing, image rendering, and attachment previews/content work through their existing supported endpoints.
+- The retired URL never serves the requested local file (the ordinary SPA fallback may respond).
+
+#### Rollback/Cleanup
+- Restore the edited fixture and remove temporary files and test messages.

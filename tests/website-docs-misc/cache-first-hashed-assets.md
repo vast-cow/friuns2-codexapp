@@ -10,7 +10,7 @@ Build and serve a production build on localhost or HTTPS. Use a browser with Ser
 2. Reload and inspect server request logs: cached hashed files produce no network requests. Switch offline and request the same files: cached responses remain available.
 3. Rebuild with a code/style change, deploy, and reload online. The new hashed filename downloads and enters the cache. The old filename never substitutes for the new one.
 4. Reload online after an HTML change: navigation fetches fresh HTML. Offline navigation falls back to the shell. Non-hashed scripts/styles still attempt the network first.
-5. Exercise an API call and local file/image/browse/edit endpoint. Neither shell nor asset cache contains these responses.
+5. Exercise an API call and local image/browse/edit endpoint. Neither shell nor asset cache contains these responses.
 6. With an older worker installed, deploy this worker and allow activation. Old shell caches are removed; the current shell and asset caches remain. Recent assets survive subsequent worker activation.
 7. Load more than 256 distinct hashed assets (automated coverage below). The asset cache retains the newest 256 insertions, while the shell cache remains intact. An evicted asset downloads again online. This bounds retention across deployments without deleting an entire build during normal reloads; offline availability of evicted assets is not guaranteed.
 
