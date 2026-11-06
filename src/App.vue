@@ -1002,7 +1002,8 @@ const browserHostName =
     : 'codexui'
 const pageTitle = computed(() => {
   const threadTitle = selectedThread.value?.title?.trim() ?? ''
-  return threadTitle || browserHostName
+  if (!threadTitle) return browserHostName
+  return contentProjectName.value ? `${contentProjectName.value} - ${threadTitle}` : threadTitle
 })
 const filteredMessages = computed(() =>
   messages.value.filter((message) => {

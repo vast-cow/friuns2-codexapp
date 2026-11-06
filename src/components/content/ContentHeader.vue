@@ -4,8 +4,8 @@
       <slot name="leading" />
     </div>
     <div class="content-heading">
-      <h1 class="content-title" :class="{ 'is-accent': accent }" :title="title">{{ title }}</h1>
       <span v-if="projectName" class="content-project-name" :title="projectName">{{ projectName }}</span>
+      <h1 class="content-title" :class="{ 'is-accent': accent }" :title="title">{{ title }}</h1>
     </div>
     <div class="content-actions">
       <slot name="actions" />
