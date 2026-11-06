@@ -1,4 +1,3 @@
-import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
 import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots'
@@ -92,17 +91,6 @@ let workspaceRootsRequest: { generation: number; id: number; promise: Promise<Wo
 let workspaceRootsMutation: Promise<unknown> = Promise.resolve()
 let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
 
-export type StoredQueuedMessage = {
-  generationSettings?: QueuedGenerationSettings
-  id: string
-  text: string
-  imageUrls: string[]
-  skills: Array<{ name: string; path: string }>
-  fileAttachments: Array<{ label: string; path: string; fsPath: string }>
-  collaborationMode: CollaborationModeKind
-}
-
-export type ThreadQueueState = Record<string, StoredQueuedMessage[]>
 
 export type ComposerFileSuggestion = {
   path: string
@@ -911,7 +899,6 @@ export async function startThreadTurn(
   skills?: Array<{ name: string; path: string }>,
   fileAttachments: FileAttachmentParam[] = [],
   collaborationMode?: CollaborationModeKind,
-  preserveExplicitSettings = false,
 ): Promise<string> {
   try {
     const normalizedModel = model?.trim() ?? ''
@@ -960,9 +947,7 @@ export async function startThreadTurn(
     if (attachments.length > 0) params.attachments = attachments
     const resolvedModel = collaborationMode ? await resolveCollaborationModeModel(collaborationMode, normalizedModel) : normalizedModel
     const reasoningModel = findReasoningModel(resolvedModel)
-    const resolvedEffort = preserveExplicitSettings && (!Array.isArray(reasoningModel?.supportedReasoningEfforts) || !effort)
-      ? effort ?? ''
-      : resolveReasoningEffort(reasoningModel, effort)
+    const resolvedEffort = resolveReasoningEffort(reasoningModel, effort)
     if (resolvedModel) params.model = resolvedModel
     if (resolvedEffort) params.effort = resolvedEffort
     if (collaborationMode) {
@@ -1257,65 +1242,6 @@ function normalizeWorkspaceRootsState(payload: unknown): WorkspaceRootsState {
   }
 }
 
-function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  const id = typeof record.id === 'string' ? record.id.trim() : ''
-  if (!id) return null
-
-  const imageUrls = Array.isArray(record.imageUrls)
-    ? record.imageUrls.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : []
-  const skills = Array.isArray(record.skills)
-    ? record.skills.flatMap((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-      const itemRecord = item as Record<string, unknown>
-      const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
-      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      return name && path ? [{ name, path }] : []
-    })
-    : []
-  const fileAttachments = Array.isArray(record.fileAttachments)
-    ? record.fileAttachments.flatMap((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return []
-      const itemRecord = item as Record<string, unknown>
-      const label = typeof itemRecord.label === 'string' ? itemRecord.label.trim() : ''
-      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      const fsPath = typeof itemRecord.fsPath === 'string' ? itemRecord.fsPath.trim() : ''
-      return label && path && fsPath ? [{ label, path, fsPath }] : []
-    })
-    : []
-
-  const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
-
-  return {
-    id,
-    text: typeof record.text === 'string' ? record.text : '',
-    imageUrls,
-    skills,
-    fileAttachments,
-    collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
-    ...(generationSettings ? { generationSettings } : {}),
-  }
-}
-
-function normalizeThreadQueueState(value: unknown): ThreadQueueState {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const state: ThreadQueueState = {}
-  for (const [threadId, rawMessages] of Object.entries(value as Record<string, unknown>)) {
-    const normalizedThreadId = threadId.trim()
-    if (!normalizedThreadId || !Array.isArray(rawMessages)) continue
-    const messages = rawMessages.flatMap((item) => {
-      const message = normalizeStoredQueuedMessage(item)
-      return message ? [message] : []
-    })
-    if (messages.length > 0) {
-      state[normalizedThreadId] = messages
-    }
-  }
-  return state
-}
-
 export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
   await workspaceRootsMutation
   if (cachedWorkspaceRootsState) return cloneWorkspaceRootsState(cachedWorkspaceRootsState)
@@ -1395,30 +1321,6 @@ function queueWorkspaceRootsMutation<T>(
   })
   workspaceRootsMutation = run.catch(() => undefined)
   return run
-}
-
-export async function getThreadQueueState(): Promise<ThreadQueueState> {
-  const response = await fetch('/codex-api/thread-queue-state')
-  const payload = (await response.json()) as unknown
-  if (!response.ok) {
-    throw new Error('Failed to load thread queue state')
-  }
-  const envelope =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {}
-  return normalizeThreadQueueState(envelope.data)
-}
-
-export async function setThreadQueueState(nextState: ThreadQueueState): Promise<void> {
-  const response = await fetch('/codex-api/thread-queue-state', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(normalizeThreadQueueState(nextState)),
-  })
-  if (!response.ok) {
-    throw new Error('Failed to save thread queue state')
-  }
 }
 
 export async function createWorktree(sourceCwd: string, baseBranch?: string): Promise<WorktreeCreateResult> {

@@ -21,6 +21,9 @@
 
 ---
 
+
+Messages submitted while a turn is running are sent immediately using Steer. There is no deferred prompt queue. Legacy queue data and the former busy-send preference are ignored. Stop remains available during generation.
+
 ## 🤯 What Is This?
 **`codexapp`** is a lightweight bridge that gives you a browser-accessible UI for Codex app-server workflows.
 
@@ -156,8 +159,8 @@ completion notifications, and save. Use **Send Test Notification** to check deli
 The optional application URL adds a conversation link; use an address reachable
 from your phone. Negative group chat IDs are also supported.
 
-The running backend observes successful `turn/completed` events, including browser
-and backend-queued turns, even after the browser closes. A completed turn does not
+The running backend observes successful `turn/completed` events, including turns
+submitted from the browser, even after the browser closes. A completed turn does not
 guarantee the whole requested task succeeded. Failed and interrupted turns do not
 notify. Telegram cannot create, select, read, or modify conversations, and incoming
 messages and bot commands are not processed.
@@ -237,7 +240,7 @@ The new-thread and existing-thread composers use the App Server's
 `supportedReasoningEfforts` order and resolve incompatible selections to
 `defaultReasoningEffort` when supported, or the first supported option.
 Missing or empty capability metadata disables the selector and leaves effort
-selection to the Codex app-server. Reasoning capabilities come from its model catalog. Direct and queued turns
+selection to the Codex app-server. Reasoning capabilities come from its model catalog. Turns
 validate explicit efforts before submission.
 
 ## 🏗️ Architecture

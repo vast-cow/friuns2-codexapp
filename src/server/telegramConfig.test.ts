@@ -24,7 +24,7 @@ it('retains legacy notification configuration through save and a fresh middlewar
   const previous = scope.__codexRemoteSharedBridge__
   vi.stubEnv('CODEX_HOME', home)
   scope.__codexRemoteSharedBridge__ = {
-    version: 'project-history-api-v1', appServer: {}, backendQueueProcessor: {}, methodCatalog: {},
+    version: 'immediate-steer-v1', appServer: {},  methodCatalog: {},
     telegramBridge: { stop() {}, start() {}, configureToken() {}, configureCompletionNotifications() {} },
   }
   try {

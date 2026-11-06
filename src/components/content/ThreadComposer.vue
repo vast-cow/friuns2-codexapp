@@ -1,10 +1,9 @@
 <template>
-  <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
+  <form class="thread-composer" @submit.prevent="onSubmit()">
 
     <div
       class="thread-composer-shell"
       :class="{
-        'thread-composer-shell--no-top-radius': hasQueueAbove,
         'thread-composer-shell--drag-active': isDragActive,
       }"
     >
@@ -197,30 +196,6 @@
               {{ t('Take photo') }}
             </button>
             <div class="thread-composer-attach-separator" />
-            <div class="thread-composer-attach-mode">
-              <span class="thread-composer-attach-mode-label">{{ t('In-progress send') }}</span>
-              <div class="thread-composer-attach-mode-buttons">
-                <button
-                  class="thread-composer-attach-mode-button"
-                  :class="{ 'is-active': activeInProgressMode === 'steer' }"
-                  type="button"
-                  :disabled="isInteractionDisabled"
-                  @click="setActiveInProgressMode('steer')"
-                >
-                  {{ t('Steer') }}
-                </button>
-                <button
-                  class="thread-composer-attach-mode-button"
-                  :class="{ 'is-active': activeInProgressMode === 'queue' }"
-                  type="button"
-                  :disabled="isInteractionDisabled"
-                  @click="setActiveInProgressMode('queue')"
-                >
-                  {{ t('Queue') }}
-                </button>
-              </div>
-            </div>
-            <div class="thread-composer-attach-separator" />
             <button
               v-if="isFastModeSupported"
               class="thread-composer-attach-setting"
@@ -331,12 +306,11 @@
           <button
             v-else
             class="thread-composer-submit"
-            :class="{ 'thread-composer-submit--queue': isTurnInProgress && activeInProgressMode === 'queue' }"
             type="button"
-            :aria-label="isTurnInProgress && activeInProgressMode === 'queue' ? t('Queue message') : t('Send message')"
-            :title="isTurnInProgress ? `${t('Send')} ${activeInProgressMode === 'queue' ? t('Queue') : t('Steer')}` : t('Send')"
+            :aria-label="isTurnInProgress ? t('Steer') : t('Send message')"
+            :title="isTurnInProgress ? t('Steer') : t('Send')"
             :disabled="!canSubmit"
-            @click="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')"
+            @click="onSubmit()"
           >
             <IconTablerArrowUp class="thread-composer-submit-icon" />
           </button>
@@ -427,9 +401,7 @@ const props = defineProps<{
   isInterruptingTurn?: boolean
   isUpdatingSpeedMode?: boolean
   disabled?: boolean
-  hasQueueAbove?: boolean
   sendWithEnter?: boolean
-  inProgressSubmitMode?: 'steer' | 'queue'
 }>()
 
 export type FileAttachment = { label: string; path: string; fsPath: string }
@@ -446,7 +418,6 @@ export type SubmitPayload = {
   imageUrls: string[]
   fileAttachments: FileAttachment[]
   skills: Array<{ name: string; path: string }>
-  mode: 'steer' | 'queue'
 }
 
 export type ThreadComposerExposed = {
@@ -644,10 +615,6 @@ const speedModeDescription = computed(() => {
     ? t('About 1.5x faster, with credits used at 2x')
     : t('Default speed with normal credit usage')
 })
-const inProgressMode = computed<'steer' | 'queue'>(() =>
-  props.inProgressSubmitMode === 'steer' ? 'steer' : 'queue',
-)
-const activeInProgressMode = ref<'steer' | 'queue'>(inProgressMode.value)
 const attachmentFeedbackText = computed(() => {
   const stats = attachmentBatchStats.value
   if (stats) {
@@ -686,7 +653,7 @@ const draftLineCount = computed(() => draft.value.split('\n').length)
 const hasExpandedComposerToggle = computed(() =>
   isComposerExpanded.value || draftLineCount.value >= 6 || isDraftOverflowing.value,
 )
-function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
+function onSubmit(): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
   if (text === '/goal' && props.activeThreadId !== '__new-thread__') {
@@ -706,7 +673,6 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
     imageUrls: selectedImages.value.map((image) => image.url),
     fileAttachments: [...fileAttachments.value],
     skills: selectedSkills.value.map((s) => ({ name: s.name, path: s.path })),
-    mode,
   })
   clearPersistedDraftForThread(props.activeThreadId)
   clearDraftState()
@@ -721,15 +687,11 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer'): void {
   nextTick(() => inputRef.value?.focus())
 }
 
-function setActiveInProgressMode(mode: 'steer' | 'queue'): void {
-  activeInProgressMode.value = mode
-}
-
 function replaceDraftState(payload: ComposerDraftPayload): void {
   draftGeneration.value += 1
   draft.value = payload.text
   selectedImages.value = payload.imageUrls.map((url, index) => ({
-    id: `queued-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `draft-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
     name: `Image ${index + 1}`,
     url,
   }))
@@ -1318,7 +1280,7 @@ function onInputKeydown(event: KeyboardEvent): void {
     : event.key === 'Enter' && (event.metaKey || event.ctrlKey)
   if (shouldSend) {
     event.preventDefault()
-    onSubmit(props.isTurnInProgress ? activeInProgressMode.value : 'steer')
+    onSubmit()
     return
   }
 }
@@ -1590,13 +1552,6 @@ watch(
   },
 )
 
-watch(
-  inProgressMode,
-  (nextMode) => {
-    activeInProgressMode.value = nextMode
-  },
-)
-
 </script>
 
 <style scoped>
@@ -1620,10 +1575,6 @@ watch(
 
 .thread-composer-shell--drag-active {
   @apply border-zinc-900 shadow-md;
-}
-
-.thread-composer-shell--no-top-radius {
-  @apply rounded-t-none border-t-0;
 }
 
 .thread-composer-attachments {
@@ -1822,26 +1773,6 @@ watch(
   @apply my-1 h-px bg-zinc-100;
 }
 
-.thread-composer-attach-mode {
-  @apply px-3 py-2 flex items-center justify-between gap-2;
-}
-
-.thread-composer-attach-mode-label {
-  @apply text-sm text-zinc-800;
-}
-
-.thread-composer-attach-mode-buttons {
-  @apply inline-flex items-center rounded-full border border-zinc-200 bg-white p-0.5;
-}
-
-.thread-composer-attach-mode-button {
-  @apply rounded-full border-0 bg-transparent px-2 py-1 text-xs text-zinc-600 transition hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-400;
-}
-
-.thread-composer-attach-mode-button.is-active {
-  @apply bg-zinc-900 text-white hover:text-white;
-}
-
 .thread-composer-attach-setting {
   @apply flex w-full items-center justify-between gap-3 rounded-lg border-0 bg-transparent px-3 py-2 text-left transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:text-zinc-400;
 }
@@ -1897,10 +1828,6 @@ watch(
 
 .thread-composer-submit {
   @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
-}
-
-.thread-composer-submit--queue {
-  @apply bg-amber-600 hover:bg-amber-700;
 }
 
 .thread-composer-submit-icon {

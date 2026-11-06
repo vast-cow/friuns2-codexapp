@@ -13,8 +13,6 @@ const gateway = vi.hoisted(() => ({
   generateThreadTitle: vi.fn(),
   subscribeCodexNotifications: vi.fn(),
   getPendingServerRequests: vi.fn(),
-  getThreadQueueState: vi.fn(),
-  setThreadQueueState: vi.fn(),
   getThreadTitleCache: vi.fn(),
   getWorkspaceRootsState: vi.fn(),
   getAvailableModelIds: vi.fn(),
@@ -108,8 +106,6 @@ beforeEach(() => {
     clearTimeout: globalThis.clearTimeout,
   })
   gateway.getThreadGroupsPage.mockResolvedValue({ groups: [{ projectName: 'project', threads: [thread] }], nextCursor: null })
-  gateway.getThreadQueueState.mockResolvedValue({})
-  gateway.setThreadQueueState.mockResolvedValue({})
   gateway.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gateway.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots'))
   gateway.getAvailableModelIds.mockResolvedValue({ ids: ['gpt-5.5'], models: [] })
@@ -306,88 +302,15 @@ describe('message visibility during sends and history synchronization', () => {
     expect(state.messages.value.some((message) => message.messageType === 'userMessage.optimistic')).toBe(false)
   })
 
-  it('keeps queued submissions out of the conversation until they are sent', async () => {
-    const state = await loadState()
-    turnStarted()
-    await state.sendMessageToSelectedThread('queued', [], [], 'queue')
-    expect(state.messages.value.some((message) => message.text === 'queued')).toBe(false)
-    expect(state.selectedThreadQueuedMessages.value.map((message) => message.text)).toEqual(['queued'])
-    expect(gateway.startThreadTurn).not.toHaveBeenCalled()
-  })
-
-  it.each(['gpt-5.5', 'other-model'])('captures independent queue settings before awaits, retains them through reorder and reload (%s)', async (secondModel) => {
-    const state = await loadState()
-    turnStarted()
-    reasoningCatalog.value = ['gpt-5.5', 'other-model'].map((id) => ({
-      id, supportedReasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'low',
-    }))
-    state.setSelectedReasoningEffort('low')
-    // Change the composer immediately, before the first submission resumes after its await.
-    const first = state.sendMessageToSelectedThread('A', [], [], 'queue')
-    state.setSelectedModelId(secondModel)
-    state.setSelectedReasoningEffort('medium')
-    const second = state.sendMessageToSelectedThread('B', [], [], 'queue')
-    state.setSelectedReasoningEffort('high')
-    await Promise.all([first, second])
-    const [a, b] = state.selectedThreadQueuedMessages.value
-    expect(a?.generationSettings).toEqual({ model: 'gpt-5.5', effort: 'low' })
-    expect(b?.generationSettings).toEqual({ model: secondModel, effort: 'medium' })
-    state.reorderQueuedMessage(b!.id, a!.id)
-    const saved = gateway.setThreadQueueState.mock.calls.at(-1)![0]
-    expect(saved[thread.id].map((item: { text: string }) => item.text)).toEqual(['B', 'A'])
-    gateway.getThreadQueueState.mockResolvedValue(JSON.parse(JSON.stringify(saved)))
-    const reopened = await loadState()
-    expect(reopened.selectedThreadQueuedMessages.value).toEqual([b, a])
-  })
-
-  it('retains submission settings if the active turn completes during the enqueue await', async () => {
-    const state = await loadState()
-    turnStarted()
-    reasoningCatalog.value = [{
-      id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
-    }]
-    state.setSelectedReasoningEffort('low')
-    const submitted = state.sendMessageToSelectedThread('queued as the turn finishes', [], [], 'queue')
-    state.setSelectedReasoningEffort('medium')
-    turnCompleted()
-    await submitted
-    expect(gateway.startThreadTurn.mock.calls[0]?.slice(3, 5)).toEqual(['gpt-5.5', 'low'])
-  })
-
-  it('keeps saved settings when editing and steering without altering composer preferences', async () => {
-    const state = await loadState()
-    turnStarted()
-    reasoningCatalog.value = [{
-      id: 'gpt-5.5', supportedReasoningEfforts: ['low', 'medium'], defaultReasoningEffort: 'low',
-    }]
-    state.setSelectedReasoningEffort('low')
-    await state.sendMessageToSelectedThread('original', [], [], 'queue')
-    const original = state.selectedThreadQueuedMessages.value[0]!
-    state.removeQueuedMessage(original.id)
-    state.setSelectedReasoningEffort('medium')
-    await state.sendMessageToSelectedThread('edited', [], [], 'queue', [], 0, original.collaborationMode, original.generationSettings)
-    expect(state.selectedThreadQueuedMessages.value[0]?.generationSettings).toEqual(original.generationSettings)
-    state.steerQueuedMessage(state.selectedThreadQueuedMessages.value[0]!.id)
-    await vi.waitFor(() => expect(gateway.startThreadTurn).toHaveBeenCalled())
-    expect(gateway.startThreadTurn.mock.calls[0]?.slice(3, 5)).toEqual(['gpt-5.5', 'low'])
-    expect(state.selectedReasoningEffort.value).toBe('medium')
-  })
-
-  it('does not assign a snapshot when an edited legacy entry is resubmitted', async () => {
-    const state = await loadState()
-    turnStarted()
-    await state.sendMessageToSelectedThread('legacy edit', [], [], 'queue', [], 0, 'plan', null)
-    expect(state.selectedThreadQueuedMessages.value[0]).not.toHaveProperty('generationSettings')
-    expect(gateway.setThreadQueueState.mock.calls.at(-1)![0][thread.id][0]).not.toHaveProperty('generationSettings')
-  })
-
   it('shows steering submissions immediately with unique IDs for rapid sends', async () => {
     const state = await loadState()
     turnStarted()
     const started = deferred<string>()
     gateway.startThreadTurn.mockReturnValue(started.promise)
-    await state.sendMessageToSelectedThread('first', [], [], 'steer')
-    await state.sendMessageToSelectedThread('second', [], [], 'steer')
+    await state.sendMessageToSelectedThread('first', [], [])
+    await state.sendMessageToSelectedThread('second', [], [])
+    await vi.waitFor(() => expect(gateway.startThreadTurn).toHaveBeenCalledTimes(2))
+    expect(gateway.startThreadTurn.mock.calls.map((call) => call[1])).toEqual(['first', 'second'])
     const optimistic = state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')
     expect(optimistic.map((message) => message.text)).toEqual(['first', 'second'])
     expect(new Set(optimistic.map((message) => message.id)).size).toBe(2)
@@ -444,7 +367,7 @@ describe('optimistic attachment reconciliation', () => {
     gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted, isNew ? [] : [oldUser]))
     const sending = isNew
       ? state.sendMessageToNewThread(prompt, '/tmp/project', [], [], files)
-      : state.sendMessageToSelectedThread(prompt, [], [], 'steer', files)
+      : state.sendMessageToSelectedThread(prompt, [], [], files)
     await vi.advanceTimersByTimeAsync(0)
     const optimistic = state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')
     expect(optimistic).toHaveLength(1)
@@ -473,7 +396,7 @@ describe('optimistic attachment reconciliation', () => {
       path: '/api/uploads/second/pasted-text-2026-11-04-12-00-00.txt',
       fsPath: '/tmp/codex-web-uploads/second/pasted-text-2026-11-04-12-00-00.txt',
     } : {}) }]
-    await state.sendMessageToSelectedThread('', [], [], 'steer', files)
+    await state.sendMessageToSelectedThread('', [], [], files)
     expect(state.messages.value.filter((message) => message.role === 'user')).toHaveLength(2)
     expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
       .toMatchObject([{ turnId: 'turn-2', fileAttachments: files }])
@@ -487,7 +410,7 @@ describe('optimistic attachment reconciliation', () => {
   it('retains an accepted attachment through stale reads until completion provides its persisted row', async () => {
     const state = await loadState()
     gateway.getThreadDetail.mockResolvedValue(oldDetail)
-    await state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    await state.sendMessageToSelectedThread('', [], [], [pastedFile])
     expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
       .toMatchObject([{ text: '', turnId: 'turn-2', fileAttachments: [pastedFile] }])
     const persisted = attachmentUser()
@@ -502,7 +425,7 @@ describe('optimistic attachment reconciliation', () => {
     const state = await loadState()
     const started = deferred<string>()
     gateway.startThreadTurn.mockReturnValue(started.promise)
-    const sending = state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    const sending = state.sendMessageToSelectedThread('', [], [], [pastedFile])
     await vi.advanceTimersByTimeAsync(0)
     const persisted = attachmentUser()
     gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted))
@@ -518,7 +441,7 @@ describe('optimistic attachment reconciliation', () => {
   it('recovers from a disconnected history read without submitting the attachment again', async () => {
     const state = await loadState()
     gateway.getThreadDetail.mockResolvedValue(oldDetail)
-    await state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile])
+    await state.sendMessageToSelectedThread('', [], [], [pastedFile])
     gateway.getThreadDetail.mockRejectedValueOnce(new Error('connection interrupted'))
     await expect(state.loadMessages(thread.id, { force: true })).rejects.toThrow('connection interrupted')
     expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic')).toHaveLength(1)
@@ -533,7 +456,7 @@ describe('optimistic attachment reconciliation', () => {
   it('retains a failed attachment submission and its error without automatically retrying', async () => {
     const state = await loadState()
     gateway.startThreadTurn.mockRejectedValue(new Error('connection interrupted'))
-    await expect(state.sendMessageToSelectedThread('', [], [], 'steer', [pastedFile]))
+    await expect(state.sendMessageToSelectedThread('', [], [], [pastedFile]))
       .rejects.toThrow('connection interrupted')
     expect(state.messages.value.filter((message) => message.messageType === 'userMessage.optimistic'))
       .toMatchObject([{ text: '', fileAttachments: [pastedFile] }])
@@ -546,7 +469,7 @@ describe('optimistic attachment reconciliation', () => {
     const persisted = attachmentUser([pastedFile, secondFile], 'Read both files')
     const detail = { ...attachmentDetail(persisted), inProgress: false, activeTurnId: '' }
     gateway.getThreadDetail.mockResolvedValue(detail)
-    await state.sendMessageToSelectedThread('Read both files', [], [], 'steer', [pastedFile, secondFile])
+    await state.sendMessageToSelectedThread('Read both files', [], [], [pastedFile, secondFile])
     expectConfirmedAttachment(state, [oldUser, persisted])
     gateway.resumeThread.mockResolvedValue(detail)
     const reloaded = createState()

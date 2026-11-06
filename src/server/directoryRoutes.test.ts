@@ -15,7 +15,7 @@ beforeEach(async () => {
   vi.stubEnv('CODEX_HOME', home)
   previous = scope.__codexRemoteSharedBridge__
   rpc.mockReset().mockResolvedValue({ data: [] })
-  scope.__codexRemoteSharedBridge__ = { version: 'project-history-api-v1', appServer: { rpc }, telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {} }
+  scope.__codexRemoteSharedBridge__ = { version: 'immediate-steer-v1', appServer: { rpc }, telegramBridge: {},  methodCatalog: {} }
 })
 afterEach(async () => { scope.__codexRemoteSharedBridge__ = previous; vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }) })
 async function request(path: string, method = 'GET') {
@@ -102,4 +102,57 @@ it('does not proxy retired connector logos or request credentials', async () => 
   expect(next).toHaveBeenCalledOnce()
   expect(body).toBe('')
   expect(rpc).not.toHaveBeenCalled()
+})
+
+it.each(['GET', 'PUT'])('does not handle retired queue %s requests or recover legacy messages on restart', async (method) => {
+  const contents = JSON.stringify({ 'thread-queue-state': { example: [{ id: 'legacy', text: 'Never execute' }] }, unrelated: { keep: true } })
+  const path = join(home, '.codex-global-state.json')
+  await writeFile(path, contents)
+  vi.useFakeTimers()
+  try {
+    for (let restart = 0; restart < 2; restart++) {
+      const { next, body } = await request('/codex-api/thread-queue-state', method)
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(next).toHaveBeenCalledOnce()
+      expect(body).toBe('')
+      expect(rpc).not.toHaveBeenCalled()
+      expect(await readFile(path, 'utf8')).toBe(contents)
+    }
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('retires cached workers and never recovers persisted prompts across cold bridge restarts', async () => {
+  const contents = JSON.stringify({ 'thread-queue-state': { example: [{ id: 'legacy', text: 'Never execute' }] }, unrelated: true })
+  await writeFile(join(home, '.codex-global-state.json'), contents)
+  const oldRpc = vi.fn()
+  const worker = { dispose: vi.fn(), scheduleThreadQueueDrain: vi.fn(), processThreadQueue: vi.fn(), startQueuedTurn: vi.fn() }
+  const dispose = vi.fn()
+  const stop = vi.fn()
+  scope.__codexRemoteSharedBridge__ = {
+    version: 'project-history-api-v1', appServer: { rpc: oldRpc, dispose },
+    telegramBridge: { stop }, backendQueueProcessor: worker,
+  }
+  const old = scope.__codexRemoteSharedBridge__ as { appServer: { rpc: (method: string) => Promise<unknown> } }
+  vi.useFakeTimers()
+  try {
+    for (let restart = 0; restart < 2; restart++) {
+      const middleware = createCodexBridgeMiddleware()
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(await readFile(join(home, '.codex-global-state.json'), 'utf8')).toBe(contents)
+      middleware.dispose()
+      delete scope.__codexRemoteSharedBridge__
+    }
+    expect(worker.dispose).toHaveBeenCalledOnce()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(stop).toHaveBeenCalledOnce()
+    await worker.scheduleThreadQueueDrain()
+    await worker.processThreadQueue()
+    await worker.startQueuedTurn()
+    expect(oldRpc).not.toHaveBeenCalled()
+    await expect(old.appServer.rpc('turn/start')).rejects.toThrow('Retired app-server bridge')
+  } finally {
+    vi.useRealTimers()
+  }
 })

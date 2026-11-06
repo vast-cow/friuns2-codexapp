@@ -9,7 +9,6 @@ vi.mock('../api/codexGateway', async (importOriginal) => ({
   getAvailableModelIds: vi.fn(async () => ({ ids: ['A', 'B'], models: reasoningCatalog.value })),
   getThreadGroupsPage: vi.fn(async () => ({ groups: [], nextCursor: null })),
   getWorkspaceRootsState: vi.fn(async () => ({ order: [], labels: {}, active: [], projectOrder: [] })),
-  getThreadQueueState: vi.fn(async () => ({})),
   getThreadTitleCache: vi.fn(async () => ({ titles: {} })),
   getAvailableCollaborationModes: vi.fn(async () => [{ value: 'default', label: 'Default' }]),
   getSkillsList: vi.fn(async () => []),

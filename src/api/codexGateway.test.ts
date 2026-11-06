@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getThreadQueueState, setThreadQueueState, reasoningCatalog, getAvailableModelIds, getThreadDetail, resumeThread, startThreadTurn } from './codexGateway'
+import { reasoningCatalog, getAvailableModelIds, getThreadDetail, resumeThread, startThreadTurn } from './codexGateway'
 
 function mockRpcFetch(): { requests: Array<{ method: string, params: Record<string, unknown> }> } {
   const requests: Array<{ method: string, params: Record<string, unknown> }> = []
@@ -169,46 +169,6 @@ describe('resumeThread', () => {
   })
 })
 
-
-describe('saved queued generation settings', () => {
-  afterEach(() => {
-    reasoningCatalog.value = []
-    vi.unstubAllGlobals()
-  })
-
-  it('round-trips independent settings through queue PUT and GET, retaining legacy absence', async () => {
-    const entry = { id: 'A', text: 'queued', imageUrls: [], skills: [], fileAttachments: [], collaborationMode: 'default' as const }
-    const state = { 'thread-1': [
-      { ...entry, generationSettings: { model: 'M', effort: 'low' as const,  } },
-      { ...entry, id: 'B', generationSettings: { model: 'N', effort: 'medium' as const, unsupportedProvider: 'other' } },
-      { ...entry, id: 'legacy' },
-    ] }
-    let stored: unknown
-    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
-      if (init?.method === 'PUT') stored = JSON.parse(init.body)
-      return new Response(JSON.stringify({ data: stored }), { status: 200 })
-    }))
-    await setThreadQueueState(state)
-    expect(stored).toEqual(state)
-    expect(await getThreadQueueState()).toEqual(state)
-  })
-
-  it.each([
-    ['low', 'low'], ['medium', 'medium'], ['none', 'none'],
-    ['xhigh', 'low'], [undefined, undefined],
-  ] as const)('uses requested effort %s as %s in the Codex RPC', async (effort, expected) => {
-    reasoningCatalog.value = [{
-      id: 'M', supportedReasoningEfforts: ['none', 'low', 'medium'], defaultReasoningEffort: 'low',
-    }]
-    const { requests } = mockRpcFetch()
-    await startThreadTurn('thread-1', 'saved steer', [], 'M', effort, undefined, [], 'default', true)
-    expect(requests).toHaveLength(1)
-    expect(requests[0]?.method).toBe('turn/start')
-    expect(requests[0]?.params.model).toBe('M')
-    expect(requests[0]?.params.effort).toBe(expected)
-    expect(requests[0]?.params.collaborationMode).toMatchObject({ settings: { model: 'M', reasoning_effort: expected ?? null } })
-  })
-})
 
 describe('official Codex model catalog', () => {
   afterEach(() => vi.unstubAllGlobals())

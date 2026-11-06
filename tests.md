@@ -17,7 +17,7 @@ This file is the manual test index. Detailed regression and feature verification
 | --- | ---: | --- |
 | [Projects, Sidebar, and New Chat](tests/projects-sidebar-new-chat/index.md) | 16 | Home route, project picker, sidebar organization, new-chat setup, projectless folders, and project/worktree shell behavior. |
 | [Skills, Plugins, and Integrations](tests/skills-plugins-integrations/index.md) | 15 | Skills Hub, local Skills management, plugin/app directory surfaces, prompts, Telegram, and installed skill behavior. |
-| [Chat Composer and Message Rendering](tests/chat-composer-rendering/index.md) | 33 | Composer controls, queued messages, plan mode, markdown parsing, file links, attachments, generated images, and visible message rows. |
+| [Chat Composer and Message Rendering](tests/chat-composer-rendering/index.md) | 30 | Composer controls, immediate steering, plan mode, markdown parsing, file links, attachments, generated images, and visible message rows. |
 | [Thread Loading, Streaming, and State](tests/thread-loading-state/index.md) | 27 | Thread list/detail loading, pagination, selected-thread stability, streaming scroll behavior, live-state reads, and missing-thread handling. |
 | [Codex Models](tests/providers-models/index.md) | 4 | Official Codex models, reasoning preferences, per-thread model selection, and catalog behavior. |
 | [Auth and Docker Runtime](tests/auth-docker-runtime/index.md) | 9 | Codex auth, Docker-packaged runtime cases, copied auth behavior, invalid auth errors, and official-only Codex runtime behavior. |

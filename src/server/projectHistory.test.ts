@@ -41,8 +41,8 @@ beforeEach(async () => {
   storeSnapshot.mockReset()
   sqlite.mockReset().mockReturnValue({ status: 0, stdout: '[]', stderr: '' })
   scope.__codexRemoteSharedBridge__ = {
-    version: 'project-history-api-v1', appServer: { rpc, storeThreadReadSnapshot: storeSnapshot, getStreamEvents: () => [] },
-    telegramBridge: {}, backendQueueProcessor: {}, methodCatalog: {},
+    version: 'immediate-steer-v1', appServer: { rpc, storeThreadReadSnapshot: storeSnapshot, getStreamEvents: () => [] },
+    telegramBridge: {},  methodCatalog: {},
   }
 })
 afterEach(async () => {

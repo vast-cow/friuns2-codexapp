@@ -1,4 +1,3 @@
-import { type QueuedGenerationSettings } from '../queuedGenerationSettings'
 import { computed, ref, watch } from 'vue'
 import {
 
@@ -24,11 +23,9 @@ import {
   revertThreadFileChanges,
   rollbackThread,
   getThreadGroupsPage,
-  getThreadQueueState,
   getWorkspaceRootsState,
   getWorkspaceRootsStateGeneration,
   setCodexSpeedMode,
-  setThreadQueueState,
   updateWorkspaceRootsState,
   invalidateWorkspaceRootsStateCache,
   getThreadTitleCache,
@@ -41,7 +38,6 @@ import {
   startThreadTurn,
   type RpcNotification,
   type SkillInfo,
-  type ThreadQueueState,
   type WorkspaceRootsState,
 } from '../api/codexGateway'
 import { CodexApiError } from '../api/codexErrors'
@@ -1362,15 +1358,6 @@ export function useDesktopState() {
   const liveFileChangeMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
-  type QueuedMessage = {
-    generationSettings?: QueuedGenerationSettings
-    id: string
-    text: string
-    imageUrls: string[]
-    skills: Array<{ name: string; path: string }>
-    fileAttachments: FileAttachment[]
-    collaborationMode: CollaborationModeKind
-  }
   type PendingTurnRequest = {
     text: string
     imageUrls: string[]
@@ -1379,11 +1366,7 @@ export function useDesktopState() {
     effort: ReasoningEffort | ''
     collaborationMode: CollaborationModeKind
     fallbackRetried: boolean
-    preserveGenerationSettings?: boolean
   }
-  const queuedMessagesByThreadId = ref<Record<string, QueuedMessage[]>>({})
-  const queueProcessingByThreadId = ref<Record<string, boolean>>({})
-  let hasLoadedPersistedQueueState = false
   const eventUnreadByThreadId = ref<Record<string, boolean>>({})
   const availableModelIds = ref<string[]>([])
   const modelUsageOrder = ref(loadModelUsageOrder())
@@ -1796,7 +1779,7 @@ export function useDesktopState() {
   async function retryPendingTurnWithFallback(threadId: string): Promise<void> {
     if (fallbackRetryInFlightThreadIds.has(threadId)) return
     const pending = pendingTurnRequestByThreadId.value[threadId]
-    if (!pending || pending.fallbackRetried || pending.preserveGenerationSettings) return
+    if (!pending || pending.fallbackRetried) return
 
     fallbackRetryInFlightThreadIds.add(threadId)
     setPendingTurnRequest(threadId, {
@@ -2196,11 +2179,6 @@ export function useDesktopState() {
     )
     threadListedByServerById.value = pruneThreadStateMap(threadListedByServerById.value, activeThreadIds)
     persistedUserMessageByThreadId.value = pruneThreadStateMap(persistedUserMessageByThreadId.value, activeThreadIds)
-    const nextQueuedMessages = pruneThreadStateMap(queuedMessagesByThreadId.value, activeThreadIds)
-    if (nextQueuedMessages !== queuedMessagesByThreadId.value) {
-      queuedMessagesByThreadId.value = nextQueuedMessages
-      persistQueueState()
-    }
     threadTokenUsageByThreadId.value = pruneThreadStateMap(threadTokenUsageByThreadId.value, activeThreadIds)
     eventUnreadByThreadId.value = pruneThreadStateMap(eventUnreadByThreadId.value, activeThreadIds)
     inProgressById.value = pruneThreadStateMap(inProgressById.value, activeThreadIds)
@@ -3722,7 +3700,6 @@ export function useDesktopState() {
       setTurnSummaryForThread(startedTurn.threadId, null)
       setTurnErrorForThread(startedTurn.threadId, null)
       setThreadInProgress(startedTurn.threadId, true)
-      scheduleQueueStateRefresh(startedTurn.threadId)
       if (eventUnreadByThreadId.value[startedTurn.threadId]) {
         eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, startedTurn.threadId)
       }
@@ -3735,7 +3712,6 @@ export function useDesktopState() {
     const shouldRetryWithFallback =
       Boolean(completedThreadId) &&
       Boolean(turnErrorMessage) &&
-      pendingTurnRequestByThreadId.value[completedThreadId]?.preserveGenerationSettings !== true &&
       completedThreadModelId !== MODEL_FALLBACK_ID &&
       isUnsupportedChatGptModelError(new Error(turnErrorMessage))
     if (completedTurn) {
@@ -3766,7 +3742,6 @@ export function useDesktopState() {
       markThreadUnreadByEvent(completedTurn.threadId)
       if (!shouldRetryWithFallback) {
         clearPendingTurnRequest(completedTurn.threadId)
-        scheduleQueueStateRefresh(completedTurn.threadId)
       }
     }
 
@@ -3924,7 +3899,6 @@ export function useDesktopState() {
         markThreadUnreadByEvent(completedThreadId)
         if (!shouldRetryWithFallback) {
           clearPendingTurnRequest(completedThreadId)
-          scheduleQueueStateRefresh(completedThreadId)
         }
       }
     }
@@ -4114,44 +4088,6 @@ export function useDesktopState() {
       new Set(flattenThreads(sourceGroups.value).map((thread) => thread.id)),
     )
     applyThreadFlags()
-  }
-
-  function normalizeQueueStateForPersistence(state: Record<string, QueuedMessage[]>): ThreadQueueState {
-    const next: ThreadQueueState = {}
-    for (const [threadId, queue] of Object.entries(state)) {
-      const normalizedThreadId = threadId.trim()
-      if (!normalizedThreadId || queue.length === 0) continue
-      next[normalizedThreadId] = queue.map((message) => ({
-        id: message.id,
-        text: message.text,
-        imageUrls: [...message.imageUrls],
-        skills: message.skills.map((skill) => ({ name: skill.name, path: skill.path })),
-        fileAttachments: message.fileAttachments.map((attachment) => ({
-          label: attachment.label,
-          path: attachment.path,
-          fsPath: attachment.fsPath,
-        })),
-        collaborationMode: message.collaborationMode,
-        ...(message.generationSettings ? { generationSettings: { ...message.generationSettings } } : {}),
-      }))
-    }
-    return next
-  }
-
-  function persistQueueState(): void {
-    void setThreadQueueState(normalizeQueueStateForPersistence(queuedMessagesByThreadId.value)).catch(() => {
-      // Queue persistence is best-effort; keep the current in-memory queue usable.
-    })
-  }
-
-  async function loadPersistedQueueStateIfNeeded(): Promise<void> {
-    if (hasLoadedPersistedQueueState) return
-    hasLoadedPersistedQueueState = true
-    try {
-      queuedMessagesByThreadId.value = await getThreadQueueState()
-    } catch {
-      // Backend queue state is optional during startup.
-    }
   }
 
   function removeArchivedThreadFromLoadedLists(threadId: string): void {
@@ -4592,7 +4528,6 @@ export function useDesktopState() {
     const awaitAncillaryRefreshes = options.awaitAncillaryRefreshes === true
 
     try {
-      await loadPersistedQueueStateIfNeeded()
       await loadThreads({ force: options.forceThreadRefresh === true })
       if (includeSelectedThreadMessages) {
         try {
@@ -4816,11 +4751,8 @@ export function useDesktopState() {
     text: string,
     imageUrls: string[] = [],
     skills: Array<{ name: string; path: string }> = [],
-    mode: 'steer' | 'queue' = 'steer',
     fileAttachments: FileAttachment[] = [],
-    queueInsertIndex?: number,
     collaborationModeOverride?: CollaborationModeKind,
-    generationSettingsOverride?: QueuedGenerationSettings | null,
   ): Promise<void> {
     if (isUpdatingSpeedMode.value) return
 
@@ -4828,44 +4760,12 @@ export function useDesktopState() {
     const nextText = text.trim()
     if (!threadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) return
 
-    // Capture before the first await: later composer changes belong to later submissions.
-    const generationSettings = generationSettingsOverride === null ? undefined : {
-      ...(generationSettingsOverride ?? {
-        model: readModelIdForThread(threadId),
-        effort: selectedReasoningEffort.value,
-      }),
-    }
     const submittedMode = collaborationModeOverride ?? selectedCollaborationMode.value
-    const submittedGenerationSettings = generationSettingsOverride
-      || (mode === 'queue' && inProgressById.value[threadId] === true ? generationSettings : undefined)
-
     if (await maybeReplyToPendingUserInputRequest(threadId, nextText, imageUrls, skills, fileAttachments)) {
       return
     }
 
     const isInProgress = inProgressById.value[threadId] === true
-
-    if (isInProgress && mode === 'queue') {
-      const queue = queuedMessagesByThreadId.value[threadId] ?? []
-      const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const nextQueue = [...queue]
-      const insertIndex = typeof queueInsertIndex === 'number'
-        ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
-        : nextQueue.length
-      nextQueue.splice(insertIndex, 0, {
-        id, text: nextText, imageUrls: [...imageUrls],
-        skills: skills.map((skill) => ({ ...skill })),
-        fileAttachments: fileAttachments.map((file) => ({ ...file })),
-        collaborationMode: submittedMode,
-        ...(generationSettings ? { generationSettings } : {}),
-      })
-      queuedMessagesByThreadId.value = {
-        ...queuedMessagesByThreadId.value,
-        [threadId]: nextQueue,
-      }
-      persistQueueState()
-      return
-    }
 
     const optimisticMessageId = appendOptimisticUserMessage(threadId, nextText, imageUrls, skills, fileAttachments)
 
@@ -4879,7 +4779,6 @@ export function useDesktopState() {
         fileAttachments,
         submittedMode,
         optimisticMessageId,
-        submittedGenerationSettings,
       ).catch((unknownError) => {
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(threadId, errorMessage)
@@ -4918,7 +4817,6 @@ export function useDesktopState() {
         fileAttachments,
         submittedMode,
         optimisticMessageId,
-        submittedGenerationSettings,
       )
     } catch (unknownError) {
       shouldAutoScrollOnNextAgentEvent = false
@@ -5035,10 +4933,9 @@ export function useDesktopState() {
     fileAttachments: FileAttachment[] = [],
     collaborationModeOverride?: CollaborationModeKind,
     optimisticMessageId?: string,
-    generationSettings?: QueuedGenerationSettings,
   ): Promise<void> {
     realtimeRevisionByThreadId.set(threadId, (realtimeRevisionByThreadId.get(threadId) ?? 0) + 1)
-    const reasoningEffort = generationSettings?.effort ?? selectedReasoningEffort.value
+    const reasoningEffort = selectedReasoningEffort.value
     const collaborationMode = collaborationModeOverride === 'plan' ? 'plan' : collaborationModeOverride === 'default'
       ? 'default'
       : selectedCollaborationMode.value
@@ -5064,7 +4961,6 @@ export function useDesktopState() {
       effort: reasoningEffort,
       collaborationMode,
       fallbackRetried: false,
-      preserveGenerationSettings: Boolean(generationSettings),
     })
 
     try {
@@ -5078,10 +4974,7 @@ export function useDesktopState() {
           [threadId]: true,
         }
       }
-      if (generationSettings?.unsupportedProvider) {
-        throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
-      }
-      const modelId = generationSettings?.model ?? readModelIdForThread(threadId)
+      const modelId = readModelIdForThread(threadId)
 
       recordModelUsage(modelId)
       let startedTurnId = ''
@@ -5095,10 +4988,9 @@ export function useDesktopState() {
           skills.length > 0 ? skills : undefined,
           fileAttachments,
           collaborationMode,
-          Boolean(generationSettings),
         )
       } catch (unknownError) {
-        if (!generationSettings && modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
+        if (modelId && modelId !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(unknownError)) {
           await applyFallbackModelSelection(threadId)
           setPendingTurnRequest(threadId, {
             text: normalizedText,
@@ -5145,29 +5037,6 @@ export function useDesktopState() {
     } catch (unknownError) {
       throw unknownError
     }
-  }
-
-  async function processQueuedMessages(threadId: string): Promise<void> {
-    if (queueProcessingByThreadId.value[threadId] === true) return
-    queueProcessingByThreadId.value = {
-      ...queueProcessingByThreadId.value,
-      [threadId]: true,
-    }
-    try {
-      queuedMessagesByThreadId.value = await getThreadQueueState()
-    } catch {
-      // Backend queue state is optional during transient bridge failures.
-    } finally {
-      queueProcessingByThreadId.value = omitKey(queueProcessingByThreadId.value, threadId)
-    }
-  }
-
-  function scheduleQueueStateRefresh(threadId: string): void {
-    void processQueuedMessages(threadId)
-    if (typeof window === 'undefined') return
-    window.setTimeout(() => {
-      void processQueuedMessages(threadId)
-    }, 650)
   }
 
   async function interruptSelectedThreadTurn(): Promise<void> {
@@ -5531,60 +5400,8 @@ export function useDesktopState() {
     interruptBlockedUntilPersistedByThreadId.value = {}
     threadListedByServerById.value = {}
     persistedUserMessageByThreadId.value = {}
-    queuedMessagesByThreadId.value = {}
-    queueProcessingByThreadId.value = {}
-    persistQueueState()
     codexRateLimit.value = null
     threadTokenUsageByThreadId.value = {}
-  }
-
-  const selectedThreadQueuedMessages = computed<QueuedMessage[]>(() => {
-    const threadId = selectedThreadId.value
-    if (!threadId) return []
-    return queuedMessagesByThreadId.value[threadId] ?? []
-  })
-
-  function removeQueuedMessage(messageId: string): void {
-    const threadId = selectedThreadId.value
-    if (!threadId) return
-    const queue = queuedMessagesByThreadId.value[threadId]
-    if (!queue) return
-    const next = queue.filter((m) => m.id !== messageId)
-    queuedMessagesByThreadId.value = next.length > 0
-      ? { ...queuedMessagesByThreadId.value, [threadId]: next }
-      : omitKey(queuedMessagesByThreadId.value, threadId)
-    persistQueueState()
-  }
-
-  function reorderQueuedMessage(draggedId: string, targetId: string): void {
-    const threadId = selectedThreadId.value
-    if (!threadId) return
-    const queue = queuedMessagesByThreadId.value[threadId]
-    if (!queue) return
-
-    const fromIndex = queue.findIndex((m) => m.id === draggedId)
-    const toIndex = queue.findIndex((m) => m.id === targetId)
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return
-
-    const next = [...queue]
-    const [moved] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, moved)
-    queuedMessagesByThreadId.value = {
-      ...queuedMessagesByThreadId.value,
-      [threadId]: next,
-    }
-    persistQueueState()
-  }
-
-  function steerQueuedMessage(messageId: string): void {
-    const threadId = selectedThreadId.value
-    if (!threadId) return
-    const queue = queuedMessagesByThreadId.value[threadId]
-    if (!queue) return
-    const msg = queue.find((m) => m.id === messageId)
-    if (!msg) return
-    removeQueuedMessage(messageId)
-    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments, undefined, msg.collaborationMode, msg.generationSettings ?? null)
   }
 
   function primeSelectedThread(threadId: string, options: { persist?: boolean } = {}): void {
@@ -5639,10 +5456,6 @@ export function useDesktopState() {
     sendMessageToSelectedThread,
     sendMessageToNewThread,
     interruptSelectedThreadTurn,
-    selectedThreadQueuedMessages,
-    removeQueuedMessage,
-    reorderQueuedMessage,
-    steerQueuedMessage,
     setSelectedCollaborationMode,
     readModelIdForThread,
     readReasoningEffortForThread,

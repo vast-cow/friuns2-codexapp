@@ -1,6 +1,6 @@
 # Chat Composer and Message Rendering
 
-Composer controls, queued messages, plan mode, markdown parsing, file links, attachments, generated images, and visible message rows.
+Composer controls, immediate steering, plan mode, markdown parsing, file links, attachments, generated images, and visible message rows.
 
 Return to the [manual test index](../../tests.md).
 
@@ -40,13 +40,10 @@ Return to the [manual test index](../../tests.md).
 | [New-thread plan mode persists and toggles correctly](new-thread-plan-mode-persists-and-toggles-correctly.md) |
 | [Completed plan cards expose implement action](completed-plan-cards-expose-implement-action.md) |
 | [Default mode can follow plan mode in the same thread](default-mode-can-follow-plan-mode-in-the-same-thread.md) |
-| [Queue mode is default for in-progress messages](queue-mode-is-default-for-in-progress-messages.md) |
-| [Backend-persisted queued messages and drag reorder](backend-persisted-queued-messages-and-drag-reorder.md) |
-| [Backend-drained queue UI refresh](backend-drained-queue-ui-refresh.md) |
-| [Persisted idle queue recovery](persisted-idle-queue-recovery.md) |
 | [First user message is visible immediately in new chats](first-user-message-is-visible-immediately-in-new-chats.md) |
 | [New chat live thinking and stop controls](new-chat-live-thinking-and-stop-controls.md) |
 | [Bold URL trailing punctuation parsing](bold-url-trailing-punctuation-parsing.md) |
 | [Thread goals and slash commands](thread-goals-and-slash-commands.md) |
 | [Prompt and answer timestamps](message-timestamps.md) |
 | [User message toolbar alignment](user-message-toolbar-alignment.md) |
+| [Immediate steering and retired queue state](immediate-steering.md) |

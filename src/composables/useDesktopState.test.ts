@@ -22,7 +22,6 @@ const gatewayMocks = vi.hoisted(() => ({
   getSkillsList: vi.fn(),
   getThreadDetail: vi.fn(),
   getThreadGroupsPage: vi.fn(),
-  getThreadQueueState: vi.fn(),
   getThreadTitleCache: vi.fn(),
   getWorkspaceRootsState: vi.fn(),
   generateThreadTitle: vi.fn(),
@@ -34,7 +33,6 @@ const gatewayMocks = vi.hoisted(() => ({
   revertThreadFileChanges: vi.fn(),
   rollbackThread: vi.fn(),
   setCodexSpeedMode: vi.fn(),
-  setThreadQueueState: vi.fn(),
   setWorkspaceRootsState: vi.fn(),
   startThread: vi.fn(),
   startThreadTurn: vi.fn(),
@@ -82,8 +80,6 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  gatewayMocks.setThreadQueueState.mockResolvedValue(undefined)
-  gatewayMocks.getThreadQueueState.mockResolvedValue({})
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gatewayMocks.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots state'))
 })

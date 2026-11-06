@@ -1,5 +1,4 @@
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
-import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink, realpath, utimes } from 'node:fs/promises'
@@ -28,7 +27,6 @@ import {
   resolveCodexCommand,
   resolveRipgrepCommand,
 } from '../commandResolution.js'
-import type { CollaborationModeKind, ReasoningEffort } from '../types/codex.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots.js'
 import { isAbsoluteLikePath } from '../pathUtils.js'
 
@@ -2885,177 +2883,11 @@ async function writePinnedThreadIds(threadIds: string[]): Promise<void> {
   })
 }
 
-const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
-
-type StoredQueuedMessage = {
-  generationSettings?: QueuedGenerationSettings
-  id: string
-  text: string
-  imageUrls: string[]
-  skills: Array<{ name: string; path: string }>
-  fileAttachments: Array<{ label: string; path: string; fsPath: string }>
-  collaborationMode: 'default' | 'plan'
-}
-
-type ThreadQueueState = Record<string, StoredQueuedMessage[]>
-
-type BackendQueuedTurn = {
-  threadId: string
-  message: StoredQueuedMessage
-}
-
-type ThreadQueueStateUpdate<T> = {
-  nextState: ThreadQueueState
-  result: T
-}
-
-type ResolvedCollaborationModeSettings = {
-  model: string
-  reasoningEffort: ReasoningEffort | null
-}
-
-function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | null {
-  const record = asRecord(value)
-  if (!record) return null
-
-  const id = typeof record.id === 'string' ? record.id.trim() : ''
-  if (!id) return null
-
-  const normalizeNamedPathItems = (items: unknown): Array<{ name: string; path: string }> => {
-    if (!Array.isArray(items)) return []
-    return items.flatMap((item) => {
-      const itemRecord = asRecord(item)
-      if (!itemRecord) return []
-      const name = typeof itemRecord.name === 'string' ? itemRecord.name.trim() : ''
-      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      return name && path ? [{ name, path }] : []
-    })
-  }
-
-  const normalizeFileAttachments = (items: unknown): Array<{ label: string; path: string; fsPath: string }> => {
-    if (!Array.isArray(items)) return []
-    return items.flatMap((item) => {
-      const itemRecord = asRecord(item)
-      if (!itemRecord) return []
-      const label = typeof itemRecord.label === 'string' ? itemRecord.label.trim() : ''
-      const path = typeof itemRecord.path === 'string' ? itemRecord.path.trim() : ''
-      const fsPath = typeof itemRecord.fsPath === 'string' ? itemRecord.fsPath.trim() : ''
-      return label && path && fsPath ? [{ label, path, fsPath }] : []
-    })
-  }
-
-  const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
-
-  return {
-    id,
-    text: typeof record.text === 'string' ? record.text : '',
-    imageUrls: normalizeStringArray(record.imageUrls),
-    skills: normalizeNamedPathItems(record.skills),
-    fileAttachments: normalizeFileAttachments(record.fileAttachments),
-    collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
-    ...(generationSettings ? { generationSettings } : {}),
-  }
-}
-
-function normalizeThreadQueueState(value: unknown): ThreadQueueState {
-  const record = asRecord(value)
-  if (!record) return {}
-
-  const state: ThreadQueueState = {}
-  for (const [threadId, rawMessages] of Object.entries(record)) {
-    const normalizedThreadId = threadId.trim()
-    if (!normalizedThreadId || !Array.isArray(rawMessages)) continue
-    const messages = rawMessages.flatMap((item) => {
-      const message = normalizeStoredQueuedMessage(item)
-      return message ? [message] : []
-    })
-    if (messages.length > 0) {
-      state[normalizedThreadId] = messages
-    }
-  }
-  return state
-}
-
-async function readThreadQueueState(): Promise<ThreadQueueState> {
-  const payload = await readCodexGlobalState()
-  return normalizeThreadQueueState(payload[THREAD_QUEUE_STATE_KEY])
-}
-
-async function withThreadQueueStateUpdate<T>(
-  update: (state: ThreadQueueState) => ThreadQueueStateUpdate<T>,
-): Promise<T> {
-  return updateCodexGlobalState((payload) => {
-    const currentState = normalizeThreadQueueState(payload[THREAD_QUEUE_STATE_KEY])
-    const { nextState, result } = update(currentState)
-    if (nextState === currentState) return result
-    const normalized = normalizeThreadQueueState(nextState)
-    if (Object.keys(normalized).length > 0) {
-      payload[THREAD_QUEUE_STATE_KEY] = normalized
-    } else {
-      delete payload[THREAD_QUEUE_STATE_KEY]
-    }
-    return result
-  })
-}
-
-async function writeThreadQueueState(nextState: ThreadQueueState): Promise<void> {
-  await withThreadQueueStateUpdate(() => ({
-    nextState: normalizeThreadQueueState(nextState),
-    result: undefined,
-  }))
-}
-
-function normalizeReasoningEffort(value: unknown, model: Record<string, unknown> | null | undefined): ReasoningEffort | null {
-  const supported = Array.isArray(model?.supportedReasoningEfforts)
-    ? model.supportedReasoningEfforts.map((entry: unknown) => typeof entry === 'string' ? entry : asRecord(entry)?.reasoningEffort)
-      .filter((effort): effort is ReasoningEffort => typeof effort === 'string' && effort.trim().length > 0)
-    : []
-  if (supported.includes(value as ReasoningEffort)) return value as ReasoningEffort
-  if (supported.includes(model?.defaultReasoningEffort as ReasoningEffort)) return model?.defaultReasoningEffort as ReasoningEffort
-  return supported[0] ?? null
-}
-
-function extractLocalImagePathFromUrl(value: string): string | null {
-  if (!value) return null
-  try {
-    const parsed = new URL(value, 'http://localhost')
-    if (parsed.pathname !== '/codex-local-image') return null
-    const path = parsed.searchParams.get('path')?.trim() ?? ''
-    return path.length > 0 ? path : null
-  } catch {
-    return null
-  }
-}
 
 function fileNameFromPath(pathValue: string): string {
   const normalized = pathValue.replace(/\\/g, '/')
   const segments = normalized.split('/').filter(Boolean)
   return segments.at(-1) ?? normalized
-}
-
-function extractThreadIdFromNotificationParams(params: unknown): string {
-  const record = asRecord(params)
-  if (!record) return ''
-  const threadId =
-    (typeof record.threadId === 'string' ? record.threadId : '') ||
-    (typeof record.thread_id === 'string' ? record.thread_id : '') ||
-    (typeof record.conversationId === 'string' ? record.conversationId : '') ||
-    (typeof record.conversation_id === 'string' ? record.conversation_id : '')
-  if (threadId) return threadId
-  const thread = asRecord(record.thread)
-  if (thread && typeof thread.id === 'string') return thread.id
-  const turn = asRecord(record.turn)
-  if (turn) {
-    const turnThreadId =
-      (typeof turn.threadId === 'string' ? turn.threadId : '') ||
-      (typeof turn.thread_id === 'string' ? turn.thread_id : '')
-    if (turnThreadId) return turnThreadId
-  }
-  return ''
-}
-
-function isTurnCompletedNotification(notification: { method: string; params: unknown }): boolean {
-  return notification.method === 'turn/completed'
 }
 
 function getSessionIndexFileSignature(stats: { mtimeMs: number; size: number }): string {
@@ -4134,266 +3966,6 @@ class AppServerProcess {
   }
 }
 
-export class BackendQueueProcessor {
-  private readonly processingThreadIds = new Set<string>()
-  private readonly queueDrainTimersByThreadId = new Map<string, ReturnType<typeof setTimeout>>()
-  private readonly queueDrainDueAtByThreadId = new Map<string, number>()
-  private readonly unsubscribe: () => void
-
-  constructor(private readonly appServer: AppServerProcess) {
-    this.unsubscribe = appServer.onNotification((notification) => {
-      if (!isTurnCompletedNotification(notification)) return
-      const threadId = extractThreadIdFromNotificationParams(notification.params)
-      if (!threadId) return
-      void this.processThreadQueue(threadId)
-    })
-    void this.scheduleAllQueuedThreads(1000)
-  }
-
-  dispose(): void {
-    this.unsubscribe()
-    for (const timer of this.queueDrainTimersByThreadId.values()) {
-      clearTimeout(timer)
-    }
-    this.queueDrainTimersByThreadId.clear()
-    this.queueDrainDueAtByThreadId.clear()
-    this.processingThreadIds.clear()
-  }
-
-  async scheduleAllQueuedThreads(delayMs = 0): Promise<void> {
-    try {
-      const state = await readThreadQueueState()
-      for (const threadId of Object.keys(state)) {
-        this.scheduleThreadQueueDrain(threadId, delayMs)
-      }
-    } catch {
-      // Queue recovery is best-effort; normal turn-completed events can still drain later.
-    }
-  }
-
-  scheduleThreadQueueDrain(threadId: string, delayMs = 5000): void {
-    if (!threadId) return
-    const normalizedDelayMs = Math.max(0, delayMs)
-    const nextDueAt = Date.now() + normalizedDelayMs
-    const existingDueAt = this.queueDrainDueAtByThreadId.get(threadId)
-    const existingTimer = this.queueDrainTimersByThreadId.get(threadId)
-    if (existingTimer) {
-      if (existingDueAt !== undefined && existingDueAt <= nextDueAt) return
-      clearTimeout(existingTimer)
-      this.queueDrainTimersByThreadId.delete(threadId)
-      this.queueDrainDueAtByThreadId.delete(threadId)
-    }
-    const timer = setTimeout(() => {
-      this.queueDrainTimersByThreadId.delete(threadId)
-      this.queueDrainDueAtByThreadId.delete(threadId)
-      void this.processThreadQueue(threadId)
-    }, normalizedDelayMs)
-    timer.unref?.()
-    this.queueDrainTimersByThreadId.set(threadId, timer)
-    this.queueDrainDueAtByThreadId.set(threadId, nextDueAt)
-  }
-
-  async processThreadQueue(threadId: string): Promise<void> {
-    if (this.processingThreadIds.has(threadId)) return
-    this.processingThreadIds.add(threadId)
-    try {
-      const canStart = await this.canStartQueuedTurn(threadId)
-      if (!canStart) {
-        if (await this.hasQueuedTurns(threadId)) {
-          this.scheduleThreadQueueDrain(threadId)
-        }
-        return
-      }
-      const next = await this.popNextQueuedTurn(threadId)
-      if (!next) return
-      try {
-        await this.startQueuedTurn(next)
-        if (await this.hasQueuedTurns(threadId)) {
-          this.scheduleThreadQueueDrain(threadId)
-        }
-      } catch {
-        await this.restoreQueuedTurn(next)
-        this.scheduleThreadQueueDrain(threadId)
-      }
-    } catch {
-      // Queue processing is best-effort. Keep the bridge alive if app-server is unavailable.
-      this.scheduleThreadQueueDrain(threadId)
-    } finally {
-      this.processingThreadIds.delete(threadId)
-    }
-  }
-
-  private async hasQueuedTurns(threadId: string): Promise<boolean> {
-    const state = await readThreadQueueState()
-    const queue = state[threadId]
-    return Array.isArray(queue) && queue.length > 0
-  }
-
-  private async canStartQueuedTurn(threadId: string): Promise<boolean> {
-    const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: true }))
-    const thread = asRecord(response?.thread)
-    if (!thread) return false
-
-    const status = asRecord(thread.status)
-    const statusType = readNonEmptyString(status?.type)
-    if (statusType === 'inProgress' || statusType === 'running' || statusType === 'active') return false
-
-    const turns = Array.isArray(thread.turns) ? thread.turns : []
-    return !turns.some((turn) => readNonEmptyString(asRecord(turn)?.status) === 'inProgress')
-  }
-
-  private async popNextQueuedTurn(threadId: string): Promise<BackendQueuedTurn | null> {
-    return withThreadQueueStateUpdate((state) => {
-      const queue = state[threadId]
-      if (!queue || queue.length === 0) {
-        return { nextState: state, result: null }
-      }
-
-      const [message, ...rest] = queue
-      const nextState = { ...state }
-      if (rest.length > 0) {
-        nextState[threadId] = rest
-      } else {
-        delete nextState[threadId]
-      }
-      return { nextState, result: { threadId, message } }
-    })
-  }
-
-  private async restoreQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
-    await withThreadQueueStateUpdate((state) => {
-      const queue = state[turn.threadId] ?? []
-      return {
-        nextState: {
-          ...state,
-          [turn.threadId]: [turn.message, ...queue],
-        },
-        result: undefined,
-      }
-    })
-  }
-
-  private async resolveCollaborationModeSettings(mode: CollaborationModeKind, saved?: QueuedGenerationSettings): Promise<ResolvedCollaborationModeSettings> {
-    if (saved?.unsupportedProvider) {
-      throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
-    }
-    let currentConfig: Record<string, unknown> | null = null
-    try {
-      const configPayload = asRecord(await this.appServer.rpc('config/read', {}))
-      currentConfig = asRecord(configPayload?.config)
-    } catch {}
-    const configuredModel = readNonEmptyString(currentConfig?.model)
-    const models: Record<string, unknown>[] = []
-    try {
-      let cursor: string | null = null
-      const seen = new Set<string>()
-      do {
-        const payload = asRecord(await this.appServer.rpc('model/list', cursor ? { cursor } : {}))
-        if (Array.isArray(payload?.data)) {
-          for (const row of payload.data) {
-            const record = asRecord(row)
-            if (record && (readNonEmptyString(record.id) || readNonEmptyString(record.model))) models.push(record)
-          }
-        }
-        cursor = readNonEmptyString(payload?.nextCursor)
-        if (!cursor || seen.has(cursor)) break
-        seen.add(cursor)
-      } while (cursor)
-    } catch {
-      models.length = 0
-    }
-    const model = saved?.model || configuredModel || readNonEmptyString(models[0]?.id) || readNonEmptyString(models[0]?.model)
-    if (model) {
-      const capabilities = models.find((entry) => entry.id === model || entry.model === model)
-      // An unavailable or differently scoped catalog cannot invalidate an explicit choice.
-      // Empty effort means unspecified, whereas "none" is a real reasoning effort.
-      const reasoningEffort = saved
-        ? !saved.effort ? null
-          : Array.isArray(capabilities?.supportedReasoningEfforts) ? normalizeReasoningEffort(saved.effort, capabilities) : saved.effort
-        : normalizeReasoningEffort(currentConfig?.model_reasoning_effort, capabilities)
-      return { model, reasoningEffort }
-    }
-    throw new Error(`${mode === 'plan' ? 'Plan' : 'Default'} mode requires an available model.`)
-  }
-
-  private async buildQueuedTurnParams(turn: BackendQueuedTurn): Promise<Record<string, unknown>> {
-    const localImageAttachments: StoredQueuedMessage['fileAttachments'] = []
-    for (const imageUrl of turn.message.imageUrls) {
-      const localImagePath = extractLocalImagePathFromUrl(imageUrl.trim())
-      if (!localImagePath) continue
-      localImageAttachments.push({
-        label: fileNameFromPath(localImagePath),
-        path: localImagePath,
-        fsPath: localImagePath,
-      })
-    }
-
-    const allFileAttachments = [...turn.message.fileAttachments, ...localImageAttachments]
-    const dedupedFileAttachments = allFileAttachments.filter((entry, index) =>
-      allFileAttachments.findIndex((candidate) => candidate.fsPath === entry.fsPath) === index)
-
-    const input: Array<Record<string, unknown>> = [{
-      type: 'text',
-      text: buildTextWithAttachments(turn.message.text, dedupedFileAttachments),
-    }]
-
-    for (const imageUrl of turn.message.imageUrls) {
-      const normalizedUrl = imageUrl.trim()
-      if (!normalizedUrl) continue
-      const localImagePath = extractLocalImagePathFromUrl(normalizedUrl)
-      if (localImagePath) {
-        input.push({ type: 'localImage', path: localImagePath })
-      } else {
-        input.push({ type: 'image', url: normalizedUrl, image_url: normalizedUrl })
-      }
-    }
-
-    for (const skill of turn.message.skills) {
-      input.push({ type: 'skill', name: skill.name, path: skill.path })
-    }
-
-    const params: Record<string, unknown> = {
-      threadId: turn.threadId,
-      input,
-    }
-    if (dedupedFileAttachments.length > 0) {
-      params.attachments = dedupedFileAttachments.map((f) => ({ label: f.label, path: f.path, fsPath: f.fsPath }))
-    }
-
-    const applySettings = (settings: ResolvedCollaborationModeSettings): void => {
-      params.model = settings.model
-      if (settings.reasoningEffort !== null) params.effort = settings.reasoningEffort
-      params.collaborationMode = {
-        mode: turn.message.collaborationMode,
-        settings: {
-          model: settings.model,
-          reasoning_effort: settings.reasoningEffort,
-          developer_instructions: null,
-        },
-      }
-    }
-    if (turn.message.generationSettings) {
-      applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode, turn.message.generationSettings))
-    } else {
-      try {
-        applySettings(await this.resolveCollaborationModeSettings(turn.message.collaborationMode))
-      } catch {
-        // Older app-server versions still accept a plain turn/start without collaborationMode.
-      }
-    }
-
-    return params
-  }
-
-  private async startQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
-    if (turn.message.generationSettings?.unsupportedProvider) {
-      throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
-    }
-    await this.appServer.rpc('thread/resume', { threadId: turn.threadId })
-    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn))
-  }
-}
-
 class MethodCatalog {
   private methodCache: string[] | null = null
   private notificationCache: string[] | null = null
@@ -4517,11 +4089,10 @@ type SharedBridgeState = {
   appServer: AppServerProcess
   methodCatalog: MethodCatalog
   telegramBridge: TelegramNotificationService
-  backendQueueProcessor: BackendQueueProcessor
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'project-history-api-v1'
+const SHARED_BRIDGE_VERSION = 'immediate-steer-v1'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -4533,17 +4104,27 @@ function getSharedBridgeState(): SharedBridgeState {
     if (existing.version === SHARED_BRIDGE_VERSION) {
       return existing
     }
+    // Old workers may be awaiting disk/RPC work when hot reload replaces the bridge.
+    // Prevent those continuations from scheduling or submitting another prompt.
+    const legacyWorker = (existing as SharedBridgeState & {
+      backendQueueProcessor?: { dispose(): void } & Record<string, unknown>
+    }).backendQueueProcessor
+    if (legacyWorker) {
+      legacyWorker.dispose()
+      for (const method of ['scheduleThreadQueueDrain', 'processThreadQueue', 'startQueuedTurn']) {
+        legacyWorker[method] = async () => undefined
+      }
+      existing.appServer.rpc = async () => { throw new Error('Retired app-server bridge') }
+    }
+    existing.telegramBridge.stop()
     existing.appServer.dispose()
-    existing.backendQueueProcessor?.dispose()
   }
 
   const appServer = new AppServerProcess()
-  const backendQueueProcessor = new BackendQueueProcessor(appServer)
   const created: SharedBridgeState = {
     version: SHARED_BRIDGE_VERSION,
     appServer,
     methodCatalog: new MethodCatalog(),
-    backendQueueProcessor,
     telegramBridge: new TelegramNotificationService(appServer, {
       outboxPath: join(getCodexHomeDir(), 'telegram-notification-outbox.json'),
     }),
@@ -4629,7 +4210,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, methodCatalog, telegramBridge, backendQueueProcessor } = getSharedBridgeState()
+  const { appServer, methodCatalog, telegramBridge } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -5132,12 +4713,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
-      if (req.method === 'GET' && url.pathname === '/codex-api/thread-queue-state') {
-        const state = await readThreadQueueState()
-        setJson(res, 200, { data: state })
-        return
-      }
-
       if (req.method === 'GET' && url.pathname === '/codex-api/home-directory') {
         setJson(res, 200, { data: { path: homedir() } })
         return
@@ -5427,19 +5002,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         }
         const state = await applyWorkspaceRootsOperation(operation)
         setJson(res, 200, { data: state })
-        return
-      }
-
-      if (req.method === 'PUT' && url.pathname === '/codex-api/thread-queue-state') {
-        const payload = await readJsonBody(req)
-        const record = asRecord(payload)
-        if (!record) {
-          setJson(res, 400, { error: 'Invalid body: expected object' })
-          return
-        }
-        await writeThreadQueueState(normalizeThreadQueueState(record))
-        void backendQueueProcessor.scheduleAllQueuedThreads()
-        setJson(res, 200, { ok: true })
         return
       }
 
@@ -5783,7 +5345,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   middleware.dispose = () => {
     threadSearchIndex = null
     telegramBridge.stop()
-    backendQueueProcessor.dispose()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (

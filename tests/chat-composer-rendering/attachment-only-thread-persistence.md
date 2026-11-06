@@ -13,7 +13,7 @@
 3. Confirm the thread remains in the sidebar and the persisted first user request includes `Attached file: pasted-text-...txt`. Ask Codex to read the file and report its unique marker.
 4. Repeat with only a manually uploaded `notes.txt`, then with whitespace-only composer content, then with both prepared files and no request text.
 5. Submit an attachment with a multiline request. Confirm the request is retained and no fallback is appended. Send a plain text message and confirm its existing behavior.
-6. While a turn runs, queue an attachment with no text. Let it drain and confirm the persisted request includes the filename and Codex can read the file. Repeat the reload and application restart checks.
+6. While a turn runs, submit an attachment with no text. Confirm immediate submission includes its filename, then repeat the reload checks.
 7. Repeat the sidebar and message visibility checks in light and dark themes.
 
 ## Expected Results
@@ -21,7 +21,7 @@
 - Attachment-only requests contain a concise filename-based summary after `## My request for Codex:`; multiple files have a filename list and a remaining count when needed.
 - Attachment references remain intact and contents remain accessible without being copied into the prompt.
 - Threads remain discoverable after completion, full thread-list refresh, page reload, and application restart.
-- Non-empty requests and text-only messages retain the existing format; normal and queued sends use the same attachment format.
+- Non-empty requests and text-only messages retain the existing format; normal and steering sends use the same attachment format.
 - This change prevents empty requests on future submissions; it does not repair previously missing threads.
 
 ## Cleanup

@@ -2,7 +2,6 @@
   <section v-if="request" class="thread-pending-request">
     <article
       class="thread-pending-request-shell"
-      :class="{ 'thread-pending-request-shell--no-top-radius': hasQueueAbove }"
     >
       <template v-if="isApprovalRequest(request)">
         <p class="thread-pending-request-title">{{ requestPanelPrompt(request) }}</p>
@@ -274,7 +273,6 @@ type McpElicitationField = {
 const props = defineProps<{
   request: UiServerRequest | null
   requestCount?: number
-  hasQueueAbove?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -992,9 +990,6 @@ function onRejectUnknownRequest(request: UiServerRequest): void {
   @apply w-full rounded-[1.75rem] border border-zinc-700 bg-zinc-900 px-4 py-4 sm:px-5 sm:py-4 text-zinc-100 shadow-xl;
 }
 
-.thread-pending-request-shell--no-top-radius {
-  @apply rounded-t-none border-t-0;
-}
 
 .thread-pending-request-header {
   @apply flex items-start justify-between gap-3;

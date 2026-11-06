@@ -110,10 +110,6 @@
                 <span class="sidebar-settings-label">{{ t('Require ⌘ + enter to send') }}</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
               </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
-                <span class="sidebar-settings-label">{{ t('When busy, send as') }}</span>
-                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? t('Steer') : t('Queue') }}</span>
-              </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
                 <span class="sidebar-settings-label">{{ t('Appearance') }}</span>
                 <span class="sidebar-settings-value">{{ darkMode === 'system' ? t('System') : darkMode === 'dark' ? t('Dark') : t('Light') }}</span>
@@ -547,7 +543,7 @@
                 </div>
               </div>
 
-              <div class="composer-with-queue">
+              <div class="composer-container">
                 <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
                   <span>{{ t(codexCliMissingError) }}</span>
                 </div>
@@ -563,7 +559,7 @@
                   :skills="installedSkills"
                   :is-turn-in-progress="false"
                   :is-stop-pending="false"
-                  :is-interrupting-turn="false" :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                  :is-interrupting-turn="false" :send-with-enter="sendWithEnter"
                   @submit="onSubmitThreadMessage"
                   @update:selected-collaboration-mode="onSelectCollaborationMode"
                   @update:selected-model="onSelectModel"
@@ -587,17 +583,10 @@
                   @implement-plan="onImplementPlan" />
               </div>
 
-              <div class="composer-with-queue">
+              <div class="composer-container">
                 <div v-if="codexCliMissingError" class="composer-runtime-error" role="alert">
                   <span>{{ t(codexCliMissingError) }}</span>
                 </div>
-                <QueuedMessages
-                  :messages="selectedThreadQueuedMessages"
-                  @edit="onEditQueuedMessage"
-                  @steer="steerQueuedMessage"
-                  @delete="removeQueuedMessage"
-                  @reorder="onReorderQueuedMessage"
-                />
                 <ThreadGoalPanel
                   ref="threadGoalPanelRef"
                   :thread-id="selectedThreadId"
@@ -607,7 +596,6 @@
                   v-if="selectedThreadPendingRequest"
                   :request="selectedThreadPendingRequest"
                   :request-count="selectedThreadServerRequests.length"
-                  :has-queue-above="selectedThreadQueuedMessages.length > 0"
                   @respond-server-request="onRespondServerRequest"
                 />
                 <ThreadComposer
@@ -627,8 +615,7 @@
                   :is-turn-in-progress="isSelectedThreadInProgress"
                   :is-stop-pending="isSelectedThreadInterruptPending"
                   :is-interrupting-turn="isInterruptingTurn"
-                  :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                  :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                  :send-with-enter="sendWithEnter"
                   @update:selected-collaboration-mode="onSelectCollaborationMode"
                   @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
                   @update:selected-reasoning-effort="onSelectReasoningEffort"
@@ -722,7 +709,6 @@ import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadGoalPanel from './components/content/ThreadGoalPanel.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
-import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import ComposerRuntimeDropdown from './components/content/ComposerRuntimeDropdown.vue'
@@ -757,7 +743,7 @@ import {
   searchThreads,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, UiServerRequest, UiServerRequestReply, UiThreadTokenUsage } from './types/codex'
-import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
+import type { ThreadComposerExposed } from './components/content/ThreadComposer.vue'
 import type { LocalDirectoryEntry, TelegramStatus, WorktreeBranchOption } from './api/codexGateway'
 import { getCodexAuthenticationStatus } from './api/codexGateway'
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
@@ -772,7 +758,6 @@ const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const SETTINGS_HELP = {
   sendWithEnter: t('When enabled, press Enter to send. When disabled, use Command+Enter to send.'),
-  inProgressSendMode: t('If a turn is still running, choose whether a new prompt should steer the current turn or be queued.'),
   appearance: t('Switch between system theme, light mode, and dark mode.'),
   chatWidth: t('Choose how wide the conversation column and composer can grow on desktop screens.'),
 } as const
@@ -850,10 +835,6 @@ const {
   sendMessageToSelectedThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
-  selectedThreadQueuedMessages,
-  removeQueuedMessage,
-  reorderQueuedMessage,
-  steerQueuedMessage,
   setSelectedCollaborationMode,
   readModelIdForThread,
   readReasoningEffortForThread,
@@ -880,7 +861,6 @@ const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadGoalPanelRef = ref<InstanceType<typeof ThreadGoalPanel> | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadConversationRef = ref<{ jumpToLatest: () => void } | null>(null)
-const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number; message: (typeof selectedThreadQueuedMessages.value)[number] } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const directoryTryInFlightKey = ref('')
 let hasPendingRouteSync = false
@@ -929,12 +909,10 @@ const accountActionError = ref('')
 const codexAuthAvailable = ref<boolean | null>(null)
 const isRefreshingCodexAuth = ref(false)
 const SEND_WITH_ENTER_KEY = 'codex-web-local.send-with-enter.v1'
-const IN_PROGRESS_SEND_MODE_KEY = 'codex-web-local.in-progress-send-mode.v1'
 const DARK_MODE_KEY = 'codex-web-local.dark-mode.v1'
 
 const CHAT_WIDTH_KEY = 'codex-web-local.chat-width.v1'
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
-const inProgressSendMode = ref<'steer' | 'queue'>(loadInProgressSendModePref())
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
 const chatWidth = ref<ChatWidthMode>(loadChatWidthPref())
 const isTelegramConfigOpen = ref(false)
@@ -1858,7 +1836,7 @@ async function handleServerRequestResponse(payload: UiServerRequestReply): Promi
   if (!responded || !followUpMessageText || isHomeRoute.value) return
 
   try {
-    await sendMessageToSelectedThread(followUpMessageText, [], [], 'steer', [])
+    await sendMessageToSelectedThread(followUpMessageText, [], [], [])
   } catch {
     // sendMessageToSelectedThread already surfaces the error through shared state.
   }
@@ -1960,50 +1938,15 @@ function scheduleWorkspaceRootsResume(): void {
   }, 100)
 }
 
-function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }>; mode: 'steer' | 'queue' }): void {
+function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fileAttachments: Array<{ label: string; path: string; fsPath: string }>; skills: Array<{ name: string; path: string }> }): void {
   const text = payload.text
   scheduleMobileConversationJumpToLatest()
-  const editingState = editingQueuedMessageState.value
-  const queueInsertIndex =
-    payload.mode === 'queue'
-    && editingState
-    && editingState.threadId === selectedThreadId.value
-      ? editingState.queueIndex
-      : undefined
-  editingQueuedMessageState.value = null
   if (isHomeRoute.value) {
     void submitFirstMessageForNewThread(text, payload.imageUrls, payload.skills, payload.fileAttachments)
     return
   }
-  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex,
-    editingState?.threadId === selectedThreadId.value ? editingState.message.collaborationMode : undefined,
-    editingState?.threadId === selectedThreadId.value ? editingState.message.generationSettings ?? null : undefined)
+  void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.fileAttachments)
 }
-
-function onEditQueuedMessage(messageId: string): void {
-  const queueIndex = selectedThreadQueuedMessages.value.findIndex((item) => item.id === messageId)
-  const message = queueIndex >= 0 ? selectedThreadQueuedMessages.value[queueIndex] : undefined
-  const composer = threadComposerRef.value
-  if (!message || !composer) return
-
-  if (composer.hasUnsavedDraft()) {
-    const shouldReplace = window.confirm('Replace the current draft with this queued message for editing?')
-    if (!shouldReplace) return
-  }
-
-  editingQueuedMessageState.value = selectedThreadId.value
-    ? { threadId: selectedThreadId.value, queueIndex, message }
-    : null
-  const payload: ComposerDraftPayload = {
-    text: message.text,
-    imageUrls: [...message.imageUrls],
-    fileAttachments: message.fileAttachments.map((attachment) => ({ ...attachment })),
-    skills: message.skills.map((skill) => ({ ...skill })),
-  }
-  composer.hydrateDraft(payload)
-  removeQueuedMessage(messageId)
-}
-
 
 function scheduleMobileConversationJumpToLatest(): void {
   if (!isMobile.value || isHomeRoute.value) return
@@ -2410,9 +2353,6 @@ function collapsePathSegments(rawSegments: readonly string[]): string[] {
   return segments
 }
 
-function onReorderQueuedMessage(payload: { draggedId: string; targetId: string }): void {
-  reorderQueuedMessage(payload.draggedId, payload.targetId)
-}
 
 function onSelectModel(modelId: string): void {
   setSelectedModelIdForThread(composerThreadContextId.value, modelId)
@@ -2451,7 +2391,7 @@ function onImplementPlan(payload: { turnId: string }): void {
   if (isHomeRoute.value || !selectedThreadId.value) return
   setSelectedCollaborationMode('default')
   scheduleMobileConversationJumpToLatest()
-  void sendMessageToSelectedThread('Implement', [], [], 'steer', [], undefined, 'default')
+  void sendMessageToSelectedThread('Implement', [], [], [], 'default')
 }
 
 
@@ -2541,13 +2481,6 @@ function loadDarkModePref(): 'system' | 'light' | 'dark' {
   return 'system'
 }
 
-function loadInProgressSendModePref(): 'steer' | 'queue' {
-  if (typeof window === 'undefined') return 'steer'
-  const v = window.localStorage.getItem(IN_PROGRESS_SEND_MODE_KEY)
-  if (v === 'steer' || v === 'queue') return v
-  return 'queue'
-}
-
 function loadChatWidthPref(): ChatWidthMode {
   if (typeof window === 'undefined') return 'standard'
   const value = window.localStorage.getItem(CHAT_WIDTH_KEY)
@@ -2557,11 +2490,6 @@ function loadChatWidthPref(): ChatWidthMode {
 function toggleSendWithEnter(): void {
   sendWithEnter.value = !sendWithEnter.value
   window.localStorage.setItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
-}
-
-function cycleInProgressSendMode(): void {
-  inProgressSendMode.value = inProgressSendMode.value === 'steer' ? 'queue' : 'steer'
-  window.localStorage.setItem(IN_PROGRESS_SEND_MODE_KEY, inProgressSendMode.value)
 }
 
 function cycleDarkMode(): void {
@@ -3086,7 +3014,7 @@ async function onLogoutCodex(): Promise<void> {
   min-height: 0;
 }
 
-.content-root.is-virtual-keyboard-open .composer-with-queue {
+.content-root.is-virtual-keyboard-open .composer-container {
   gap: 0.375rem;
   padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
 }
@@ -3113,7 +3041,7 @@ async function onLogoutCodex(): Promise<void> {
   @apply flex-1 min-h-0;
 }
 
-.composer-with-queue {
+.composer-container {
   @apply w-full shrink-0 px-2 sm:px-6 flex flex-col gap-2;
 }
 

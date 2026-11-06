@@ -22,7 +22,7 @@ New and existing thread sends render the submitted user message immediately and 
 11. With API response interception or a test bridge, delay a `thread/read` response containing only the previous completed turn. Deliver a new assistant delta before releasing that response. Confirm the visible reply and active turn controls remain present.
 12. Return a history snapshot containing only a prefix of that assistant item, with the same item ID. Confirm the full streamed text remains visible in exactly one row. Deliver a matching history snapshot during streaming, then another delta; confirm the already displayed prefix is retained. Deliver the completed history and confirm it still renders once.
 13. Send the same prompt as an earlier turn. Confirm both user messages remain visible and the newest optimistic row is replaced when its own persisted turn arrives.
-14. During a running turn, submit one message in Queue mode and another in Steer mode. Confirm only the steering message immediately appears in the conversation and the queued message stays in the queue.
+14. During a running turn, submit another message. Confirm it appears immediately and is submitted without waiting for completion.
 15. Repeat steps 9–14 in both light and dark themes.
 
 #### Expected Results

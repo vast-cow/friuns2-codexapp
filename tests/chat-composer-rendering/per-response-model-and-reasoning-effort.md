@@ -11,7 +11,7 @@
 
 1. Select model A and effort `high`, then send a request long enough to stream. The activity area and assistant response show the submitted settings, marked `(sent setting)` until execution evidence is available.
 2. While A is running, select model B and another effort. A's footer retains its original values. Send the next request and check that its response shows B and its finalized effort.
-3. Queue a message during generation. Change the composer controls again before the queue drains. The queued response shows the values actually passed by the queue executor, rather than the later composer selection.
+3. Submit a message during generation. Confirm immediate submission and that response metadata reflects the settings sent with the request.
 4. Trigger the existing unsupported-model fallback. Check that the failed attempt and retry retain separate turn metadata and that the successful response shows the fallback model.
 5. Reload during a response, reload after completion, and restart the app server. Metadata remains associated with the same response. Settings are stored under `CODEX_HOME/codexapp-turn-metadata/`; session logs remain unchanged.
 6. Open a historical thread and use **Load earlier messages**. Each assistant response uses its own turn context. Recorded model/effort values take priority over submitted values independently; missing recorded fields can retain known submitted values.
@@ -25,6 +25,6 @@
 
 #### Rollback/Cleanup
 
-- Delete disposable threads and queued messages; restore the original model, effort, and appearance.
+- Delete disposable threads; restore the original model, effort, and appearance.
 - Remove the disposable `CODEX_HOME` if one was created. For a shared home, remove only the metadata sidecar belonging to the disposable thread (its filename is the SHA-256 of the thread ID).
 - These are manual instructions; they have not been executed for this change.
