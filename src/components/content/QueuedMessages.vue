@@ -31,6 +31,11 @@
           d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
       <span class="queued-row-text">{{ getMessagePreview(msg) }}</span>
+      <span v-if="msg.followUp" class="queued-row-text" :title="msg.followUp.predecessorTurnId">{{ t('After turn') }} {{ msg.followUp.predecessorTurnId.slice(0, 8) }}</span>
+      <ComposerDropdown v-if="msg.followUp" :model-value="msg.followUp.destinationThreadId || msg.followUp.destination"
+        :options="[{ value: 'same', label: t('Same thread') }, { value: 'new', label: t('New thread') }, ...destinationOptions]"
+        :placeholder="t('Destination thread')" enable-search open-direction="up"
+        @update:model-value="$emit('destination', msg.id, $event)" />
       <div class="queued-row-actions">
         <button class="queued-row-edit" type="button" :title="t('Edit queued message')" @click="$emit('edit', msg.id)">{{ t('Edit') }}</button>
         <button class="queued-row-steer" type="button" :title="t('Send now without interrupting work')" @click="$emit('steer', msg.id)">{{ t('Steer') }}</button>
@@ -47,10 +52,13 @@
 </template>
 
 <script setup lang="ts">
+import ComposerDropdown from './ComposerDropdown.vue'
+import type { QueuedFollowUp } from '../../queuedFollowUp'
 import { ref } from 'vue'
 import { useUiLanguage } from '../../composables/useUiLanguage'
 
 type QueuedMessageRow = {
+  followUp?: QueuedFollowUp
   id: string
   text: string
   imageUrls?: string[]
@@ -60,9 +68,11 @@ type QueuedMessageRow = {
 
 defineProps<{
   messages: QueuedMessageRow[]
+  destinationOptions: Array<{ value: string; label: string }>
 }>()
 
 const emit = defineEmits<{
+  destination: [messageId: string, destination: string]
   edit: [messageId: string]
   steer: [messageId: string]
   delete: [messageId: string]

@@ -593,6 +593,8 @@
                 </div>
                 <QueuedMessages
                   :messages="selectedThreadQueuedMessages"
+                  :destination-options="queueDestinationOptions"
+                  @destination="setQueuedDestination"
                   @edit="onEditQueuedMessage"
                   @steer="steerQueuedMessage"
                   @delete="removeQueuedMessage"
@@ -850,6 +852,8 @@ const {
   sendMessageToSelectedThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
+  queueDestinationOptions,
+  setQueuedDestination,
   selectedThreadQueuedMessages,
   removeQueuedMessage,
   reorderQueuedMessage,
@@ -1972,7 +1976,8 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
   }
   void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex,
     editingState?.threadId === selectedThreadId.value ? editingState.message.collaborationMode : undefined,
-    editingState?.threadId === selectedThreadId.value ? editingState.message.generationSettings ?? null : undefined)
+    editingState?.threadId === selectedThreadId.value ? editingState.message.generationSettings ?? null : undefined,
+    editingState?.threadId === selectedThreadId.value ? editingState.message.followUp : undefined)
 }
 
 function onEditQueuedMessage(messageId: string): void {

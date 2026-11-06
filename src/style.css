@@ -1430,3 +1430,7 @@
 :root.dark .directory-hub .directory-toast { background: #052e16; border-color: #166534; color: #bbf7d0; }
 :root.dark .directory-hub .directory-error,
 :root.dark .directory-hub .directory-toast.is-error { background: #4c0519; border-color: #9f1239; color: #fecdd3; }
+
+:root.dark .queued-messages-inner { border-color: #3f3f46; background: #18181b; }
+:root.dark .queued-row-text { color: #d4d4d8; }
+:root.dark .queued-row-edit, :root.dark .queued-row-steer { border-color: #52525b; background: #27272a; color: #e4e4e7; }

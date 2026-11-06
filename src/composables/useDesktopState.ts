@@ -1,3 +1,4 @@
+import { type QueuedFollowUp } from '../queuedFollowUp'
 import { type QueuedGenerationSettings } from '../queuedGenerationSettings'
 import { computed, ref, watch } from 'vue'
 import {
@@ -1363,6 +1364,7 @@ export function useDesktopState() {
   const inProgressById = ref<Record<string, boolean>>({})
   type FileAttachment = { label: string; path: string; fsPath: string }
   type QueuedMessage = {
+    followUp?: QueuedFollowUp
     generationSettings?: QueuedGenerationSettings
     id: string
     text: string
@@ -4122,6 +4124,7 @@ export function useDesktopState() {
       const normalizedThreadId = threadId.trim()
       if (!normalizedThreadId || queue.length === 0) continue
       next[normalizedThreadId] = queue.map((message) => ({
+        followUp: message.followUp,
         id: message.id,
         text: message.text,
         imageUrls: [...message.imageUrls],
@@ -4821,6 +4824,7 @@ export function useDesktopState() {
     queueInsertIndex?: number,
     collaborationModeOverride?: CollaborationModeKind,
     generationSettingsOverride?: QueuedGenerationSettings | null,
+    followUpOverride?: QueuedFollowUp,
   ): Promise<void> {
     if (isUpdatingSpeedMode.value) return
 
@@ -4835,6 +4839,7 @@ export function useDesktopState() {
         effort: selectedReasoningEffort.value,
       }),
     }
+    const submittedFollowUp = followUpOverride ?? (activeTurnIdByThreadId.value[threadId] ? { predecessorTurnId: activeTurnIdByThreadId.value[threadId]!, destination: 'same' as const } : undefined)
     const submittedMode = collaborationModeOverride ?? selectedCollaborationMode.value
     const submittedGenerationSettings = generationSettingsOverride
       || (mode === 'queue' && inProgressById.value[threadId] === true ? generationSettings : undefined)
@@ -4845,7 +4850,7 @@ export function useDesktopState() {
 
     const isInProgress = inProgressById.value[threadId] === true
 
-    if (isInProgress && mode === 'queue') {
+    if ((isInProgress && mode === 'queue') || followUpOverride) {
       const queue = queuedMessagesByThreadId.value[threadId] ?? []
       const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const nextQueue = [...queue]
@@ -4853,6 +4858,7 @@ export function useDesktopState() {
         ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
         : nextQueue.length
       nextQueue.splice(insertIndex, 0, {
+        followUp: submittedFollowUp,
         id, text: nextText, imageUrls: [...imageUrls],
         skills: skills.map((skill) => ({ ...skill })),
         fileAttachments: fileAttachments.map((file) => ({ ...file })),
@@ -5544,6 +5550,18 @@ export function useDesktopState() {
     return queuedMessagesByThreadId.value[threadId] ?? []
   })
 
+  const queueDestinationOptions = computed(() => allThreads.value.filter((thread) => thread.id !== selectedThreadId.value).map((thread) => ({ value: thread.id, label: thread.title || thread.id })))
+  function setQueuedDestination(messageId: string, destination: string): void {
+    const threadId = selectedThreadId.value
+    if (!threadId) return
+    const message = queuedMessagesByThreadId.value[threadId]?.find((row) => row.id === messageId)
+    if (!message?.followUp) return
+    message.followUp = { predecessorTurnId: message.followUp.predecessorTurnId,
+      destination: destination === 'same' || destination === 'new' ? destination : 'existing',
+      ...(destination !== 'same' && destination !== 'new' ? { destinationThreadId: destination } : {}) }
+    persistQueueState()
+  }
+
   function removeQueuedMessage(messageId: string): void {
     const threadId = selectedThreadId.value
     if (!threadId) return
@@ -5639,6 +5657,8 @@ export function useDesktopState() {
     sendMessageToSelectedThread,
     sendMessageToNewThread,
     interruptSelectedThreadTurn,
+    queueDestinationOptions,
+    setQueuedDestination,
     selectedThreadQueuedMessages,
     removeQueuedMessage,
     reorderQueuedMessage,

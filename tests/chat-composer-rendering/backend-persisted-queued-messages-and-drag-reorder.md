@@ -58,3 +58,20 @@ Queued messages are saved through the backend, survive page refresh, and can be 
 #### Rollback/Cleanup
 - Delete remaining test queue entries, stop disposable test turns, and restore the original composer model, reasoning effort, collaboration mode, and appearance.
 - Restore any manually edited queue state from the disposable profile's backup.
+
+## Cross-thread follow-up destinations
+
+Prerequisites: backend running with Codex configured; two threads T1 and T2 in a project. Test both light and dark appearance.
+
+1. Start a long turn P in T1, queue a prompt with an attachment, skill, model/effort selection and Plan mode. In its queue row choose Same thread, New thread, or an existing T2 from the searchable destination menu. Repeat for each destination.
+2. Confirm the row shows P's turn ID and destination. Switch threads and refresh; return to T1 and confirm both remain saved.
+3. With T2 idle, verify nothing runs until P terminates. With T2 busy, finish P and verify T2's current work continues; the follow-up starts only when T2 is idle.
+4. For New thread verify a separate thread is created in T1's working directory, with the follow-up's own prompt, attachments, skills, model, effort, and mode.
+5. Close the browser before P finishes; confirm backend execution from the reopened destination. Restart the backend while P or T2 is busy; verify the saved dependency remains and executes once. Reconnect repeatedly after completion and verify no duplicate follow-up.
+6. Repeat with failed and interrupted/canceled P. Terminal statuses (`completed`, `failed`, `interrupted`, `canceled`, `cancelled`) release the follow-up; waiting for approval/input does not. Legacy entries without a saved predecessor keep their existing idle-thread queue behavior. Missing predecessor history leaves a follow-up pending rather than guessing completion.
+
+Cleanup: delete unused queued entries and archive test destination threads. Restore the original appearance and composer settings.
+
+Execution uses the existing consume-before-start policy: a backend crash between consuming the entry and submitting the RPC can lose that entry. An ambiguous RPC failure retains the pre-existing retry behavior; exactly-once delivery across an ambiguous transport failure is not guaranteed by app-server. Duplicate completion events/reconnects are serialized and do not replay consumed entries.
+
+Performance review: processing inspects only the queue head, with one extra `thread/read(includeTurns: true)` for the predecessor on each eligibility check. Existing five-second retry timers are deduplicated per source thread; destination locks serialize competing queues. No new browser requests, background scans of all thread histories, synchronous filesystem work, or cache layers were introduced. Full predecessor history can be large, and concurrent work remains proportional to the number of queued source threads, as in the existing recovery scheduler. Live multi-thread load and provider/container performance have not been measured.

@@ -1,3 +1,4 @@
+import { normalizeQueuedFollowUp, type QueuedFollowUp } from '../queuedFollowUp'
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
 import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -2888,6 +2889,7 @@ async function writePinnedThreadIds(threadIds: string[]): Promise<void> {
 const THREAD_QUEUE_STATE_KEY = 'thread-queue-state'
 
 type StoredQueuedMessage = {
+  followUp?: QueuedFollowUp
   generationSettings?: QueuedGenerationSettings
   id: string
   text: string
@@ -2945,6 +2947,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
   }
 
   const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
+  const followUp = normalizeQueuedFollowUp(record.followUp)
 
   return {
     id,
@@ -2953,6 +2956,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills: normalizeNamedPathItems(record.skills),
     fileAttachments: normalizeFileAttachments(record.fileAttachments),
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    ...(followUp ? { followUp } : {}),
     ...(generationSettings ? { generationSettings } : {}),
   }
 }
@@ -4135,6 +4139,7 @@ class AppServerProcess {
 }
 
 export class BackendQueueProcessor {
+  private readonly destinationThreadIds = new Set<string>()
   private readonly processingThreadIds = new Set<string>()
   private readonly queueDrainTimersByThreadId = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly queueDrainDueAtByThreadId = new Map<string, number>()
@@ -4196,21 +4201,53 @@ export class BackendQueueProcessor {
   async processThreadQueue(threadId: string): Promise<void> {
     if (this.processingThreadIds.has(threadId)) return
     this.processingThreadIds.add(threadId)
+    let destinationId: string | undefined
+    let destinationLocked = false
     try {
-      const canStart = await this.canStartQueuedTurn(threadId)
-      if (!canStart) {
-        if (await this.hasQueuedTurns(threadId)) {
+      const state = await readThreadQueueState()
+      const message = state[threadId]?.[0]
+      if (!message) return
+      const followUp = message.followUp
+      if (followUp) {
+        const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: true }))
+        const thread = asRecord(response?.thread)
+        const turns = Array.isArray(thread?.turns) ? thread.turns : []
+        const predecessor = turns.map(asRecord).find((turn) => turn?.id === followUp.predecessorTurnId)
+        if (!predecessor || !['completed', 'failed', 'interrupted', 'cancelled', 'canceled'].includes(String(predecessor.status))) {
           this.scheduleThreadQueueDrain(threadId)
+          return
         }
+        if (followUp.destination === 'new' && !followUp.destinationThreadId) {
+          // Match the normal thread/start flow: project cwd and the submitted model.
+          const created = asRecord(await this.appServer.rpc('thread/start', {
+            ...(thread?.cwd ? { cwd: thread.cwd } : {}),
+            ...(message.generationSettings?.model ? { model: message.generationSettings.model } : {}),
+          }))
+          const id = readNonEmptyString(asRecord(created?.thread)?.id)
+          if (!id) throw new Error('thread/start did not return a thread id')
+          followUp.destinationThreadId = id
+          await withThreadQueueStateUpdate((current) => ({
+            nextState: { ...current, [threadId]: (current[threadId] ?? []).map((entry) => entry.id === message.id ? { ...entry, followUp } : entry) },
+            result: undefined,
+          }))
+        }
+      }
+      destinationId = followUp?.destinationThreadId || threadId
+      if (this.destinationThreadIds.has(destinationId)) {
+        this.scheduleThreadQueueDrain(threadId)
         return
       }
-      const next = await this.popNextQueuedTurn(threadId)
+      this.destinationThreadIds.add(destinationId)
+      destinationLocked = true
+      if (!await this.canStartQueuedTurn(destinationId)) {
+        this.scheduleThreadQueueDrain(threadId)
+        return
+      }
+      const next = await this.popNextQueuedTurn(threadId, message.id)
       if (!next) return
       try {
-        await this.startQueuedTurn(next)
-        if (await this.hasQueuedTurns(threadId)) {
-          this.scheduleThreadQueueDrain(threadId)
-        }
+        await this.startQueuedTurn({ ...next, threadId: destinationId })
+        if (await this.hasQueuedTurns(threadId)) this.scheduleThreadQueueDrain(threadId)
       } catch {
         await this.restoreQueuedTurn(next)
         this.scheduleThreadQueueDrain(threadId)
@@ -4219,6 +4256,7 @@ export class BackendQueueProcessor {
       // Queue processing is best-effort. Keep the bridge alive if app-server is unavailable.
       this.scheduleThreadQueueDrain(threadId)
     } finally {
+      if (destinationLocked && destinationId) this.destinationThreadIds.delete(destinationId)
       this.processingThreadIds.delete(threadId)
     }
   }
@@ -4242,10 +4280,10 @@ export class BackendQueueProcessor {
     return !turns.some((turn) => readNonEmptyString(asRecord(turn)?.status) === 'inProgress')
   }
 
-  private async popNextQueuedTurn(threadId: string): Promise<BackendQueuedTurn | null> {
+  private async popNextQueuedTurn(threadId: string, expectedMessageId?: string): Promise<BackendQueuedTurn | null> {
     return withThreadQueueStateUpdate((state) => {
       const queue = state[threadId]
-      if (!queue || queue.length === 0) {
+      if (!queue || queue.length === 0 || (expectedMessageId && queue[0]?.id !== expectedMessageId)) {
         return { nextState: state, result: null }
       }
 

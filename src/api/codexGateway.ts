@@ -1,3 +1,4 @@
+import { normalizeQueuedFollowUp, type QueuedFollowUp } from '../queuedFollowUp'
 import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { normalizeTelegramCompletionConfig, type TelegramCompletionConfig } from '../telegramCompletionConfig'
 import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
@@ -93,6 +94,7 @@ let workspaceRootsMutation: Promise<unknown> = Promise.resolve()
 let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
 
 export type StoredQueuedMessage = {
+  followUp?: QueuedFollowUp
   generationSettings?: QueuedGenerationSettings
   id: string
   text: string
@@ -1287,6 +1289,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     : []
 
   const generationSettings = normalizeQueuedGenerationSettings(record.generationSettings)
+  const followUp = normalizeQueuedFollowUp(record.followUp)
 
   return {
     id,
@@ -1295,6 +1298,7 @@ function normalizeStoredQueuedMessage(value: unknown): StoredQueuedMessage | nul
     skills,
     fileAttachments,
     collaborationMode: record.collaborationMode === 'plan' ? 'plan' : 'default',
+    ...(followUp ? { followUp } : {}),
     ...(generationSettings ? { generationSettings } : {}),
   }
 }

@@ -5,6 +5,10 @@ export type UiLanguage = 'en' | 'zh-CN'
 const UI_LANGUAGE_STORAGE_KEY = 'codex-web-local.ui-language.v1'
 
 const zhCN: Record<string, string> = {
+  'After turn': '回合结束后',
+  'Same thread': '同一线程',
+  'New thread': '新线程',
+  'Destination thread': '目标线程',
   'English': 'English',
   'Simplified Chinese': '简体中文',
   'Search threads': '搜索线程',
