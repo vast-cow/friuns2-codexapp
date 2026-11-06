@@ -97,10 +97,9 @@
                   <span class="sidebar-settings-account-title">{{ t('Codex account') }}</span>
                   <button class="sidebar-settings-account-refresh" type="button" :disabled="isRefreshingCodexAuth || isStartingCodexLogin || isCompletingCodexLogin" @click="onRefreshCodexAuth">{{ isRefreshingCodexAuth ? t('Reloading…') : t('Reload') }}</button>
                 </div>
-                <p class="sidebar-settings-account-empty">{{ codexAuthAvailable === true ? t('Signed in to Codex') : codexAuthAvailable === false ? t('Click Login, or run `codex login`, then click reload.') : t('Codex authentication status unavailable. Reload or use Codex CLI.') }}</p>
+                <p class="sidebar-settings-account-empty">{{ codexAuthAvailable === true ? t('Signed in to Codex') : codexAuthAvailable === false ? t('Authentication is managed by the external Codex app-server. Sign in there, then reconnect.') : t('External Codex authentication status unavailable. Check the app-server connection.') }}</p>
                 <div v-if="accountActionError" class="sidebar-settings-account-error">{{ accountActionError }}</div>
                 <div class="sidebar-settings-account-login">
-                  <button class="sidebar-settings-account-login-button" type="button" :disabled="codexAuthAvailable === true || isCodexAuthChangeBlocked || isRefreshingCodexAuth || isStartingCodexLogin || isCompletingCodexLogin" @click="onStartCodexLogin">{{ isStartingCodexLogin ? t('Starting login…') : t('Login') }}</button>
                   <button v-if="codexAuthAvailable === true" class="sidebar-settings-account-login-button" type="button" :disabled="isCodexAuthChangeBlocked || isRefreshingCodexAuth" @click="onLogoutCodex">{{ t('Logout') }}</button>
                   <a v-if="codexLoginUrl" class="sidebar-settings-account-login-link" :href="codexLoginUrl" target="_blank" rel="noreferrer">{{ t('Open login URL') }}</a>
                 </div>

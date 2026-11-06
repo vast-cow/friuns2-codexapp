@@ -1,6 +1,8 @@
+import appServerMethods from './appServerMethods.json'
+import { AppServerWebSocketClient } from './appServerWebSocketClient.js'
 import { PersistentThreadIndex } from './persistentThreadIndex.js'
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rename, rm, mkdir, stat, cp, lstat, readlink, symlink, realpath, utimes } from 'node:fs/promises'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
@@ -13,8 +15,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { writeFile } from 'node:fs/promises'
 import { readCodexGlobalState, updateCodexGlobalState } from './codexGlobalState.js'
 import { handleAccountRoutes } from './accountRoutes.js'
-import { applyCodexThreadConfig, buildAppServerArgs } from './appServerRuntimeConfig.js'
-import { checkCodexLoginStatus, getCachedCodexAuthStatus, recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
+import { recordCodexAccountRead, recordCodexAuthStatus } from './codexAuthStatus.js'
 import { CodexCredentialError, readCodexCredentialStore, readPublicAuthStatus, requireFileCredentialStore } from './codexCredentials.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
 import { handleSkillsRoutes } from './skillsRoutes.js'
@@ -25,21 +26,19 @@ import { submittedGenerationMetadata, type TurnGenerationMetadata } from '../tur
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import { buildTextWithAttachments } from '../utils/attachmentPrompt.js'
 import {
-  resolveCodexCommand,
   resolveRipgrepCommand,
 } from '../commandResolution.js'
 import type { WorkspaceRootsOperation } from '../types/workspaceRoots.js'
 import { isAbsoluteLikePath } from '../pathUtils.js'
 
 type JsonRpcCall = {
-  jsonrpc: '2.0'
   id: number
   method: string
   params?: unknown
 }
 
 type JsonRpcResponse = {
-  id?: number
+  id?: number | string
   result?: unknown
   error?: {
     code: number
@@ -80,7 +79,7 @@ export type WorkspaceRootsState = {
 }
 
 type PendingServerRequest = {
-  id: number
+  id: number | string
   method: string
   params: unknown
   receivedAtIso: string
@@ -947,7 +946,7 @@ function readStreamTurnErrorMessage(frame: StreamEventFrame): { turnId: string; 
   return null
 }
 
-function mergeStreamTurnErrorsIntoThreadResult(appServer: AppServerProcess, result: unknown): unknown {
+function mergeStreamTurnErrorsIntoThreadResult(appServer: AppServerClient, result: unknown): unknown {
   const record = asRecord(result)
   const thread = asRecord(record?.thread)
   const threadId = readNonEmptyString(thread?.id)
@@ -998,7 +997,7 @@ function getErrorCode(error: unknown): string | null {
 }
 
 export async function hasUsableCodexAuth(): Promise<boolean | null> {
-  return checkCodexLoginStatus()
+  return null // Authentication belongs to the connected server.
 }
 
 function setJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -3312,17 +3311,12 @@ const MERGEABLE_ITEM_TYPES = new Set([
   'fileChange',
 ])
 
-class AppServerProcess {
+export class AppServerClient {
   private readonly pendingGenerationSettings = new Map<string, Set<TurnGenerationMetadata>>()
-  private process: ChildProcessWithoutNullStreams | null = null
-  private initialized = false
-  private initializePromise: Promise<void> | null = null
-  private readBuffer = ''
   private nextId = 1
-  private stopping = false
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
-  private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
+  private readonly pendingServerRequests = new Map<number | string, PendingServerRequest>()
   private readonly streamEventsByThreadId = new Map<string, StreamEventFrame[]>()
   private readonly lastThreadReadSnapshotByThreadId = new Map<string, unknown>()
   private readonly threadTurnPageReadCacheByThreadId = new Map<string, { result: unknown; expiresAt: number }>()
@@ -3330,99 +3324,25 @@ class AppServerProcess {
   private readonly capturedItemsByThreadId = new Map<string, Map<string, CapturedItem>>()
   private readonly liveStateCache = new Map<string, { data: unknown; turnCount: number; sessionSize: number }>()
   private chatgptAuthRefreshPromise: Promise<ChatgptAuthTokensRefreshResponse> | null = null
-  private activeConfigSignature = ''
+  private restoredGeneration = -1
+  private restorePromise: Promise<void> | null = null
+  private connectionGeneration = 0
+  private reconnectPromise: Promise<void> | null = null
+  private readonly subscribedThreads = new Set<string>()
+  private transport = new AppServerWebSocketClient((frame) => this.handleLine(frame), () => {
+    this.connectionGeneration++
+    for (const request of this.pending.values()) request.reject(new Error('App-server disconnected. Retry to reconnect; inspect the thread before resending a turn.'))
+    this.pending.clear()
+    this.pendingServerRequests.clear()
+    this.streamEventsByThreadId.clear()
+    this.lastThreadReadSnapshotByThreadId.clear()
+    this.threadTurnPageReadCacheByThreadId.clear()
+    this.threadTurnPageReadPromiseByThreadId.clear()
+    this.capturedItemsByThreadId.clear()
+    this.liveStateCache.clear()
+  })
 
-
-  private getCodexCommand(): string {
-    const codexCommand = resolveCodexCommand()
-    if (!codexCommand) {
-      throw new Error('Codex CLI is not available. Install @openai/codex or set CODEXUI_CODEX_COMMAND.')
-    }
-    return codexCommand
-  }
-
-  private buildAppServerConfig(): { args: string[]; env: Record<string, string> } {
-    return { args: buildAppServerArgs(), env: {} }
-  }
-
-  private getAppServerConfigSignature(config: { args: string[]; env: Record<string, string> }): string {
-    return JSON.stringify({
-      args: config.args,
-      env: Object.keys(config.env)
-        .sort()
-        .map((key) => [key, config.env[key]]),
-    })
-  }
-
-  private disposeIfConfigChanged(): void {
-    if (!this.process) return
-    const config = this.buildAppServerConfig()
-    const nextSignature = this.getAppServerConfigSignature(config)
-    if (this.activeConfigSignature === nextSignature) return
-    this.dispose()
-  }
-
-  private start(): void {
-    if (this.process) return
-
-    this.stopping = false
-    const config = this.buildAppServerConfig()
-    this.activeConfigSignature = this.getAppServerConfigSignature(config)
-    const invocation = getSpawnInvocation(this.getCodexCommand(), config.args)
-    const spawnEnv = Object.keys(config.env).length > 0
-      ? { ...process.env, ...config.env }
-      : undefined
-    const proc = spawn(invocation.command, invocation.args, { stdio: ['pipe', 'pipe', 'pipe'], ...(spawnEnv ? { env: spawnEnv } : {}) })
-    this.process = proc
-
-    proc.stdout.setEncoding('utf8')
-    proc.stdout.on('data', (chunk: string) => {
-      this.readBuffer += chunk
-
-      let lineEnd = this.readBuffer.indexOf('\n')
-      while (lineEnd !== -1) {
-        const line = this.readBuffer.slice(0, lineEnd).trim()
-        this.readBuffer = this.readBuffer.slice(lineEnd + 1)
-
-        if (line.length > 0) {
-          this.handleLine(line)
-        }
-
-        lineEnd = this.readBuffer.indexOf('\n')
-      }
-    })
-
-    proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', () => {
-      // Keep stderr silent in dev middleware; JSON-RPC errors are forwarded via responses.
-    })
-
-    proc.on('exit', () => {
-      if (this.process !== proc) {
-        return
-      }
-
-      const failure = new Error(this.stopping ? 'codex app-server stopped' : 'codex app-server exited unexpectedly')
-      for (const request of this.pending.values()) {
-        request.reject(failure)
-      }
-
-      this.pending.clear()
-      this.pendingServerRequests.clear()
-      this.process = null
-      this.initialized = false
-      this.initializePromise = null
-      this.readBuffer = ''
-    })
-  }
-
-  private sendLine(payload: Record<string, unknown>): void {
-    if (!this.process) {
-      throw new Error('codex app-server is not running')
-    }
-
-    this.process.stdin.write(`${JSON.stringify(payload)}\n`)
-  }
+  private sendLine(payload: Record<string, unknown>): void { this.transport.send(payload) }
 
   private handleLine(line: string): void {
     let message: JsonRpcResponse
@@ -3432,7 +3352,7 @@ class AppServerProcess {
       return
     }
 
-    if (typeof message.id === 'number' && this.pending.has(message.id)) {
+    if (!message.method && typeof message.id === 'number' && this.pending.has(message.id)) {
       const pendingRequest = this.pending.get(message.id)
       this.pending.delete(message.id)
 
@@ -3446,7 +3366,7 @@ class AppServerProcess {
       return
     }
 
-    if (typeof message.method === 'string' && typeof message.id !== 'number') {
+    if (typeof message.method === 'string' && message.id === undefined) {
       this.emitNotification({
         method: message.method,
         params: message.params ?? null,
@@ -3455,7 +3375,7 @@ class AppServerProcess {
     }
 
     // Handle server-initiated JSON-RPC requests (approvals, dynamic tool calls, etc.).
-    if (typeof message.id === 'number' && typeof message.method === 'string') {
+    if ((typeof message.id === 'number' || typeof message.id === 'string') && typeof message.method === 'string') {
       this.handleServerRequest(message.id, message.method, message.params ?? null)
     }
   }
@@ -3665,10 +3585,9 @@ class AppServerProcess {
     })
   }
 
-  private sendServerRequestReply(requestId: number, reply: ServerRequestReply): void {
+  private sendServerRequestReply(requestId: number | string, reply: ServerRequestReply): void {
     if (reply.error) {
       this.sendLine({
-        jsonrpc: '2.0',
         id: requestId,
         error: reply.error,
       })
@@ -3676,13 +3595,12 @@ class AppServerProcess {
     }
 
     this.sendLine({
-      jsonrpc: '2.0',
       id: requestId,
       result: reply.result ?? {},
     })
   }
 
-  private resolvePendingServerRequest(requestId: number, reply: ServerRequestReply): void {
+  private resolvePendingServerRequest(requestId: number | string, reply: ServerRequestReply): void {
     const pendingRequest = this.pendingServerRequests.get(requestId)
     if (!pendingRequest) {
       throw new Error(`No pending server request found for id ${String(requestId)}`)
@@ -3720,7 +3638,7 @@ class AppServerProcess {
     return await this.chatgptAuthRefreshPromise
   }
 
-  private async handleChatgptAuthTokensRefreshRequest(requestId: number, params: unknown): Promise<void> {
+  private async handleChatgptAuthTokensRefreshRequest(requestId: number | string, params: unknown, generation: number): Promise<void> {
     const requestParams = asRecord(params)
     const previousAccountId = readNonEmptyString(requestParams?.previousAccountId ?? requestParams?.previous_account_id)
     try {
@@ -3728,6 +3646,7 @@ class AppServerProcess {
         reason: readNonEmptyString(requestParams?.reason) || undefined,
         previousAccountId: previousAccountId || undefined,
       })
+      if (generation !== this.connectionGeneration) return
       this.sendServerRequestReply(requestId, { result })
       this.emitNotification({
         method: 'server/request/resolved',
@@ -3739,6 +3658,7 @@ class AppServerProcess {
         },
       })
     } catch (error) {
+      if (generation !== this.connectionGeneration) return
       this.sendServerRequestReply(requestId, {
         error: {
           code: -32001,
@@ -3748,9 +3668,10 @@ class AppServerProcess {
     }
   }
 
-  private handleServerRequest(requestId: number, method: string, params: unknown): void {
+  private handleServerRequest(requestId: number | string, method: string, params: unknown): void {
     if (method === 'account/chatgptAuthTokens/refresh') {
-      void this.handleChatgptAuthTokensRefreshRequest(requestId, params)
+      const generation = this.connectionGeneration
+      void this.handleChatgptAuthTokensRefreshRequest(requestId, params, generation).catch(() => {})
       return
     }
 
@@ -3769,61 +3690,42 @@ class AppServerProcess {
   }
 
   private async call(method: string, params: unknown): Promise<unknown> {
-    this.start()
+    await this.transport.connect()
     const id = this.nextId++
 
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject })
 
-      this.sendLine({
-        jsonrpc: '2.0',
+      try { this.sendLine({
         id,
         method,
         params,
-      } satisfies JsonRpcCall)
+      } satisfies JsonRpcCall) } catch (error) { this.pending.delete(id); reject(error) }
     })
   }
 
   private async ensureInitialized(): Promise<void> {
-    if (this.initialized) return
-    if (this.initializePromise) {
-      await this.initializePromise
-      return
-    }
-
-    this.initializePromise = this.call('initialize', {
-      clientInfo: {
-        name: 'codex-web-local',
-        version: '0.1.0',
-      },
-      capabilities: {
-        experimentalApi: true,
-      },
-    }).then(() => {
-      this.sendLine({
-        jsonrpc: '2.0',
-        method: 'initialized',
-      })
-      this.initialized = true
-    }).finally(() => {
-      this.initializePromise = null
-    })
-
-    await this.initializePromise
+    await this.transport.connect()
+    if (this.restoredGeneration === this.connectionGeneration) return
+    if (this.restorePromise) return this.restorePromise
+    const generation = this.connectionGeneration
+    this.restorePromise = (async () => {
+      for (const threadId of this.subscribedThreads) await this.call('thread/resume', { threadId })
+      if (generation !== this.connectionGeneration) throw new Error('Disconnected while restoring thread subscriptions')
+      this.restoredGeneration = generation
+    })().finally(() => { this.restorePromise = null })
+    return this.restorePromise
   }
 
   async rpc(method: string, params: unknown): Promise<unknown> {
-    if (!this.process) await hasUsableCodexAuth()
-    if (method === 'turn/start' && getCachedCodexAuthStatus() === false
-      && !process.env.OPENAI_API_KEY?.trim()) {
-      throw new CodexCredentialError(401, 'authentication_required', AUTHENTICATION_REQUIRED_MESSAGE)
-    }
-    params = applyCodexThreadConfig(method, params)
-    this.disposeIfConfigChanged()
     await this.ensureInitialized()
     if (method !== 'turn/start') {
       const result = method === 'thread/list' ? await this.call(method, params)
         : await persistentThreadIndex.call(method, asRecord(params) ?? {}, (m, p) => this.call(m, p))
+      if (['thread/start', 'thread/resume', 'thread/fork'].includes(method)) {
+        const id = readNonEmptyString(asRecord(asRecord(result)?.thread)?.id)
+        if (id) this.subscribedThreads.add(id)
+      }
       if (method === 'account/read') recordCodexAccountRead(result)
       if (method === 'account/logout') recordCodexAuthStatus(false)
       return result
@@ -3869,7 +3771,7 @@ class AppServerProcess {
     }
 
     const id = body.id
-    if (typeof id !== 'number' || !Number.isInteger(id)) {
+    if (typeof id !== 'string' && (typeof id !== 'number' || !Number.isInteger(id))) {
       throw new Error('Invalid response payload: "id" must be an integer')
     }
 
@@ -3896,160 +3798,20 @@ class AppServerProcess {
     return Array.from(this.pendingServerRequests.values())
   }
 
-  dispose(): void {
-    if (!this.process) return
-
-    const proc = this.process
-    this.stopping = true
-    this.process = null
-    this.initialized = false
-    this.initializePromise = null
-    this.activeConfigSignature = ''
-    this.readBuffer = ''
-
-    const failure = new Error('codex app-server stopped')
-    for (const request of this.pending.values()) {
-      request.reject(failure)
-    }
-    this.pending.clear()
-    this.pendingServerRequests.clear()
-
-    try {
-      proc.stdin.end()
-    } catch {
-      // ignore close errors on shutdown
-    }
-
-    try {
-      proc.kill('SIGTERM')
-    } catch {
-      // ignore kill errors on shutdown
-    }
-
-    const forceKillTimer = setTimeout(() => {
-      if (!proc.killed) {
-        try {
-          proc.kill('SIGKILL')
-        } catch {
-          // ignore kill errors on shutdown
-        }
-      }
-    }, 1500)
-    forceKillTimer.unref()
+  async reconnect(): Promise<void> {
+    if (this.reconnectPromise) return this.reconnectPromise
+    this.reconnectPromise = (async () => {
+      await this.transport.reconnect()
+      await this.ensureInitialized()
+    })().finally(() => { this.reconnectPromise = null })
+    return this.reconnectPromise
   }
+  dispose(): void { this.transport.dispose() }
 }
 
 class MethodCatalog {
-  private methodCache: string[] | null = null
-  private notificationCache: string[] | null = null
-
-  private async runGenerateSchemaCommand(outDir: string): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const codexCommand = resolveCodexCommand()
-      if (!codexCommand) {
-        reject(new Error('Codex CLI is not available. Install @openai/codex or set CODEXUI_CODEX_COMMAND.'))
-        return
-      }
-
-      const invocation = getSpawnInvocation(codexCommand, ['app-server', 'generate-json-schema', '--out', outDir])
-      const process = spawn(invocation.command, invocation.args, {
-        stdio: ['ignore', 'ignore', 'pipe'],
-      })
-
-      let stderr = ''
-
-      process.stderr.setEncoding('utf8')
-      process.stderr.on('data', (chunk: string) => {
-        stderr += chunk
-      })
-
-      process.on('error', reject)
-      process.on('exit', (code) => {
-        if (code === 0) {
-          resolve()
-          return
-        }
-
-        reject(new Error(stderr.trim() || `generate-json-schema exited with code ${String(code)}`))
-      })
-    })
-  }
-
-  private extractMethodsFromClientRequest(payload: unknown): string[] {
-    const root = asRecord(payload)
-    const oneOf = Array.isArray(root?.oneOf) ? root.oneOf : []
-    const methods = new Set<string>()
-
-    for (const entry of oneOf) {
-      const row = asRecord(entry)
-      const properties = asRecord(row?.properties)
-      const methodDef = asRecord(properties?.method)
-      const methodEnum = Array.isArray(methodDef?.enum) ? methodDef.enum : []
-
-      for (const item of methodEnum) {
-        if (typeof item === 'string' && item.length > 0) {
-          methods.add(item)
-        }
-      }
-    }
-
-    return Array.from(methods).sort((a, b) => a.localeCompare(b))
-  }
-
-  private extractMethodsFromServerNotification(payload: unknown): string[] {
-    const root = asRecord(payload)
-    const oneOf = Array.isArray(root?.oneOf) ? root.oneOf : []
-    const methods = new Set<string>()
-
-    for (const entry of oneOf) {
-      const row = asRecord(entry)
-      const properties = asRecord(row?.properties)
-      const methodDef = asRecord(properties?.method)
-      const methodEnum = Array.isArray(methodDef?.enum) ? methodDef.enum : []
-
-      for (const item of methodEnum) {
-        if (typeof item === 'string' && item.length > 0) {
-          methods.add(item)
-        }
-      }
-    }
-
-    return Array.from(methods).sort((a, b) => a.localeCompare(b))
-  }
-
-  async listMethods(): Promise<string[]> {
-    if (this.methodCache) {
-      return this.methodCache
-    }
-
-    const outDir = await mkdtemp(join(tmpdir(), 'codex-web-local-schema-'))
-    await this.runGenerateSchemaCommand(outDir)
-
-    const clientRequestPath = join(outDir, 'ClientRequest.json')
-    const raw = await readFile(clientRequestPath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    const methods = this.extractMethodsFromClientRequest(parsed)
-
-    this.methodCache = methods
-    return methods
-  }
-
-  async listNotificationMethods(): Promise<string[]> {
-    if (this.notificationCache) {
-      return this.notificationCache
-    }
-
-    const outDir = await mkdtemp(join(tmpdir(), 'codex-web-local-schema-'))
-    await this.runGenerateSchemaCommand(outDir)
-
-    const serverNotificationPath = join(outDir, 'ServerNotification.json')
-    const raw = await readFile(serverNotificationPath, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    const methods = this.extractMethodsFromServerNotification(parsed)
-
-    this.notificationCache = methods
-    return methods
-  }
+  async listMethods(): Promise<string[]> { return appServerMethods.methods }
+  async listNotificationMethods(): Promise<string[]> { return appServerMethods.notifications }
 }
 
 type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>) & {
@@ -4059,13 +3821,13 @@ type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: 
 
 type SharedBridgeState = {
   version: string
-  appServer: AppServerProcess
+  appServer: AppServerClient
   methodCatalog: MethodCatalog
   telegramBridge: TelegramNotificationService
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
-const SHARED_BRIDGE_VERSION = 'immediate-steer-v1'
+const SHARED_BRIDGE_VERSION = 'external-websocket-v1'
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -4093,7 +3855,7 @@ function getSharedBridgeState(): SharedBridgeState {
     existing.appServer.dispose()
   }
 
-  const appServer = new AppServerProcess()
+  const appServer = new AppServerClient()
   const created: SharedBridgeState = {
     version: SHARED_BRIDGE_VERSION,
     appServer,
@@ -4106,7 +3868,7 @@ function getSharedBridgeState(): SharedBridgeState {
   return created
 }
 
-async function loadAllThreadsForSearch(appServer: AppServerProcess): Promise<ThreadSearchDocument[]> {
+async function loadAllThreadsForSearch(appServer: AppServerClient): Promise<ThreadSearchDocument[]> {
   const threads: Array<{ id: string; title: string; preview: string }> = []
   let cursor: string | null = null
 
@@ -4176,7 +3938,7 @@ async function loadAllThreadsForSearch(appServer: AppServerProcess): Promise<Thr
   return Array.from(docsById.values())
 }
 
-async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<ThreadSearchIndex> {
+async function buildThreadSearchIndex(appServer: AppServerClient): Promise<ThreadSearchIndex> {
   const docs = await loadAllThreadsForSearch(appServer)
   const docsById = new Map<string, ThreadSearchDocument>(docs.map((doc) => [doc.id, doc]))
   return { docsById }
@@ -5310,6 +5072,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      if (req.method === 'POST' && url.pathname === '/codex-api/reconnect') {
+        await appServer.reconnect()
+        setJson(res, 200, { ok: true })
+        return
+      }
+
       if (req.method === 'GET' && url.pathname === '/codex-api/events') {
         res.statusCode = 200
         res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
@@ -5355,6 +5123,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     threadSearchIndex = null
     telegramBridge.stop()
     appServer.dispose()
+    delete (globalThis as Record<string, unknown>)[SHARED_BRIDGE_KEY]
   }
   middleware.subscribeNotifications = (
     listener: (value: { method: string; params: unknown; atIso: string }) => void,

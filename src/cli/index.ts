@@ -1,3 +1,4 @@
+import { resolveAppServerUrl } from '../server/appServerWebSocketClient.js'
 import { createServer } from 'node:http'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { networkInterfaces } from 'node:os'
@@ -6,16 +7,12 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { Command } from 'commander'
-import { ensureCodexInstalled } from './ensureCodexInstalled.js'
 import {
   parseApprovalPolicy,
   parseSandboxMode,
-  resolveAppServerRuntimeConfig,
 } from '../server/appServerRuntimeConfig.js'
 import { updateCodexGlobalState } from '../server/codexGlobalState.js'
 import { createServer as createApp } from '../server/httpServer.js'
-import { spawnSyncCommand } from '../utils/commandInvocation.js'
-import { checkCodexLoginStatus } from '../server/codexAuthStatus.js'
 
 const program = new Command().name('codexui').description('Web interface for Codex app-server')
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -27,13 +24,6 @@ async function readCliVersion(): Promise<string> {
     return typeof parsed.version === 'string' ? parsed.version : 'unknown'
   } catch {
     return 'unknown'
-  }
-}
-
-function runOrFail(command: string, args: string[], label: string): void {
-  const result = spawnSyncCommand(command, args, { stdio: 'inherit' })
-  if (result.status !== 0) {
-    throw new Error(`${label} failed with exit code ${String(result.status ?? -1)}`)
   }
 }
 
@@ -133,6 +123,7 @@ async function addProjectOnly(projectPath: string): Promise<void> {
 }
 
 async function startServer(options: {
+  appServerUrl?: string
   port: string
   password: string | boolean
   open: boolean
@@ -152,24 +143,7 @@ async function startServer(options: {
       console.warn(`\n[project] Could not open launch project: ${message}\n`)
     }
   }
-  const codexCommand = ensureCodexInstalled()
-  if (codexCommand) {
-    process.env.CODEXUI_CODEX_COMMAND = codexCommand
-  }
-  if (options.sandboxMode) {
-    process.env.CODEXUI_SANDBOX_MODE = options.sandboxMode
-  }
-  if (options.approvalPolicy) {
-    process.env.CODEXUI_APPROVAL_POLICY = options.approvalPolicy
-  }
-  const runtimeConfig = resolveAppServerRuntimeConfig()
-  if (options.login) {
-    void checkCodexLoginStatus().then((authenticated) => {
-      if (authenticated === false) {
-        console.log('\nCodex is not logged in. You can log in later via settings or run `codexui login`.\n')
-      }
-    }).catch(() => { /* Auth availability must not prevent server startup. */ })
-  }
+  process.env.CODEXUI_APP_SERVER_URL = resolveAppServerUrl(options.appServerUrl)
   const requestedPort = parseInt(options.port, 10)
   const password = typeof options.password === 'string' ? options.password : undefined
   const { app, dispose, attachWebSocket } = createApp({ password })
@@ -182,8 +156,8 @@ async function startServer(options: {
     `  Version:  ${version}`,
     '',
     `  Bind:     http://0.0.0.0:${String(port)}`,
-    `  Codex sandbox: ${runtimeConfig.sandboxMode ?? "Codex configuration (inherited)"}`,
-    `  Approval policy: ${runtimeConfig.approvalPolicy}`,
+    `  App-server: ${process.env.CODEXUI_APP_SERVER_URL}`,
+    '  Runtime configuration and authentication: managed externally',
   ]
   const accessUrls = getAccessibleUrls(port)
   if (accessUrls.length > 0) {
@@ -218,11 +192,8 @@ async function startServer(options: {
   process.on('SIGTERM', shutdown)
 }
 
-async function runLogin() {
-  const codexCommand = ensureCodexInstalled() ?? 'codex'
-  process.env.CODEXUI_CODEX_COMMAND = codexCommand
-  console.log('\nStarting `codex login`...\n')
-  runOrFail(codexCommand, ['login'], 'Codex login')
+async function runLogin(): Promise<void> {
+  throw new Error('Manage authentication in the independently running Codex app-server (codex login), then reconnect the web application.')
 }
 
 program
@@ -233,15 +204,17 @@ program
   .option('--no-password', 'disable password protection (default)')
   .option('--open', 'open browser on startup', true)
   .option('--no-open', 'do not open browser on startup')
-  .option('--login', 'run automatic Codex login bootstrap', true)
-  .option('--no-login', 'skip automatic Codex login bootstrap')
-  .option('--memories', 'enable Codex memories for spawned app-server processes', true)
-  .option('--no-memories', 'disable Codex memories for spawned app-server processes')
-  .option('--sandbox-mode <mode>', 'Codex sandbox mode: read-only, workspace-write, danger-full-access (default: inherit Codex configuration)')
-  .option('--approval-policy <policy>', 'Codex approval policy: untrusted, on-failure, on-request, never')
+  .option('--app-server-url <url>', 'external Codex app-server WebSocket URL')
+  .option('--login', 'deprecated compatibility flag; authentication is managed externally', true)
+  .option('--no-login', 'deprecated compatibility flag; authentication is managed externally')
+  .option('--memories', 'deprecated; configure memories on the external server', true)
+  .option('--no-memories', 'deprecated; configure memories on the external server')
+  .option('--sandbox-mode <mode>', 'deprecated; configure sandbox on the external server')
+  .option('--approval-policy <policy>', 'deprecated; configure approvals on the external server')
   .action(async (
     projectPath: string | undefined,
     opts: {
+      appServerUrl?: string
       port: string
       password: string | boolean
       open: boolean
@@ -253,16 +226,10 @@ program
     },
   ) => {
     const rawArgv = process.argv.slice(2)
-    const openProjectFlagIndex = rawArgv.findIndex((arg) => arg === '--open-project' || arg.startsWith('--open-project='))
-    const memoriesFlagExplicit = rawArgv.some((arg) => (
-      arg === '--memories'
-      || arg === '--no-memories'
-      || arg.startsWith('--memories=')
-      || arg.startsWith('--no-memories=')
-    ))
-    if (memoriesFlagExplicit) {
-      process.env.CODEXUI_MEMORIES = opts.memories ? 'true' : 'false'
+    if (rawArgv.some(arg => /^(--(no-)?memories|--sandbox-mode|--approval-policy)(=|$)/.test(arg))) {
+      throw new Error('Configure memories, sandbox and approval defaults on the external app-server; use thread settings for per-thread choices.')
     }
+    const openProjectFlagIndex = rawArgv.findIndex((arg) => arg === '--open-project' || arg.startsWith('--open-project='))
 
     let openProjectOnly = (opts.openProject ?? '').trim()
     if (!openProjectOnly && openProjectFlagIndex >= 0 && projectPath?.trim()) {
@@ -293,7 +260,7 @@ program
     await startServer({ ...opts, projectPath: launchProject })
   })
 
-program.command('login').description('Install/check Codex CLI and run `codex login`').action(runLogin)
+program.command('login').description('Explain external server authentication').action(runLogin)
 
 program.command('help').description('Show codexui command help').action(() => {
   program.outputHelp()

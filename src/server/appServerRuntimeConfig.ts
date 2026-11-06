@@ -14,70 +14,8 @@ const APPROVAL_POLICIES = new Set([
 export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 
-type AppServerRuntimeConfig = {
-  sandboxMode: CodexSandboxMode | undefined
-  approvalPolicy: CodexApprovalPolicy
-  memories: boolean
-}
-
-const DEFAULT_RUNTIME_CONFIG: AppServerRuntimeConfig = {
-  sandboxMode: undefined,
-  approvalPolicy: 'never',
-  memories: true,
-}
-
-function normalizeRuntimeValue(value: string | undefined): string {
-  return value?.trim().toLowerCase() ?? ''
-}
-
-function readSandboxModeFromEnv(): CodexSandboxMode | undefined {
-  const candidate = normalizeRuntimeValue(process.env.CODEXUI_SANDBOX_MODE)
-  if (SANDBOX_MODES.has(candidate as CodexSandboxMode)) {
-    return candidate as CodexSandboxMode
-  }
-  return DEFAULT_RUNTIME_CONFIG.sandboxMode
-}
-
-function readApprovalPolicyFromEnv(): CodexApprovalPolicy {
-  const candidate = normalizeRuntimeValue(process.env.CODEXUI_APPROVAL_POLICY)
-  if (APPROVAL_POLICIES.has(candidate as CodexApprovalPolicy)) {
-    return candidate as CodexApprovalPolicy
-  }
-  return DEFAULT_RUNTIME_CONFIG.approvalPolicy
-}
-
-function readMemoriesFromEnv(): boolean {
-  const candidate = normalizeRuntimeValue(process.env.CODEXUI_MEMORIES)
-  if (candidate === 'false' || candidate === '0' || candidate === 'no') {
-    return false
-  }
-  if (candidate === 'true' || candidate === '1' || candidate === 'yes') {
-    return true
-  }
-  return DEFAULT_RUNTIME_CONFIG.memories
-}
-
-export function resolveAppServerRuntimeConfig(): AppServerRuntimeConfig {
-  return {
-    sandboxMode: readSandboxModeFromEnv(),
-    approvalPolicy: readApprovalPolicyFromEnv(),
-    memories: readMemoriesFromEnv(),
-  }
-}
-
 export function buildAppServerArgs(): string[] {
-  const config = resolveAppServerRuntimeConfig()
-  return [
-    'app-server',
-    '-c',
-    'model_provider="openai"',
-    '-c',
-    `approval_policy="${config.approvalPolicy}"`,
-    ...(config.sandboxMode
-      ? ['-c', `sandbox_mode="${config.sandboxMode}"`] : []),
-    '-c',
-    `features.memories=${config.memories ? 'true' : 'false'}`,
-  ]
+  throw new Error('App-server is externally managed; process launch arguments are unsupported')
 }
 
 export function parseSandboxMode(value: string): CodexSandboxMode | null {
@@ -90,9 +28,7 @@ export function parseApprovalPolicy(value: string): CodexApprovalPolicy | null {
   return APPROVAL_POLICIES.has(candidate as CodexApprovalPolicy) ? candidate as CodexApprovalPolicy : null
 }
 
-/** Runtime override only: preserve on-disk history/configuration while using Codex. */
+/** External server defaults and explicit per-thread choices pass through unchanged. */
 export function applyCodexThreadConfig(method: string, params: unknown): unknown {
-  if (!['thread/start', 'thread/resume', 'thread/fork'].includes(method)) return params
-  const record = params && typeof params === 'object' && !Array.isArray(params) ? params : {}
-  return { ...record, modelProvider: 'openai' }
+  return params
 }

@@ -1,5 +1,9 @@
 # Local development
 
+First start `codex app-server --listen ws://127.0.0.1:4500` independently, using the
+same user, `CODEX_HOME`, and workspace paths. See [connection details](external-app-server.md).
+Development honors `CODEXUI_APP_SERVER_URL`; `dev2` now preserves `CODEX_HOME`.
+
 Install dependencies with `pnpm install`. Normal HTTP development needs no TLS
 credentials:
 

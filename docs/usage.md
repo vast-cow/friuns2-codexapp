@@ -6,7 +6,7 @@
 [![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![license](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](../LICENSE)
 
-> **Codex UI in your browser. No drama. One command.**
+> Start Codex app-server independently before starting the web backend.
 >  
 > **Yes, that is your Codex desktop app experience exposed over web UI. Yes, it runs cross-platform.**
 
@@ -27,7 +27,7 @@ Messages submitted while a turn is running are sent immediately using Steer. The
 ## 🤯 What Is This?
 **`codexapp`** is a lightweight bridge that gives you a browser-accessible UI for Codex app-server workflows.
 
-You run one command. It starts a local web server. You open it from your machine, your LAN, or wherever your setup allows.  
+Start the external app-server as described in the [connection guide](external-app-server.md). Then start the local web server. You open it from your machine, your LAN, or wherever your setup allows.
 
 **TL;DR 🧠: Codex app UI, unlocked for Linux and Windows.**
 
@@ -60,43 +60,8 @@ Password protection is disabled by default (`--no-password`). To enable it, pass
 `--password <pass>`. When enabled, all connections require login, including localhost
 and Tailscale; no IP address bypasses authentication.
 
-To start the web UI before signing in to Codex, use:
-
-```bash
-pnpm install
-pnpm run build
-node dist-cli/index.js --no-login
-```
-
-By default, `codexapp` leaves the sandbox mode to Codex's configuration.
-Use `--sandbox-mode` to override it explicitly:
-
-```bash
-pnpm install
-pnpm run build
-node dist-cli/index.js --sandbox-mode workspace-write
-```
-
-Supported modes are `read-only`, `workspace-write`, and `danger-full-access`.
-You can also set `CODEXUI_SANDBOX_MODE`; the CLI option takes precedence.
-
-### Linux 🐧
-```bash
-node -v   # should be 18+
-pnpm install
-pnpm run build
-node dist-cli/index.js
-```
-
-### Windows 🪟 (PowerShell)
-```powershell
-node -v   # 18+
-pnpm install
-pnpm run build
-node dist-cli/index.js
-```
-
----
+Authentication, approval, sandbox, and memories defaults are owned by the external server.
+See [external app-server setup](external-app-server.md) for configuration and reconnect instructions.
 
 ## iPhone / iPad via Tailscale Serve
 
