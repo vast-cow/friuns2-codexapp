@@ -20,6 +20,8 @@ it('correlates concurrent replies and colliding server IDs, clears pending calls
         socket.send(JSON.stringify({ id: frame.id, result: 'reply' }))
       } else if (['thread/start', 'thread/resume'].includes(frame.method)) {
         socket.send(JSON.stringify({ id: frame.id, result: { thread: { id: 'test-thread', turns: [] } } }))
+      } else if (frame.method === 'thread/archive' || frame.method === 'thread/unsubscribe') {
+        socket.send(JSON.stringify({ id: frame.id, result: {} }))
       } else if (frame.method === 'test/pending') socket.close()
     })
   })
@@ -37,11 +39,19 @@ it('correlates concurrent replies and colliding server IDs, clears pending calls
     await client.rpc('thread/start', {})
     await expect(client.rpc('test/pending', {})).rejects.toThrow('disconnected')
     expect(client.listPendingServerRequests()).toEqual([])
+    expect(notifications.filter(f => f.method === 'app-server/disconnected')).toHaveLength(1)
     await Promise.all([client.reconnect(), client.reconnect()])
     expect(connections).toBe(2)
     expect(frames.filter(f => f.method === 'thread/resume')).toHaveLength(1)
     expect(frames.filter(f => f.method === 'test/pending')).toHaveLength(1)
     await expect(client.respondToServerRequest({ id: approval.id, result: {} })).rejects.toThrow('No pending')
+    await client.rpc('thread/archive', { threadId: 'test-thread' })
+    await client.reconnect()
+    expect(frames.filter(f => f.method === 'thread/resume')).toHaveLength(1)
+    await client.rpc('thread/start', {})
+    await client.rpc('thread/unsubscribe', { threadId: 'test-thread' })
+    await client.reconnect()
+    expect(frames.filter(f => f.method === 'thread/resume')).toHaveLength(1)
     client.dispose()
     expect(server.address()).toBeTruthy()
   } finally {

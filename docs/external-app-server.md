@@ -59,3 +59,31 @@ thread), avoiding concurrent fanout. Method metadata is bundled, removing proces
 startup and schema filesystem work. Browser payloads and browser notification
 transport are unchanged; disconnect invalidates live thread caches. No browser
 profile or real-server latency measurements were collected.
+
+## Migration audit follow-up
+
+Disconnects also notify connected browsers, clear pending approvals and release
+the local running-turn indicator. This does not interrupt the server's turn:
+reopen/read the thread before deciding to submit again. Disconnect invalidates
+cached account status. Successful archive/unsubscribe removes the thread from
+subscription restoration, preventing obsolete threads from blocking reconnect.
+
+Reproduce controlled built/dev integration checks (free ports 4198 and 4199):
+
+```sh
+pnpm run build
+node scripts/test-external-app-server.cjs
+pnpm exec vitest run src/server/appServerClient.test.ts src/server/appServerWebSocketClient.test.ts
+```
+
+The integration script is CommonJS and executes the public ESM CLI as a child
+process. It verifies bundled metadata through HTTP; the CLI has no public CJS
+exports. Both backends use one connection and initialization each. The fixture
+checks listener survival after shutdown, not survival of a real Codex process.
+No Codex executable or Docker was available for this audit.
+
+Runtime audit: remaining subprocesses run git, ripgrep, filesystem helpers and
+the optional `npx skills` installer; these do not manage Codex. The old
+`ensureCodexInstalled` and `checkCodexLoginStatus` helpers have no runtime
+callers. Development preserves `CODEX_HOME`. Schema method metadata is bundled
+into the CLI, with no CLI schema-generation dependency at runtime.

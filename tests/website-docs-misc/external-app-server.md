@@ -17,3 +17,29 @@ Prerequisites: build with `pnpm run build`; start Codex independently with
 
 Cleanup: stop only test processes manually; remove test threads if desired.
 Automated fixture coverage is in `appServerWebSocketClient.test.ts`.
+
+## Disconnect recovery and subscription retirement
+
+Prerequisites: build with `pnpm run build`; install dependencies. For deterministic
+coverage without Codex, run `node scripts/test-external-app-server.cjs` (ports
+4198 and 4199 must be free), then
+`pnpm exec vitest run src/server/appServerClient.test.ts src/server/appServerWebSocketClient.test.ts`.
+
+Actions: start a real external server and the web backend as described in
+[the deployment guide](../../docs/external-app-server.md). Start a streaming
+turn, stop the external server, then restart it and explicitly reconnect.
+Archive a subscribed thread, reconnect again, and reopen another thread.
+
+Expected: the disconnected browser stops showing the turn as running, clears
+approvals and warns to inspect the thread before resending. No turn is replayed.
+Archived/unsubscribed threads are not resumed; remaining subscriptions resume
+once. Connected-server account status is read again after disconnect.
+The controlled integration script checks both built and dev entry points,
+CLI/environment endpoint precedence, HTTP RPC, browser WebSocket readiness,
+bundled method metadata, one upstream connection/initialize per backend,
+and fixture listener survival after backend shutdown.
+
+Cleanup: the script terminates only its own backend process groups and fixture.
+Real-server checks require stopping the independently launched server separately.
+A fixture result does not establish real Codex process survival or authenticated
+streaming/approval behavior.

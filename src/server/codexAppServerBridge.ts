@@ -3340,6 +3340,8 @@ export class AppServerClient {
     this.threadTurnPageReadPromiseByThreadId.clear()
     this.capturedItemsByThreadId.clear()
     this.liveStateCache.clear()
+    recordCodexAuthStatus(null)
+    this.emitNotification({ method: 'app-server/disconnected', params: null })
   })
 
   private sendLine(payload: Record<string, unknown>): void { this.transport.send(payload) }
@@ -3725,6 +3727,10 @@ export class AppServerClient {
       if (['thread/start', 'thread/resume', 'thread/fork'].includes(method)) {
         const id = readNonEmptyString(asRecord(asRecord(result)?.thread)?.id)
         if (id) this.subscribedThreads.add(id)
+      }
+      if (method === 'thread/archive' || method === 'thread/unsubscribe') {
+        const id = readNonEmptyString(asRecord(params)?.threadId)
+        this.subscribedThreads.delete(id)
       }
       if (method === 'account/read') recordCodexAccountRead(result)
       if (method === 'account/logout') recordCodexAuthStatus(false)

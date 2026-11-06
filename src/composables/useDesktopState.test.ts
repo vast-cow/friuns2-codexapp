@@ -979,6 +979,14 @@ describe('locally created threads awaiting sidebar indexing', () => {
     notify({ method: 'turn/completed', params: { threadId: id, turn: { id: 'turn-1', status: 'completed' } } })
   }
 
+  it('settles an active streamed turn when the external server disconnects', async () => {
+    await create()
+    notify({ method: 'turn/started', params: { threadId: 'new-chat', turn: { id: 'turn-1' } } })
+    notify({ method: 'app-server/disconnected', params: null })
+    expect(state.projectGroups.value[0]?.threads[0]?.inProgress).toBe(false)
+    expect(state.error.value).toContain('inspect the thread before resending')
+  })
+
   it('keeps a new chat during an active turn and after completion before its first list appearance', async () => {
     await create()
     await refresh()

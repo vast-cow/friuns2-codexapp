@@ -3628,6 +3628,19 @@ export function useDesktopState() {
   }
 
   function applyRealtimeUpdates(notification: RpcNotification): void {
+    if (notification.method === 'app-server/disconnected') {
+      const message = 'App-server disconnected. Reconnect and inspect the thread before resending a turn.'
+      pendingServerRequestsByThreadId.value = {}
+      for (const threadId of Object.keys(inProgressById.value)) {
+        setThreadInProgress(threadId, false)
+        setTurnActivityForThread(threadId, null)
+        setTurnErrorForThread(threadId, message)
+        clearPendingTurnRequest(threadId)
+      }
+      activeTurnIdByThreadId.value = {}
+      error.value = message
+      return
+    }
     if (handleServerRequestNotification(notification)) {
       return
     }

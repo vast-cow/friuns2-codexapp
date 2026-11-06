@@ -37,7 +37,7 @@ it.each(['file', 'symlink', 'missing'].flatMap((kind) => [false, true].map((auth
   await writeFile(join(home, 'skills-sync.json'), syncConfig)
   const rpc = vi.fn()
   shared.__codexRemoteSharedBridge__ = {
-    version: 'immediate-steer-v1', appServer: { rpc },
+    version: 'external-websocket-v1', appServer: { rpc },
     telegramBridge: {},  methodCatalog: {},
   }
   createCodexBridgeMiddleware()
