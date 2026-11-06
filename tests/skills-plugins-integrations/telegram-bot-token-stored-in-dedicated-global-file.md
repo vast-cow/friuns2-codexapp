@@ -6,8 +6,7 @@ Prerequisites: running backend, a bot token and destination chat ID, and a backu
 1. Open Settings → Telegram in light and dark themes. Check only notification
    enablement, token, destination, optional URL, test, save, and delivery feedback appear.
 2. Save a token, destination and URL; send a test. Expect one message with no startup message.
-3. Complete a browser turn and a backend queued turn. Close the browser while the
-   latter runs. Expect one alert per successful turn with title, completed status and link.
+3. Complete a browser turn, then start another browser turn and close the browser while it runs. Expect one alert per successful turn with title, completed status and link.
 4. Fail or interrupt a turn. Expect no alert. Send bot commands or text to Telegram;
    expect no conversation activity and no incoming Telegram API requests.
 5. Disable alerts and finish a turn. Expect no Telegram requests. Explicit tests still work.

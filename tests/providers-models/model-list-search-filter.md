@@ -36,7 +36,7 @@ Search/filter input in the model selection dropdown.
 1. In both new and existing threads, open Thinking and switch between models.
 2. Select an effort unsupported by the next model, then switch to that model.
 3. Switch providers, including a thread whose provider differs from the active config.
-4. Send a direct turn and a queued turn in Default and Plan modes.
+4. Send an idle turn and an immediate busy submission in Default and Plan modes.
 5. Repeat with an empty/failed model catalog and in light and dark themes.
 
 #### Expected Results
@@ -46,7 +46,7 @@ Search/filter input in the model selection dropdown.
   effort (collaboration mode uses null).
 - Provider switches never reuse another provider's capabilities; stale discovery
   responses do not overwrite current choices. Discovery failure retains the model.
-- Direct and queued requests use only confirmed capabilities for their provider.
+- Idle and immediate busy requests use only confirmed capabilities for their provider.
 - The existing themed dropdown remains readable in both themes.
 
 #### Rollback/Cleanup

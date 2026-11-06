@@ -9,6 +9,7 @@ const gateway = vi.hoisted(() => ({
   getThreadDetail: vi.fn(),
   resumeThread: vi.fn(),
   startThreadTurn: vi.fn(),
+  interruptThreadTurn: vi.fn(),
   startThread: vi.fn(),
   generateThreadTitle: vi.fn(),
   subscribeCodexNotifications: vi.fn(),
@@ -300,6 +301,41 @@ describe('message visibility during sends and history synchronization', () => {
     await state.loadMessages(thread.id, { force: true, silent: true })
     expect(state.messages.value.filter((message) => message.text === oldUser.text)).toHaveLength(2)
     expect(state.messages.value.some((message) => message.messageType === 'userMessage.optimistic')).toBe(false)
+  })
+
+  it.each(['queue', '"queue"'])('ignores legacy Queue preference %s across state recreation', async (legacy) => {
+    window.localStorage.setItem('codex-web-local.in-progress-send-mode.v1', legacy)
+    for (let reload = 0; reload < 2; reload++) {
+      const state = await loadState()
+      turnStarted()
+      const started = deferred<string>()
+      gateway.startThreadTurn.mockReturnValueOnce(started.promise)
+      await state.sendMessageToSelectedThread(`immediate-${reload}`)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(gateway.startThreadTurn).toHaveBeenCalledTimes(reload + 1)
+      expect(gateway.startThreadTurn.mock.calls[reload]?.[1]).toBe(`immediate-${reload}`)
+      // Completion while the submission is awaiting RPC must not replay it.
+      turnCompleted()
+      started.resolve('turn-2')
+      await vi.advanceTimersByTimeAsync(15000)
+      expect(gateway.startThreadTurn).toHaveBeenCalledTimes(reload + 1)
+      state.stopPolling()
+    }
+  })
+
+  it('interrupts an active turn without replaying an in-flight steering submission', async () => {
+    const state = await loadState()
+    turnStarted()
+    const started = deferred<string>()
+    gateway.startThreadTurn.mockReturnValueOnce(started.promise)
+    await state.sendMessageToSelectedThread('steer before stop')
+    await vi.advanceTimersByTimeAsync(0)
+    await state.interruptSelectedThreadTurn()
+    expect(gateway.interruptThreadTurn).toHaveBeenCalledWith(thread.id, 'turn-2')
+    turnCompleted()
+    started.resolve('turn-2')
+    await vi.advanceTimersByTimeAsync(15000)
+    expect(gateway.startThreadTurn).toHaveBeenCalledOnce()
   })
 
   it('shows steering submissions immediately with unique IDs for rapid sends', async () => {

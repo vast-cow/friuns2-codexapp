@@ -18,9 +18,10 @@
 - [concepts/project-zip-portability.md](./concepts/project-zip-portability.md): removed project ZIP management and preserved project/history infrastructure.
 
 ## Sources
+- [../raw/features/immediate-steering.md](../raw/features/immediate-steering.md): current immediate submission and inert legacy prompt state boundary.
 - [../raw/features/project-zip-removal.md](../raw/features/project-zip-removal.md): current archive removal boundary and retained historical listing/recovery.
-- [../raw/features/automation-management-removal.md](../raw/features/automation-management-removal.md): removed management layer and preserved local data, history, and shared queue processing.
-- [../raw/features/codex-only-client.md](../raw/features/codex-only-client.md): current official-only authentication, model catalog, runtime and legacy-data boundaries.
+- [../raw/features/automation-management-removal.md](../raw/features/automation-management-removal.md): historical removal boundary; its retained prompt queue has since been removed.
+- [../raw/features/codex-only-client.md](../raw/features/codex-only-client.md): official-only authentication snapshot; its queued-settings behavior is historical.
 - [../raw/features/single-active-codex-account.md](../raw/features/single-active-codex-account.md): current single-account authentication boundary and preservation of active credentials/Keyring.
 - [../raw/features/local-skills-without-github-sync.md](../raw/features/local-skills-without-github-sync.md): local Skills without manual GitHub synchronization or Firebase authentication.
 - [../raw/features/directory-composio-removal.md](../raw/features/directory-composio-removal.md): current DirectoryHub integration boundary and preserved local Skills, Apps, Plugins, and MCP behavior.
@@ -28,7 +29,7 @@
 - [../raw/features/directory-hub-composio-skills-search.md](../raw/features/directory-hub-composio-skills-search.md): source facts for Directory Hub, Composio connectors, Skills search/install, and edge-case tests.
 - [../raw/features/realtime-chat-rendering-inline-media.md](../raw/features/realtime-chat-rendering-inline-media.md): source facts for realtime chat rendering and inline media sanitization.
 - [../raw/features/skills-route-ui-and-first-launch-card.md](../raw/features/skills-route-ui-and-first-launch-card.md): source facts for the Skills route rename, first-launch Plugins card, dark-theme fix, and dev-server workflow adjustment.
-- [../raw/features/thread-heartbeat-automations.md](../raw/features/thread-heartbeat-automations.md): source facts for thread heartbeat automations, multiple automations per thread, and Run now queue behavior.
+- [../raw/features/thread-heartbeat-automations.md](../raw/features/thread-heartbeat-automations.md): historical source for removed heartbeat automations and Run now queue behavior.
 - [../raw/features/project-cron-automations.md](../raw/features/project-cron-automations.md): source facts for project cron automations in the sidebar.
 - [../raw/features/project-zip-portability.md](../raw/features/project-zip-portability.md): historical source for removed project ZIP export/import and chat JSONL import.
 - [../raw/features/manual-test-domain-folders.md](../raw/features/manual-test-domain-folders.md): source facts for the manual test documentation split into domain folders.

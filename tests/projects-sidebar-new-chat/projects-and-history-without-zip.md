@@ -7,12 +7,12 @@ Build the app. Use an isolated `CODEX_HOME` with a registered project, normal an
 1. Open Home in light and dark themes. Confirm `Select folder` and `Create Project` remain while `Import Project` and the ZIP input are absent.
 2. Open an existing project using `Select folder`. Verify its name and historical conversations appear in the sidebar; switch between them and reload.
 3. Open thread and project menus in both themes. Confirm `Browse files` remains and `Export Project` is absent. Open the existing chat and check historical messages and file/image attachments.
-4. Resume the conversation, send a message, observe streaming, and queue a follow-up. Archive/unarchive a disposable conversation with the normal Codex flow and verify historical messages are available after resumption.
+4. Resume the conversation, send a message, observe streaming, and immediately steer with a follow-up. Archive/unarchive a disposable conversation with the normal Codex flow and verify historical messages are available after resumption.
 5. Request the retired GET/HEAD `/codex-api/project-zip` and POST `/codex-api/project-import` routes. Confirm no archive handling or filesystem changes occur.
 6. Compare existing project files, `.codex-project` metadata, session logs and prior ZIP archive bytes with the initial copies.
 
 #### Expected
-Projects open and list normally; history remains readable and resumable. SQLite supplementation still exposes historical sessions, saved titles, ordering and deduplication without archive creation/import. UI and routes provide no backup/restore ZIP workflow. Normal attachment handling, raw upload bodies, archive recovery, message queues and shared global-state serialization remain. No migration/deletion of user data occurs.
+Projects open and list normally; history remains readable and resumable. SQLite supplementation still exposes historical sessions, saved titles, ordering and deduplication without archive creation/import. UI and routes provide no backup/restore ZIP workflow. Normal attachment handling, raw upload bodies, archive recovery and shared global-state serialization remain; deferred prompt queues are removed. No migration/deletion of user data occurs.
 
 #### Cleanup
 Restore themes and remove only isolated test fixtures. Keep original ZIP archives, project folders, Codex sessions, databases and user configuration.
