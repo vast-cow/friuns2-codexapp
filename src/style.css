@@ -1430,3 +1430,7 @@
 :root.dark .directory-hub .directory-toast { background: #052e16; border-color: #166534; color: #bbf7d0; }
 :root.dark .directory-hub .directory-error,
 :root.dark .directory-hub .directory-toast.is-error { background: #4c0519; border-color: #9f1239; color: #fecdd3; }
+
+:root.dark .content-header .content-project-name {
+  color: #94a3b8;
+}

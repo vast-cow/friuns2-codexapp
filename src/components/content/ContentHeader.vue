@@ -3,7 +3,10 @@
     <div class="content-leading" :class="{ 'is-accent': accent }">
       <slot name="leading" />
     </div>
-    <h1 class="content-title" :class="{ 'is-accent': accent }" :title="title">{{ title }}</h1>
+    <div class="content-heading">
+      <h1 class="content-title" :class="{ 'is-accent': accent }" :title="title">{{ title }}</h1>
+      <span v-if="projectName" class="content-project-name" :title="projectName">{{ projectName }}</span>
+    </div>
     <div class="content-actions">
       <slot name="actions" />
     </div>
@@ -13,6 +16,7 @@
 <script setup lang="ts">
 defineProps<{
   title: string
+  projectName?: string
   accent?: boolean
 }>()
 </script>
@@ -24,8 +28,16 @@ defineProps<{
   @apply relative z-[250] w-full min-w-0 min-h-12 sm:min-h-14 flex items-center gap-2 sm:gap-3 px-2 sm:px-3 pt-3 sm:pt-4 pb-2 bg-white;
 }
 
+.content-heading {
+  @apply flex min-w-0 flex-1 items-center gap-2;
+}
+
+.content-project-name {
+  @apply min-w-0 max-w-[40%] shrink truncate text-xs text-slate-500;
+}
+
 .content-title {
-  @apply m-0 min-w-0 max-w-[min(72ch,100%)] flex-1 truncate text-sm font-medium leading-6 text-slate-900 max-sm:text-xs;
+  @apply m-0 min-w-0 max-w-[min(72ch,100%)] shrink truncate text-sm font-medium leading-6 text-slate-900 max-sm:text-xs;
 }
 
 .content-title.is-accent {

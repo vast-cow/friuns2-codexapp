@@ -15,9 +15,16 @@ Thread and new-chat header action buttons stay pinned to the right edge while lo
 4. Open a thread with a long title and repeat the alignment check
 5. Confirm the title truncates with a tooltip and does not overlap the remaining actions
 
+6. Open a thread belonging to a project; confirm its project display name appears beside the title
+7. Rename the project in the sidebar and confirm the header updates immediately
+8. Switch to a thread in another project, then visit Home and Skills; confirm no stale project name appears
+9. Repeat in light and dark themes, including a long project name; hover to see its full name
+
 #### Expected Results
 - Header actions use the available right edge of the content header
 - Long title truncation does not pull action buttons toward the center
+- Project names match the sidebar, truncate when needed, and remain readable in both themes
+- Home, Skills, and threads without a project show no project label
 - Remaining actions stay visible and clickable; terminal and branch management controls are absent
 
 #### Rollback/Cleanup

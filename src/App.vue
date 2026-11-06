@@ -238,7 +238,7 @@
         :style="contentStyle"
       >
         <span v-if="isVirtualKeyboardOpen" class="content-keyboard-spacer" aria-hidden="true" />
-        <ContentHeader :title="contentTitle" :accent="isSkillsRoute">
+        <ContentHeader :title="contentTitle" :project-name="contentProjectName" :accent="isSkillsRoute">
           <template #leading>
             <SidebarThreadControls
               v-if="isSidebarCollapsed || isMobile"
@@ -1013,6 +1013,11 @@ const contentTitle = computed(() => {
   if (isSkillsRoute.value) return t('Skills')
   if (isHomeRoute.value) return t('Start new thread')
   return selectedThread.value?.title ?? t('Choose a thread')
+})
+const contentProjectName = computed(() => {
+  if (isHomeRoute.value || isSkillsRoute.value) return ''
+  const projectName = selectedThread.value?.projectName?.trim() ?? ''
+  return projectName ? (projectDisplayNameById.value[projectName] ?? projectName) : ''
 })
 const browserHostName =
   typeof window !== 'undefined'
