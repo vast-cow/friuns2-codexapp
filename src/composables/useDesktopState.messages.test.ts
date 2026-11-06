@@ -364,7 +364,7 @@ const secondFile = {
   label: 'notes.txt', path: '/api/uploads/notes.txt', fsPath: '/tmp/codex-web-uploads/notes.txt',
 }
 
-function attachmentUser(files = [pastedFile], text = `Attached file: ${pastedFile.label}`): UiMessage {
+function attachmentUser(files = [pastedFile], text = ''): UiMessage {
   return { ...nextUser, text, fileAttachments: files.map(({ label, path }) => ({ label, path })) }
 }
 
@@ -397,7 +397,7 @@ describe('optimistic attachment reconciliation', () => {
     const started = deferred<string>()
     gateway.startThreadTurn.mockReturnValue(started.promise)
     const persisted = {
-      ...attachmentUser(files, prompt || `Attached file${files.length > 1 ? 's' : ''}: ${files.map((file) => file.label).join(', ')}`),
+      ...attachmentUser(files, prompt),
       turnIndex: isNew ? 0 : 1,
     }
     gateway.getThreadDetail.mockResolvedValue(attachmentDetail(persisted, isNew ? [] : [oldUser]))

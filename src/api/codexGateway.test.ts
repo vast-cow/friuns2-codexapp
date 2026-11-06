@@ -67,7 +67,7 @@ describe('startThreadTurn attachment-only payloads', () => {
     vi.unstubAllGlobals()
   })
 
-  it.each(['pasted-text-2026-11-04-12-00-00.txt', 'notes.txt'])('sends an indexable request and original references for %s', async (name) => {
+  it.each(['pasted-text-2026-11-04-12-00-00.txt', 'notes.txt'])('sends an empty request and original references for %s', async (name) => {
     const { requests } = mockRpcFetch()
     const file = { label: name, path: `/uploads/${name}`, fsPath: `/uploads/${name}` }
 
@@ -76,7 +76,7 @@ describe('startThreadTurn attachment-only payloads', () => {
     expect(requests).toHaveLength(1)
     expect(requests[0].params.input).toEqual([{
       type: 'text',
-      text: `# Files mentioned by the user:\n\n## ${name}: /uploads/${name}\n\n## My request for Codex:\n\nAttached file: ${name}\n`,
+      text: `# Files mentioned by the user:\n\n## ${name}: /uploads/${name}\n\n## My request for Codex:\n\n\n`,
     }])
     expect(requests[0].params.attachments).toEqual([file])
   })

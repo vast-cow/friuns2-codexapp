@@ -10,19 +10,19 @@
 
 1. Create a new chat, paste the long text, confirm it becomes a `pasted-text-*.txt` attachment, and submit with an empty composer.
 2. Record the thread URL. Wait for completion, refresh the thread list, reload the page, then restart the application with the same `CODEX_HOME` and reopen it.
-3. Confirm the thread remains in the sidebar and the persisted first user request includes `Attached file: pasted-text-...txt`. Ask Codex to read the file and report its unique marker.
+3. Confirm the thread remains in the sidebar and the persisted first user request is empty after `## My request for Codex:` and the file references remain intact. Ask Codex to read the file and report its unique marker.
 4. Repeat with only a manually uploaded `notes.txt`, then with whitespace-only composer content, then with both prepared files and no request text.
 5. Submit an attachment with a multiline request. Confirm the request is retained and no fallback is appended. Send a plain text message and confirm its existing behavior.
-6. While a turn runs, submit an attachment with no text. Confirm immediate submission includes its filename, then repeat the reload checks.
+6. While a turn runs, submit an attachment with no text. Confirm immediate submission preserves its file reference and an empty request, then repeat the reload checks.
 7. Repeat the sidebar and message visibility checks in light and dark themes.
 
 ## Expected Results
 
-- Attachment-only requests contain a concise filename-based summary after `## My request for Codex:`; multiple files have a filename list and a remaining count when needed.
+- Attachment-only requests contain no generated text after `## My request for Codex:`. The filename-based display title exists only in the application index.
 - Attachment references remain intact and contents remain accessible without being copied into the prompt.
 - Threads remain discoverable after completion, full thread-list refresh, page reload, and application restart.
 - Non-empty requests and text-only messages retain the existing format; normal and steering sends use the same attachment format.
-- This change prevents empty requests on future submissions; it does not repair previously missing threads.
+- Previously missing threads with readable accepted attachment-only turns can be recovered using the explicit [index rebuild](../../docs/persistent-thread-index.md).
 
 ## Cleanup
 
@@ -33,11 +33,11 @@
 
 ### Status and scope
 
-The state-level cases in `src/composables/useDesktopState.messages.test.ts` exercise the public send/load/notification APIs with a mocked gateway. They do not exercise clipboard conversion, HTTP transport, rendered chips, or link navigation. Tests, builds, browser checks, and profiling were not run for this addition because the implementation request explicitly skipped tests and validation. All scenarios below remain unverified at runtime, including the new automated cases.
+The state-level cases in `src/composables/useDesktopState.messages.test.ts` exercise the public send/load/notification APIs with a mocked gateway. They do not exercise clipboard conversion, HTTP transport, rendered chips, or link navigation. These cases now use empty persisted attachment-only user text. Automated state, gateway, prompt, and persistent-index tests run locally; browser, Docker, and live Codex restart checks still require the setup above.
 
-The earlier mismatch was between an empty optimistic prompt and a persisted `Attached file: ...` description. The current `startTurnForThread()` binds the particular optimistic message ID to the returned turn ID; `hasEquivalentUserMessage()` uses that turn ID before text comparison, and `mergeMessages()` removes the optimistic row only when a persisted user row matches. The added cases target this behavior without changing production code. Existing text-only cases in the same suite remain in place.
+The earlier workaround created a mismatch between an empty optimistic prompt and a persisted `Attached file: ...` description. That generated request has now been removed. The current `startTurnForThread()` binds the particular optimistic message ID to the returned turn ID; `hasEquivalentUserMessage()` uses that turn ID before text comparison, and `mergeMessages()` removes the optimistic row only when a persisted user row matches. The added cases target this behavior without changing production code. Existing text-only cases in the same suite remain in place.
 
-When validation is authorized, run:
+Run focused state/prompt validation with:
 
 ```sh
 pnpm run test:unit -- src/composables/useDesktopState.messages.test.ts src/utils/attachmentPrompt.test.ts
@@ -68,5 +68,25 @@ For every accepted submission, inspect the transport/server RPC log and count ac
 
 - Added state cases cover new/existing attachment-only and mixed sends, multiple attachments, prior turns with the same filename/path, history-before-response synchronization, stale history followed by completion, failed reads followed by recovery, rejected sends without automatic retry, and fresh-state history restoration.
 - Clipboard conversion, DOM chip/link assertions, actual page reload, transport disconnects, retry controls, and ambiguous accepted-but-response-lost failures require the manual/browser procedure. The fresh-state unit case is not an end-to-end reload test.
-- No production code changes are made here, so this addition introduces no runtime requests, blocking work, fanout, payload changes, or cache invalidation changes. No performance measurements were run.
+- See the [persistent-index guide](../../docs/persistent-thread-index.md) for storage, reconciliation, pagination, and performance boundaries.
 - Restore network connectivity, throttling, and interception settings. Remove disposable chats/files and the isolated home/project as above; do not delete uploads referenced by retained chats.
+
+## Persistent index lifecycle and recovery
+
+### Setup
+
+Use an isolated persistent `CODEX_HOME`, valid provider credentials, and more than 200 threads (including attachment-only threads). Inspect actual `turn/start` input and persisted user content, not only the UI.
+
+### Actions and expected results
+
+1. Send single/multiple files with empty and whitespace-only requests. Check file paths remain intact and the user request remains empty. Send literal authored `Attached file: notes.txt` and confirm it remains unchanged.
+2. Record canonical thread and turn IDs. Refresh, restart the application and Codex, open by ID, resume, and send a follow-up. Expect the original history and a single new turn per deliberate submission.
+3. Page through all history with `created_at` and `updated_at` sorting, cwd/provider/source filters, and archived/non-archived views. Expect stable order, no duplicate IDs, and no missing attachment threads beyond row 200.
+4. Rename, archive, unarchive, and delete through the app; restart. Expect the same state and no resurrected rows. An omitted page is not evidence of deletion.
+5. Interrupt the connection after acceptance. Reload the list and open the thread. Expect pending intent reconciliation against a new matching turn ID, never an automatic resend. Repeat the same file in another turn; expect distinct turn IDs.
+6. Make the index directory unwritable before sending: expect no `turn/start`. Separately make confirmation persistence fail after acceptance: expect the accepted response, a server warning, and later reconciliation without a resend. Restore permissions before retrying. Corrupt index JSON must produce a visible error rather than silently overwrite state.
+7. With older hidden file-only sessions, invoke `POST /codex-api/thread-index/rebuild` using the authenticated app session. Expect readable accepted attachment threads to reappear, existing conversation text unchanged, unused threads excluded, archive state retained, and deletion tombstones preserved. Check returned failure count; inaccessible histories cannot be repaired by listing metadata.
+
+### Cleanup
+
+Restore permissions and connectivity, remove disposable threads/files/home, and preserve the persistent development server on 5173. See the guide before removing application index state.

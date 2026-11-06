@@ -100,12 +100,12 @@ it('retains historical SQLite sessions in ordinary thread listing with titles, o
   ]) })
   rpc.mockResolvedValue({ data: [{ id: 'already-listed', preview: '', cwd: project, updatedAt: 200 },
     { id: 'normal-thread', preview: 'Normal Codex chat', cwd: project, updatedAt: 150 }], nextCursor: 'next-page' })
-  const response = await request('/codex-api/rpc', 'POST', { method: 'thread/list', params: {} })
+  const response = await request('/codex-api/rpc', 'POST', { method: 'thread/list', params: { sortKey: 'updated_at', limit: 3 } })
   expect(response.res.statusCode).toBe(200)
   expect(response.json.result.data.map((row: { id: string }) => row.id)).toEqual(['historical-thread', 'already-listed', 'normal-thread'])
   expect(response.json.result.data[0]).toMatchObject({ preview: 'Previously imported conversation', cwd: project, path: sessionPath })
   expect(response.json.result.data[1].preview).toBe('Saved title')
-  expect(response.json.result.nextCursor).toBe('next-page')
+  expect(response.json.result.nextCursor).toMatch(/^app-index:/)
   expect(sqlite).toHaveBeenCalledOnce()
   expect(sqlite.mock.calls[0]?.[0]).toBe('sqlite3')
   expect(sqlite.mock.calls[0]?.[1][2]).toMatch(/^\s*SELECT /)
@@ -135,9 +135,26 @@ it('keeps the app-server thread list usable when SQLite history supplementation 
   sqlite.mockReturnValue({ status: 1, stdout: '', stderr: 'sqlite unavailable' })
   const listed = { data: [{ id: 'normal-thread', cwd: project, preview: 'Existing conversation' }], nextCursor: null }
   rpc.mockResolvedValue(listed)
-  const response = await request('/codex-api/rpc', 'POST', { method: 'thread/list', params: {} })
+  const response = await request('/codex-api/rpc', 'POST', { method: 'thread/list', params: { sortKey: 'updated_at', limit: 3 } })
   expect(response.res.statusCode).toBe(200)
   expect(response.json.result).toEqual(listed)
   expect(await readFile(join(home, 'state_5.sqlite'), 'utf8')).toBe('Existing database sentinel')
+  await expectPreservedFiles()
+})
+
+it('explicitly rebuilds attachment-only history without sending or changing session logs', async () => {
+  const text = '# Files mentioned by the user:\n\n## notes.txt: /uploads/notes.txt\n\n## My request for Codex:\n\n\n'
+  rpc.mockImplementation(async (method) => method === 'thread/read' ? { thread: {
+    id: 'historical-thread', cwd: project, path: sessionPath, source: 'cli', modelProvider: 'openai',
+    preview: '', createdAt: 100, updatedAt: 200,
+    turns: [{ id: 'accepted-turn', items: [{ type: 'userMessage', content: [{ type: 'text', text }] }] }],
+  } } : { data: [], nextCursor: null })
+  const rebuilt = await request('/codex-api/thread-index/rebuild', 'POST', {})
+  expect(rebuilt.res.statusCode).toBe(200)
+  expect(rebuilt.json).toEqual({ recovered: 1, failed: 0 })
+  const listed = await request('/codex-api/rpc', 'POST', { method: 'thread/list', params: {} })
+  expect(listed.json.result.data).toHaveLength(1)
+  expect(listed.json.result.data[0]).toMatchObject({ id: 'historical-thread', preview: 'notes.txt' })
+  expect(rpc.mock.calls.some(([method]) => method === 'turn/start')).toBe(false)
   await expectPreservedFiles()
 })

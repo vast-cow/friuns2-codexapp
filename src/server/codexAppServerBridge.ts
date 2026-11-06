@@ -1,3 +1,4 @@
+import { PersistentThreadIndex } from './persistentThreadIndex.js'
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
@@ -156,6 +157,7 @@ type SessionSkillInputCacheEntry = {
 
 const SESSION_SKILL_INPUT_CACHE_LIMIT = 64
 const sessionSkillInputCache = new Map<string, SessionSkillInputCacheEntry>()
+const persistentThreadIndex = new PersistentThreadIndex(getCodexHomeDir, listImportedThreadsFromStateDb)
 const turnGenerationMetadataStore = new TurnGenerationMetadataStore(getCodexHomeDir)
 const sessionGenerationMetadataCache = new SessionGenerationMetadataCache()
 
@@ -1053,38 +1055,6 @@ LIMIT 200;
   }
 }
 
-function mergeImportedThreadsIntoThreadListResult(result: unknown): unknown {
-  const record = asRecord(result)
-  const data = Array.isArray(record?.data) ? record.data : null
-  if (!record || !data) return result
-  const importedById = new Map<string, Record<string, unknown>>()
-  for (const thread of listImportedThreadsFromStateDb()) {
-    const id = readNonEmptyString(thread.id)
-    if (id) importedById.set(id, thread)
-  }
-  if (importedById.size === 0) return result
-  const mergedData: unknown[] = []
-  for (const item of data) {
-    const id = readNonEmptyString(asRecord(item)?.id)
-    const imported = id ? importedById.get(id) : undefined
-    if (imported) {
-      mergedData.push({ ...asRecord(item), ...imported })
-      importedById.delete(id)
-    } else {
-      mergedData.push(item)
-    }
-  }
-  mergedData.push(...importedById.values())
-  return {
-    ...record,
-    data: mergedData.sort((a, b) => {
-      const aUpdated = typeof asRecord(a)?.updatedAt === 'number' ? asRecord(a)?.updatedAt as number : 0
-      const bUpdated = typeof asRecord(b)?.updatedAt === 'number' ? asRecord(b)?.updatedAt as number : 0
-      return bUpdated - aUpdated
-    }),
-  }
-}
-
 function formatProjectlessDateSegment(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
@@ -1271,7 +1241,9 @@ export async function callRpcWithArchiveRecovery(
   params: unknown,
 ): Promise<unknown> {
   try {
-    const result = await callRpcWithRateLimitDecodeRecovery(appServer, method, params)
+    const result = method === 'thread/list'
+      ? await persistentThreadIndex.call(method, asRecord(params) ?? {}, (m, p) => callRpcWithRateLimitDecodeRecovery(appServer, m, p))
+      : await callRpcWithRateLimitDecodeRecovery(appServer, method, params)
     return method === 'thread/list'
       ? await canonicalizeThreadListResponseForRead(result)
       : result
@@ -3467,7 +3439,7 @@ class AppServerProcess {
       if (!pendingRequest) return
 
       if (message.error) {
-        pendingRequest.reject(new Error(message.error.message))
+        pendingRequest.reject(Object.assign(new Error(message.error.message), { code: message.error.code }))
       } else {
         pendingRequest.resolve(message.result)
       }
@@ -3850,7 +3822,8 @@ class AppServerProcess {
     this.disposeIfConfigChanged()
     await this.ensureInitialized()
     if (method !== 'turn/start') {
-      const result = await this.call(method, params)
+      const result = method === 'thread/list' ? await this.call(method, params)
+        : await persistentThreadIndex.call(method, asRecord(params) ?? {}, (m, p) => this.call(m, p))
       if (method === 'account/read') recordCodexAccountRead(result)
       if (method === 'account/logout') recordCodexAuthStatus(false)
       return result
@@ -3861,7 +3834,7 @@ class AppServerProcess {
     candidates.add(metadata)
     this.pendingGenerationSettings.set(threadId, candidates)
     try {
-      const result = await this.call(method, params)
+      const result = await persistentThreadIndex.call(method, asRecord(params) ?? {}, (m, p) => this.call(m, p))
       const turn = asRecord(asRecord(result)?.turn)
       const turnId = readNonEmptyString(turn?.id)
       if (threadId && turnId) {
@@ -4295,6 +4268,45 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
+      // Explicit maintenance only: sequential traversal keeps ordinary sidebar
+      // refreshes free of session scans and unbounded thread/read fanout.
+      if (req.method === 'POST' && url.pathname === '/codex-api/thread-index/rebuild') {
+        let recovered = 0
+        let failed = 0
+        const scan = async (directory: string): Promise<void> => {
+          let children
+          try { children = await readdir(directory, { withFileTypes: true }) }
+          catch (error) { if (getErrorCode(error) === 'ENOENT') return; throw error }
+          for (const child of children) {
+            const path = join(directory, child.name)
+            if (child.isDirectory()) { await scan(path); continue }
+            if (!child.isFile() || !child.name.endsWith('.jsonl')) continue
+            const stream = createReadStream(path, { encoding: 'utf8' })
+            const lines = createInterface({ input: stream, crlfDelay: Infinity })
+            let threadId = ''
+            try {
+              for await (const line of lines) {
+                try {
+                  const row = JSON.parse(line)
+                  if (row.type === 'session_meta') { threadId = readNonEmptyString(row.payload?.id); break }
+                } catch { /* Ignore incomplete rows. */ }
+              }
+            } catch { failed += 1 }
+            finally { lines.close(); stream.destroy() }
+            if (!threadId) continue
+            try {
+              const result = asRecord(await appServer.rpc('thread/read', { threadId, includeTurns: true }))
+              const thread = asRecord(result?.thread)
+              if (thread && await persistentThreadIndex.recover(thread)) recovered += 1
+            } catch { failed += 1 }
+          }
+        }
+        await scan(join(getCodexHomeDir(), 'sessions'))
+        await scan(join(getCodexHomeDir(), 'archived_sessions'))
+        setJson(res, 200, { recovered, failed })
+        return
+      }
+
       if (req.method === 'POST' && url.pathname === '/codex-api/upload-file') {
         handleFileUpload(req, res)
         return
@@ -4368,10 +4380,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const errorMergedResult = THREAD_METHODS_WITH_TURNS.has(body.method)
           ? mergeStreamTurnErrorsIntoThreadResult(appServer, trimmedResult)
           : trimmedResult
-        const listMergedResult = body.method === 'thread/list'
-          ? mergeImportedThreadsIntoThreadListResult(errorMergedResult)
-          : errorMergedResult
-        const sanitizedResult = await sanitizeThreadTurnsInlinePayloads(body.method, listMergedResult)
+        const sanitizedResult = await sanitizeThreadTurnsInlinePayloads(body.method, errorMergedResult)
         const result = THREAD_METHODS_WITH_TURNS.has(body.method)
           ? await mergeSessionSkillInputsIntoThreadResult(sanitizedResult)
           : sanitizedResult

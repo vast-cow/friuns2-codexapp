@@ -5,16 +5,16 @@ const attachment = (label: string) => ({ label, path: `/uploads/${label}` })
 
 describe('attachment prompt requests', () => {
   it.each(['pasted-text-2026-11-04-12-00-00.txt', 'notes.txt'])(
-    'keeps a meaningful request after the attachment prefix for %s', (name) => {
+    'keeps an empty request after the attachment prefix for %s', (name) => {
       expect(buildTextWithAttachments('', [attachment(name)])).toBe(
-        `# Files mentioned by the user:\n\n## ${name}: /uploads/${name}\n\n## My request for Codex:\n\nAttached file: ${name}\n`,
+        `# Files mentioned by the user:\n\n## ${name}: /uploads/${name}\n\n## My request for Codex:\n\n\n`,
       )
     },
   )
 
   it('treats whitespace-only requests as empty', () => {
     expect(buildTextWithAttachments(' \n\t ', [attachment('notes.txt')]))
-      .toContain('## My request for Codex:\n\nAttached file: notes.txt\n')
+      .toContain('## My request for Codex:\n\n\n')
   })
 
   it('preserves authored request whitespace and multiline text exactly', () => {
@@ -23,22 +23,22 @@ describe('attachment prompt requests', () => {
       .toContain(`## My request for Codex:\n\n${request}\n`)
   })
 
-  it('names multiple attachments', () => {
+  it('retains multiple references without generating a request', () => {
     expect(buildTextWithAttachments('', [attachment('one.txt'), attachment('two.txt')]))
-      .toContain('## My request for Codex:\n\nAttached files: one.txt, two.txt\n')
+      .toContain('## My request for Codex:\n\n\n')
   })
 
-  it('bounds the summary while retaining every original file reference', () => {
+  it('retains every original file reference', () => {
     const files = [attachment('a'.repeat(100) + '.txt'), attachment('b.txt'), attachment('c.txt'), attachment('d.txt')]
     const prompt = buildTextWithAttachments('', files)
     expect(prompt).toContain(`## ${files[0]!.label}: ${files[0]!.path}\n`)
     expect(prompt).toContain('## d.txt: /uploads/d.txt\n')
-    expect(prompt).toContain(`Attached files: ${'a'.repeat(77)}..., b.txt, c.txt (+1 more)\n`)
+    expect(prompt).toContain('## My request for Codex:\n\n\n')
   })
 
-  it('uses the path basename when a label is empty', () => {
+  it('does not generate text when a label is empty', () => {
     expect(buildTextWithAttachments('', [{ label: '', path: 'C:\\uploads\\notes.txt' }]))
-      .toContain('Attached file: notes.txt\n')
+      .toContain('## My request for Codex:\n\n\n')
   })
 
   it.each(['hello', '  hello\nworld\n ', '', ' \n\t'])('leaves text without attachments unchanged: %j', (text) => {
