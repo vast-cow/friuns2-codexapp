@@ -595,6 +595,7 @@
                   :messages="selectedThreadQueuedMessages"
                   :destination-options="queueDestinationOptions"
                   @destination="setQueuedDestination"
+                  @follow-up="addQueuedFollowUp"
                   @edit="onEditQueuedMessage"
                   @steer="steerQueuedMessage"
                   @delete="removeQueuedMessage"
@@ -852,6 +853,8 @@ const {
   sendMessageToSelectedThread,
   sendMessageToNewThread,
   interruptSelectedThreadTurn,
+  addQueuedFollowUp,
+  canMutateQueuedTask,
   queueDestinationOptions,
   setQueuedDestination,
   selectedThreadQueuedMessages,
@@ -1977,10 +1980,12 @@ function onSubmitThreadMessage(payload: { text: string; imageUrls: string[]; fil
   void sendMessageToSelectedThread(text, payload.imageUrls, payload.skills, payload.mode, payload.fileAttachments, queueInsertIndex,
     editingState?.threadId === selectedThreadId.value ? editingState.message.collaborationMode : undefined,
     editingState?.threadId === selectedThreadId.value ? editingState.message.generationSettings ?? null : undefined,
-    editingState?.threadId === selectedThreadId.value ? editingState.message.followUp : undefined)
+    editingState?.threadId === selectedThreadId.value ? editingState.message.followUp : undefined,
+    editingState?.threadId === selectedThreadId.value ? editingState.message.id : undefined)
 }
 
 function onEditQueuedMessage(messageId: string): void {
+  if (!canMutateQueuedTask(messageId)) return
   const queueIndex = selectedThreadQueuedMessages.value.findIndex((item) => item.id === messageId)
   const message = queueIndex >= 0 ? selectedThreadQueuedMessages.value[queueIndex] : undefined
   const composer = threadComposerRef.value

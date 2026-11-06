@@ -75,3 +75,20 @@ Cleanup: delete unused queued entries and archive test destination threads. Rest
 Execution uses the existing consume-before-start policy: a backend crash between consuming the entry and submitting the RPC can lose that entry. An ambiguous RPC failure retains the pre-existing retry behavior; exactly-once delivery across an ambiguous transport failure is not guaranteed by app-server. Duplicate completion events/reconnects are serialized and do not replay consumed entries.
 
 Performance review: processing inspects only the queue head, with one extra `thread/read(includeTurns: true)` for the predecessor on each eligibility check. Existing five-second retry timers are deduplicated per source thread; destination locks serialize competing queues. No new browser requests, background scans of all thread histories, synchronous filesystem work, or cache layers were introduced. Full predecessor history can be large, and concurrent work remains proportional to the number of queued source threads, as in the existing recovery scheduler. Live multi-thread load and provider/container performance have not been measured.
+
+## Sequences configured before execution
+
+Prerequisites: authenticated backend, T1 running A, and an existing T3. Use both light and dark themes.
+
+1. Queue B after A. Click **Add follow-up** on B, enter C's instruction, then repeat on C to add D. Each new step initially uses the current composer model, effort, and collaboration mode. Edit a leaf step through the composer to add its attachments or skills before adding successors.
+2. Configure and repeat these destinations: B Same/C Same; B New/C Same; B Same/C New; B existing T3/C independently selected thread. Confirm each row displays its own task ID, predecessor, destination and Pending/Dispatched state.
+3. Refresh and switch UI threads before A completes. Confirm all links persist. Finish A; verify only B starts. Finish an unrelated turn and verify C stays pending. Finish B and verify C starts in B's actual execution thread for Same, including when B created that thread.
+4. Restart the backend while B is running and reconnect repeatedly. Verify C waits for B's saved turn ID, and each step dispatches once.
+5. Try editing or steering B after adding C: expect an explanatory error. Try reordering a sequence: expect an explanatory error. Delete pending B: C becomes blocked with “Predecessor deleted”; D becomes blocked by its predecessor. Delete blocked descendants to clean up. Editing a pending leaf preserves its dependency and settings. Executed records are retained and cannot be deleted through the queue.
+6. Fail, cancel or interrupt B: the terminal-status policy above still releases C. Approval/input waiting does not. A missing historical turn remains pending. Cycles and self references are blocked by the backend resolver.
+
+Recovery policy for dependency tasks: persist a dispatch claim before `turn/start`, then retain the returned thread and turn IDs. A restart or transport failure after the claim but before the turn ID is saved leaves an uncertain dispatch record; successors wait and the task is never automatically replayed. Inspect the destination and schedule a replacement explicitly if necessary. This favors avoiding duplicate work. Old entries without follow-up metadata retain the legacy consume/restore policy. Execution records are retained to resolve descendants; automatic pruning is not implemented.
+
+Cleanup: delete pending/blocked descendants before their parents; archive test destination threads. Restore composer and theme settings.
+
+Sequence performance audit: dependency lookup builds an in-memory ID map and walks ancestors, O(number of saved tasks + chain depth) per eligibility check. It adds no network request per ancestor; only the immediate predecessor history is read. Dispatch adds two serialized global-state writes (claim and execution result). Existing deduplicated five-second retries remain in use. Retained execution records grow with task count; pruning and large-queue load measurements remain future work. No browser request fanout or new cache is introduced.

@@ -1,4 +1,4 @@
-import { normalizeQueuedFollowUp, type QueuedFollowUp } from '../queuedFollowUp'
+import { normalizeQueuedFollowUp, resolveQueuedPredecessor, type QueuedFollowUp } from '../queuedFollowUp'
 import { sessionMessageTimes, mergeMessageTimes } from './messageTimestamps.js'
 import { normalizeQueuedGenerationSettings, type QueuedGenerationSettings } from '../queuedGenerationSettings.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -3003,10 +3003,21 @@ async function withThreadQueueStateUpdate<T>(
 }
 
 async function writeThreadQueueState(nextState: ThreadQueueState): Promise<void> {
-  await withThreadQueueStateUpdate(() => ({
-    nextState: normalizeThreadQueueState(nextState),
-    result: undefined,
-  }))
+  await withThreadQueueStateUpdate((current) => {
+    const normalized = normalizeThreadQueueState(nextState)
+    // Browser snapshots must never erase execution claims or resurrect dispatched tasks.
+    for (const [threadId, entries] of Object.entries(current)) {
+      for (const entry of entries) {
+        if (!entry.followUp?.execution) continue
+        const queue = normalized[threadId] ?? []
+        const index = queue.findIndex((row) => row.id === entry.id)
+        if (index >= 0) queue[index] = entry
+        else queue.push(entry)
+        normalized[threadId] = queue
+      }
+    }
+    return { nextState: normalized, result: undefined }
+  })
 }
 
 function normalizeReasoningEffort(value: unknown, model: Record<string, unknown> | null | undefined): ReasoningEffort | null {
@@ -4205,14 +4216,22 @@ export class BackendQueueProcessor {
     let destinationLocked = false
     try {
       const state = await readThreadQueueState()
-      const message = state[threadId]?.[0]
+      const message = state[threadId]?.find((entry) => !entry.followUp?.execution && !entry.followUp?.blocked)
       if (!message) return
       const followUp = message.followUp
+      let predecessorThreadId = threadId
       if (followUp) {
-        const response = asRecord(await this.appServer.rpc('thread/read', { threadId, includeTurns: true }))
+        const resolved = resolveQueuedPredecessor(message.id, threadId, Object.values(state).flat())
+        if (typeof resolved === 'string') {
+          if (resolved !== 'Waiting for predecessor dispatch') await this.updateQueuedTask(threadId, message.id, { ...followUp, blocked: resolved })
+          this.scheduleThreadQueueDrain(threadId)
+          return
+        }
+        predecessorThreadId = resolved.threadId
+        const response = asRecord(await this.appServer.rpc('thread/read', { threadId: predecessorThreadId, includeTurns: true }))
         const thread = asRecord(response?.thread)
         const turns = Array.isArray(thread?.turns) ? thread.turns : []
-        const predecessor = turns.map(asRecord).find((turn) => turn?.id === followUp.predecessorTurnId)
+        const predecessor = turns.map(asRecord).find((turn) => turn?.id === resolved.turnId)
         if (!predecessor || !['completed', 'failed', 'interrupted', 'cancelled', 'canceled'].includes(String(predecessor.status))) {
           this.scheduleThreadQueueDrain(threadId)
           return
@@ -4232,7 +4251,7 @@ export class BackendQueueProcessor {
           }))
         }
       }
-      destinationId = followUp?.destinationThreadId || threadId
+      destinationId = followUp?.destinationThreadId || predecessorThreadId
       if (this.destinationThreadIds.has(destinationId)) {
         this.scheduleThreadQueueDrain(threadId)
         return
@@ -4243,14 +4262,27 @@ export class BackendQueueProcessor {
         this.scheduleThreadQueueDrain(threadId)
         return
       }
-      const next = await this.popNextQueuedTurn(threadId, message.id)
-      if (!next) return
-      try {
-        await this.startQueuedTurn({ ...next, threadId: destinationId })
-        if (await this.hasQueuedTurns(threadId)) this.scheduleThreadQueueDrain(threadId)
-      } catch {
-        await this.restoreQueuedTurn(next)
+      if (followUp) {
+        // Persist the claim before RPC submission. Recovery never replays an uncertain start.
+        const claimed = await withThreadQueueStateUpdate((current) => {
+          const entry = current[threadId]?.find((row) => row.id === message.id)
+          if (!entry?.followUp || entry.followUp.execution || JSON.stringify(entry.followUp) !== JSON.stringify(followUp)) return { nextState: current, result: false }
+          entry.followUp = { ...followUp, execution: { threadId: destinationId! } }
+          return { nextState: { ...current }, result: true }
+        })
+        if (!claimed) return
+        try {
+          const turnId = await this.startQueuedTurn({ threadId: destinationId, message })
+          await this.updateQueuedTask(threadId, message.id, { ...followUp, execution: { threadId: destinationId, turnId } })
+        } catch {
+          await this.updateQueuedTask(threadId, message.id, { ...followUp, execution: { threadId: destinationId }, blocked: 'Dispatch outcome unknown; inspect destination before scheduling again' })
+        }
         this.scheduleThreadQueueDrain(threadId)
+      } else {
+        const next = await this.popNextQueuedTurn(threadId, message.id)
+        if (!next) return
+        try { await this.startQueuedTurn(next) } catch { await this.restoreQueuedTurn(next) }
+        if (await this.hasQueuedTurns(threadId)) this.scheduleThreadQueueDrain(threadId)
       }
     } catch {
       // Queue processing is best-effort. Keep the bridge alive if app-server is unavailable.
@@ -4259,6 +4291,14 @@ export class BackendQueueProcessor {
       if (destinationLocked && destinationId) this.destinationThreadIds.delete(destinationId)
       this.processingThreadIds.delete(threadId)
     }
+  }
+
+  private async updateQueuedTask(threadId: string, id: string, followUp: QueuedFollowUp): Promise<void> {
+    await withThreadQueueStateUpdate((state) => {
+      const entry = state[threadId]?.find((row) => row.id === id)
+      if (entry) entry.followUp = followUp
+      return { nextState: { ...state }, result: undefined }
+    })
   }
 
   private async hasQueuedTurns(threadId: string): Promise<boolean> {
@@ -4423,12 +4463,15 @@ export class BackendQueueProcessor {
     return params
   }
 
-  private async startQueuedTurn(turn: BackendQueuedTurn): Promise<void> {
+  private async startQueuedTurn(turn: BackendQueuedTurn): Promise<string> {
     if (turn.message.generationSettings?.unsupportedProvider) {
       throw new Error('This queued message uses a removed provider. Choose a Codex model and send it again.')
     }
     await this.appServer.rpc('thread/resume', { threadId: turn.threadId })
-    await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn))
+    const response = asRecord(await this.appServer.rpc('turn/start', await this.buildQueuedTurnParams(turn)))
+    const turnId = readNonEmptyString(asRecord(response?.turn)?.id)
+    if (!turnId) throw new Error('turn/start did not return a turn id')
+    return turnId
   }
 }
 

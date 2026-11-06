@@ -31,12 +31,13 @@
           d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
       <span class="queued-row-text">{{ getMessagePreview(msg) }}</span>
-      <span v-if="msg.followUp" class="queued-row-text" :title="msg.followUp.predecessorTurnId">{{ t('After turn') }} {{ msg.followUp.predecessorTurnId.slice(0, 8) }}</span>
-      <ComposerDropdown v-if="msg.followUp" :model-value="msg.followUp.destinationThreadId || msg.followUp.destination"
+      <span v-if="msg.followUp" class="queued-row-text queued-row-dependency" :title="msg.followUp.predecessorTaskId || msg.followUp.predecessorTurnId">{{ t('After turn') }} {{ (msg.followUp.predecessorTaskId || msg.followUp.predecessorTurnId || '').slice(0, 12) }} · {{ msg.id }} · {{ t(msg.followUp.blocked || (msg.followUp.execution ? (msg.followUp.execution.turnId ? 'Dispatched' : 'Dispatch outcome unknown') : 'Pending')) }}</span>
+      <ComposerDropdown v-if="msg.followUp" :disabled="!!msg.followUp.execution" :model-value="msg.followUp.destinationThreadId || msg.followUp.destination"
         :options="[{ value: 'same', label: t('Same thread') }, { value: 'new', label: t('New thread') }, ...destinationOptions]"
         :placeholder="t('Destination thread')" enable-search open-direction="up"
         @update:model-value="$emit('destination', msg.id, $event)" />
       <div class="queued-row-actions">
+        <button v-if="msg.followUp" class="queued-row-edit" type="button" @click="$emit('follow-up', msg.id)">{{ t('Add follow-up') }}</button>
         <button class="queued-row-edit" type="button" :title="t('Edit queued message')" @click="$emit('edit', msg.id)">{{ t('Edit') }}</button>
         <button class="queued-row-steer" type="button" :title="t('Send now without interrupting work')" @click="$emit('steer', msg.id)">{{ t('Steer') }}</button>
         <button class="queued-row-delete" type="button" :aria-label="t('Delete queued message')" :title="t('Delete queued message')" @click="$emit('delete', msg.id)">
@@ -72,6 +73,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'follow-up': [messageId: string]
   destination: [messageId: string, destination: string]
   edit: [messageId: string]
   steer: [messageId: string]
@@ -165,6 +167,12 @@ function getMessagePreview(message: QueuedMessageRow): string {
 
 .queued-row-text {
   @apply min-w-0 flex-1 truncate text-zinc-700;
+}
+
+.queued-row-dependency {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
 }
 
 .queued-row-actions {

@@ -5,6 +5,10 @@ export type UiLanguage = 'en' | 'zh-CN'
 const UI_LANGUAGE_STORAGE_KEY = 'codex-web-local.ui-language.v1'
 
 const zhCN: Record<string, string> = {
+  'Add follow-up': '添加后续任务',
+  'Pending': '等待中',
+  'Dispatched': '已提交',
+  'Dispatch outcome unknown': '提交结果未知',
   'After turn': '回合结束后',
   'Same thread': '同一线程',
   'New thread': '新线程',

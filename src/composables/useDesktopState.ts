@@ -4825,6 +4825,7 @@ export function useDesktopState() {
     collaborationModeOverride?: CollaborationModeKind,
     generationSettingsOverride?: QueuedGenerationSettings | null,
     followUpOverride?: QueuedFollowUp,
+    queuedIdOverride?: string,
   ): Promise<void> {
     if (isUpdatingSpeedMode.value) return
 
@@ -4852,7 +4853,7 @@ export function useDesktopState() {
 
     if ((isInProgress && mode === 'queue') || followUpOverride) {
       const queue = queuedMessagesByThreadId.value[threadId] ?? []
-      const id = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const id = queuedIdOverride || `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const nextQueue = [...queue]
       const insertIndex = typeof queueInsertIndex === 'number'
         ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
@@ -5551,18 +5552,48 @@ export function useDesktopState() {
   })
 
   const queueDestinationOptions = computed(() => allThreads.value.filter((thread) => thread.id !== selectedThreadId.value).map((thread) => ({ value: thread.id, label: thread.title || thread.id })))
+  function canMutateQueuedTask(messageId: string): boolean {
+    const tasks = Object.values(queuedMessagesByThreadId.value).flat()
+    const task = tasks.find((row) => row.id === messageId)
+    if (task?.followUp?.execution || tasks.some((row) => row.followUp?.predecessorTaskId === messageId)) {
+      error.value = 'This task has started or has successors. Remove its successors before editing or steering it.'
+      return false
+    }
+    return true
+  }
+  function addQueuedFollowUp(messageId: string): void {
+    const threadId = selectedThreadId.value
+    if (!threadId) return
+    const parent = queuedMessagesByThreadId.value[threadId]?.find((row) => row.id === messageId)
+    if (!parent?.followUp) return
+    const text = window.prompt('Follow-up instruction')?.trim()
+    if (!text) return
+    const task: QueuedMessage = {
+      id: `q-${Date.now()}-${Math.random().toString(36).slice(2)}`, text,
+      imageUrls: [], skills: [], fileAttachments: [], collaborationMode: selectedCollaborationMode.value,
+      generationSettings: { model: readModelIdForThread(threadId), effort: selectedReasoningEffort.value },
+      followUp: { predecessorTaskId: messageId, destination: 'same' },
+    }
+    queuedMessagesByThreadId.value = { ...queuedMessagesByThreadId.value, [threadId]: [...(queuedMessagesByThreadId.value[threadId] ?? []), task] }
+    persistQueueState()
+  }
+
   function setQueuedDestination(messageId: string, destination: string): void {
     const threadId = selectedThreadId.value
     if (!threadId) return
     const message = queuedMessagesByThreadId.value[threadId]?.find((row) => row.id === messageId)
-    if (!message?.followUp) return
-    message.followUp = { predecessorTurnId: message.followUp.predecessorTurnId,
+    if (!message?.followUp || message.followUp.execution) return
+    message.followUp = { predecessorTurnId: message.followUp.predecessorTurnId, predecessorTaskId: message.followUp.predecessorTaskId,
       destination: destination === 'same' || destination === 'new' ? destination : 'existing',
       ...(destination !== 'same' && destination !== 'new' ? { destinationThreadId: destination } : {}) }
     persistQueueState()
   }
 
   function removeQueuedMessage(messageId: string): void {
+    if (Object.values(queuedMessagesByThreadId.value).flat().find((row) => row.id === messageId)?.followUp?.execution) {
+      error.value = 'Dispatched task records are retained for dependency recovery.'
+      return
+    }
     const threadId = selectedThreadId.value
     if (!threadId) return
     const queue = queuedMessagesByThreadId.value[threadId]
@@ -5575,6 +5606,10 @@ export function useDesktopState() {
   }
 
   function reorderQueuedMessage(draggedId: string, targetId: string): void {
+    if (Object.values(queuedMessagesByThreadId.value).flat().some((row) => row.followUp?.predecessorTaskId)) {
+      error.value = 'Reordering dependent sequences is unavailable. Dependencies determine execution order.'
+      return
+    }
     const threadId = selectedThreadId.value
     if (!threadId) return
     const queue = queuedMessagesByThreadId.value[threadId]
@@ -5595,6 +5630,7 @@ export function useDesktopState() {
   }
 
   function steerQueuedMessage(messageId: string): void {
+    if (!canMutateQueuedTask(messageId)) return
     const threadId = selectedThreadId.value
     if (!threadId) return
     const queue = queuedMessagesByThreadId.value[threadId]
@@ -5657,6 +5693,8 @@ export function useDesktopState() {
     sendMessageToSelectedThread,
     sendMessageToNewThread,
     interruptSelectedThreadTurn,
+    addQueuedFollowUp,
+    canMutateQueuedTask,
     queueDestinationOptions,
     setQueuedDestination,
     selectedThreadQueuedMessages,

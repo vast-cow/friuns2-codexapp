@@ -19,7 +19,7 @@ afterEach(async () => {
 async function setup(destination: 'same' | 'new' | 'existing' = 'existing') {
   const state = { predecessor: 'inProgress', busy: false }
   const starts: Record<string, unknown>[] = []
-  const rpc = vi.fn(async (method: string, params: Record<string, unknown>) => {
+  const rpc = vi.fn(async (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
     if (method === 'thread/read') return { thread: { cwd: '/project', status: { type: params.threadId === 'T2' && state.busy ? 'active' : 'idle' }, turns: params.threadId === 'T1' ? [{ id: 'P', status: state.predecessor }] : [] } }
     if (method === 'thread/start') return { thread: { id: 'NEW' } }
     if (method === 'thread/resume') return {}
@@ -70,7 +70,7 @@ it('creates a destination with normal cwd/model context and persists it before d
   await processor.processThreadQueue('T1')
   expect(rpc).toHaveBeenCalledWith('thread/start', { cwd: '/project', model: 'M' })
   expect(starts[0]?.threadId).toBe('NEW')
-  expect((await readCodexGlobalState())['thread-queue-state'] ?? {}).toEqual({})
+  expect((await readCodexGlobalState())['thread-queue-state']).toMatchObject({ T1: [{ followUp: { execution: { threadId: 'NEW', turnId: 'F' } } }] })
 })
 it('restores the independent trigger and destination after backend replacement', async () => {
   const { state, starts, rpc } = await setup()
@@ -83,4 +83,31 @@ it('restores the independent trigger and destination after backend replacement',
   await processor.processThreadQueue('T1')
   expect(starts).toHaveLength(1)
   expect(starts[0]).toMatchObject({ threadId: 'T2', model: 'M', effort: 'low', collaborationMode: { mode: 'plan' } })
+})
+
+it.each([['new', 'same', 'NEW'], ['same', 'same', 'T1'], ['same', 'new', 'NEW-C'], ['existing', 'existing', 'T3']] as const)('runs B=%s then C=%s after the specific B turn completes', async (bDestination, cDestination, expected) => {
+  const { state, starts, rpc } = await setup(bDestination)
+  await updateCodexGlobalState((value) => {
+    const queues = value['thread-queue-state'] as Record<string, Array<Record<string, unknown>>>
+    queues.T1!.push({ ...queues.T1![0], id: 'C', text: 'C', followUp: { predecessorTaskId: 'Q', destination: cDestination, ...(cDestination === 'existing' ? { destinationThreadId: 'T3' } : {}) } })
+  })
+  state.predecessor = 'completed'
+  await processor.processThreadQueue('T1')
+  expect(starts).toHaveLength(1)
+  await processor.processThreadQueue('T1')
+  expect(starts).toHaveLength(1)
+  processor.dispose()
+  rpc.mockImplementation(async (method, params) => {
+    if (method === 'thread/start') return { thread: { id: 'NEW-C' } }
+    if (method === 'thread/read') return { thread: { status: { type: 'idle' }, turns: [{ id: 'F', status: 'completed' }] } }
+    if (method === 'turn/start') { starts.push(params); return { turn: { id: 'C-turn' } } }
+    if (method === 'config/read') return { config: {} }
+    if (method === 'model/list') return { data: [] }
+    return {}
+  })
+  processor = new BackendQueueProcessor({ rpc, onNotification: () => () => {} } as never)
+  await processor.processThreadQueue('T1')
+  await processor.processThreadQueue('T1')
+  expect(starts).toHaveLength(2)
+  expect(starts[1]?.threadId).toBe(expected)
 })
